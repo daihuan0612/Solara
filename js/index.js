@@ -1838,6 +1838,12 @@ async function restoreCurrentSongState() {
     }
 }
 
+setInterval(function() {
+    var titleElement = document.getElementById('mobileToolbarTitle');
+    if (titleElement && titleElement.textContent !== '小苹果音乐') {
+        titleElement.textContent = '小苹果音乐';
+    }
+}, 100);
 window.addEventListener("load", setupInteractions);
 dom.audioPlayer.addEventListener("ended", autoPlayNext);
 
