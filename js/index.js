@@ -1840,8 +1840,8 @@ async function restoreCurrentSongState() {
 
 setInterval(function() {
     var titleElement = document.getElementById('mobileToolbarTitle');
-    if (titleElement && titleElement.textContent !== '小苹果音乐') {
-        titleElement.textContent = '小苹果音乐';
+    if (titleElement && titleElement.textContent !== '小苹果Music') {
+        titleElement.textContent = '小苹果Music';
     }
 }, 100);
 window.addEventListener("load", setupInteractions);
