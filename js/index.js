@@ -2202,7 +2202,7 @@ function updateCurrentSongInfo(song, options = {}) {
     const { loadArtwork = true } = options;
     state.currentSong = song;
     dom.currentSongTitle.textContent = song.name;
-    updateMobileToolbarTitle();
+    // updateMobileToolbarTitle();
 
     // 修复艺人名称显示问题 - 使用正确的字段名
     const artistText = Array.isArray(song.artist) ? song.artist.join(', ') : (song.artist || '未知艺术家');
