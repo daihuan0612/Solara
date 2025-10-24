@@ -424,8 +424,7 @@
     class SolaraAuth {
         constructor() {
             this.password = '123456'; // 🔑 在这里修改密码
-            this.storageKey = 'solara_authenticated';
-            this.sessionKey = 'solara_session_auth';
+            this.sessionKey = 'solara_session_auth'; // 移除了storageKey
             this.wrapperId = 'solara-auth-wrapper';
             this.init();
         }
@@ -442,11 +441,9 @@
 
         checkAuth() {
             const sessionAuth = sessionStorage.getItem(this.sessionKey);
-            const persistentAuth = localStorage.getItem(this.storageKey);
             
-            if (sessionAuth === 'true') return;
-            if (persistentAuth === 'true') {
-                sessionStorage.setItem(this.sessionKey, 'true');
+            // 只检查sessionStorage
+            if (sessionAuth === 'true') {
                 return;
             }
             
@@ -478,7 +475,6 @@
             wrapper.innerHTML = `
                 <div id="solara-auth-container">
                     <div class="solara-logo">小苹果Music</div>
-                    <div class="solara-subtitle">安全访问验证</div>
                     
                     <input type="password" 
                            id="solaraPasswordInput" 
@@ -486,9 +482,9 @@
                            placeholder="请输入访问密码" 
                            autocomplete="current-password">
                     
-                    <button id="solaraLoginBtn" class="solara-button">🔐 登录</button>
+                    <button id="solaraLoginBtn" class="solara-button">登录</button>
                     
-                    <div id="solaraAuthError" class="solara-error">❌ 密码错误，请重试！</div>
+                    <div id="solaraAuthError" class="solara-error">密码错误，请重试！</div>
                     
                     <div class="solara-footer">关闭标签页后需要重新验证</div>
                 </div>
@@ -531,8 +527,8 @@
             const password = input.value.trim();
 
             if (password === this.password) {
+                // 只使用sessionStorage，不保存到localStorage
                 sessionStorage.setItem(this.sessionKey, 'true');
-                localStorage.setItem(this.storageKey, 'true');
                 this.hideAuthModal();
             } else {
                 error.style.display = 'block';
@@ -572,16 +568,6 @@
 
     // 初始化认证系统
     new SolaraAuth();
-</script>
-
-<script>
-    if (window.__SOLARA_IS_MOBILE) {
-        const mobileScript = document.createElement('script');
-        mobileScript.src = 'js/mobile.js';
-        mobileScript.async = false;
-        mobileScript.defer = false;
-        document.body.appendChild(mobileScript);
-    }
 </script>
 </body>
 </html>
