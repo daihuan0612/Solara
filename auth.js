@@ -5,7 +5,7 @@
 
 class SolaraAuth {
     constructor() {
-        this.password = '123456'; // 🔑 在这里修改密码
+        this.password = '121314'; // 🔑 在这里修改密码
         this.storageKey = 'solara_authenticated';
         this.sessionKey = 'solara_session_auth';
         this.wrapperId = 'solara-auth-wrapper';
@@ -178,4 +178,5 @@ document.head.appendChild(solaraStyles);
 // 初始化认证系统
 const solaraAuth = new SolaraAuth();
 window.solaraAuth = solaraAuth;
+
 window.solaraLogout = () => solaraAuth.logout();
