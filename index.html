@@ -120,12 +120,23 @@
             75% { transform: translateX(10px); }
         }
         @media (max-width: 480px) {
-            #solara-auth-container {
-                min-width: 300px;
-                padding: 30px 20px;
-                margin: 20px;
-            }
-        }
+    #solara-auth-container {
+        min-width: 300px;
+        padding: 30px 20px;
+        margin: 20px;
+        background: white !important;  /* 白色背景 */
+    }
+    
+    .solara-logo {
+        color: #000 !important;  /* 黑色文字 */
+        background: none !important;
+        -webkit-text-fill-color: #000 !important;
+    }
+    
+    .solara-subtitle {
+        color: #666 !important;  /* 灰色副标题 */
+    }
+}
     </style>
     
     <script>
