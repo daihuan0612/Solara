@@ -15,7 +15,7 @@
         if (!dom.mobileToolbarTitle) {
             return;
         }
-        dom.mobileToolbarTitle.textContent = "Solara";
+        dom.mobileToolbarTitle.textContent = "小苹果Music";
     }
 
     function updateMobileOverlayScrim() {
