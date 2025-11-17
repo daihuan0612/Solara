@@ -5233,14 +5233,10 @@ function updateOnlineHighlight() {
 }
 
 const EXPLORE_RADAR_GENRES = [
-    "排行",
+    "中文",
     "热榜",
     "流行",
-    "摇滚",
-    "古典音乐",
-    "民谣",
-    "电子",
-    "轻音乐",
+    "排行",
 ];
 
 function pickRandomExploreGenre() {
