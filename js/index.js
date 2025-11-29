@@ -794,19 +794,19 @@ const API = {
         debugLog(`搜索关键词: ${keyword}`);
         debugLog(`搜索源: ${source}`);
         
-        // 从调试日志来看，项目自带的代理没有正确处理source参数
-        // 让我们直接使用新的API地址，不再使用项目自带的代理
-        let server = "netease";
-        if (source === "tx") {
-            server = "tencent";
-        }
-        
+        // 从web搜索结果来看，API返回了"请输入参数"的提示，说明API期望的参数格式不正确
+        // 从functions/proxy.ts中可以看到，项目使用了Cloudflare Pages Functions作为代理
+        // 代理期望的参数格式：types=search&source=tx&name=关键词&count=20&pages=1
+        // 注意：是types=search而不是type=search，是source=tx而不是server=tencent
         const encodedKeyword = encodeURIComponent(keyword);
-        // 直接使用新的API地址，不再使用项目自带的代理
-        const finalUrl = `${API.baseUrl}?type=search&keywords=${encodedKeyword}&server=${server}&limit=${count}&offset=${(page - 1) * count}`;
         
-        debugLog(`直接使用新API: ${finalUrl}`);
-        debugLog(`API参数: type=search&keywords=${encodedKeyword}&server=${server}&limit=${count}&offset=${(page - 1) * count}`);
+        // 使用项目自带的代理，它会处理CORS问题
+        // 代理会将请求转发到实际的API，并添加正确的CORS头
+        const proxyUrl = `/proxy`;
+        const finalUrl = `${proxyUrl}?types=search&source=${source}&name=${encodedKeyword}&count=${count}&pages=${page}`;
+        
+        debugLog(`使用项目自带代理: ${finalUrl}`);
+        debugLog(`代理期望的参数格式: types=search&source=${source}&name=关键词&count=${count}&pages=${page}`);
         
         try {
             // 使用fetch请求，添加CORS配置
@@ -815,8 +815,7 @@ const API = {
                 headers: {
                     'Accept': 'application/json'
                 },
-                mode: 'cors',
-                credentials: 'omit'
+                mode: 'cors'
             });
             
             debugLog(`响应状态: ${response.status}`);
@@ -857,7 +856,11 @@ const API = {
             // 映射歌曲格式，确保source字段正确设置为传入的source参数
             const result = songs.map((song, index) => {
                 debugLog(`映射第 ${index + 1} 首歌曲: ${song.name || '未知歌曲'}`);
-                return {
+                debugLog(`原始source字段: ${song.source || 'undefined'}`);
+                debugLog(`期望source字段: ${source}`);
+                
+                // 强制覆盖source字段为传入的source参数，确保不同搜索源返回不同的结果
+                const mappedSong = {
                     id: song.id,
                     name: song.name || '未知歌曲',
                     artist: song.artist || '未知艺术家',
@@ -865,8 +868,11 @@ const API = {
                     pic_id: song.pic || song.pic_id || '',
                     url_id: song.id,
                     lyric_id: song.id,
-                    source: source // 强制设置source字段为传入的source参数，确保不同搜索源返回不同的结果
+                    source: source // 强制设置为当前搜索源
                 };
+                
+                debugLog(`映射后歌曲: ${JSON.stringify(mappedSong)}`);
+                return mappedSong;
             });
             
             debugLog(`映射完成，返回 ${result.length} 首歌曲`);
