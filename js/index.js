@@ -792,16 +792,29 @@ const API = {
         if (source === "tx") {
             server = "tencent";
         }
-        const url = `${API.baseUrl}?type=search&keywords=${encodeURIComponent(keyword)}&server=${server}&limit=${count}&offset=${(page - 1) * count}`;
+        const url = `${API.baseUrl}?type=search&name=${encodeURIComponent(keyword)}&server=${server}&limit=${count}&offset=${(page - 1) * count}`;
 
         try {
             debugLog(`API请求: ${url}`);
             const data = await API.fetchJson(url);
             debugLog(`API响应: ${JSON.stringify(data).substring(0, 200)}...`);
 
-            if (!Array.isArray(data)) throw new Error("搜索结果格式错误");
+            let songs = [];
+            // 处理不同的API响应格式
+            if (Array.isArray(data)) {
+                // 如果直接是数组，使用它
+                songs = data;
+            } else if (data && Array.isArray(data.songs)) {
+                // 如果包含在songs字段中，使用songs字段
+                songs = data.songs;
+            } else if (data && typeof data === 'object') {
+                // 如果是单个歌曲对象，包装成数组
+                songs = [data];
+            } else {
+                throw new Error("搜索结果格式错误");
+            }
 
-            return data.map(song => ({
+            return songs.map(song => ({
                 id: song.id,
                 name: song.name,
                 artist: song.artist,
