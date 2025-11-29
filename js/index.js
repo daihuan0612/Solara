@@ -653,6 +653,9 @@ function normalizeSource(value) {
 // 移除音质选择功能，使用固定音质
 const normalizeQuality = (value) => "320"; // 始终返回固定音质
 
+// 移除音质选择选项，不再支持多种音质
+const QUALITY_OPTIONS = [];
+
 const savedPlaylistSongs = (() => {
     const stored = safeGetLocalStorage("playlistSongs");
     const playlist = parseJSON(stored, []);
@@ -2570,15 +2573,13 @@ function getQualityMenuAnchor() {
 }
 
 function updateQualityLabel() {
-    const option = QUALITY_OPTIONS.find(item => item.value === state.playbackQuality) || QUALITY_OPTIONS[0];
-    if (!option) return;
-    dom.qualityLabel.textContent = option.label;
-    dom.qualityToggle.title = `音质: ${option.label} (${option.description})`;
-    if (dom.mobileQualityLabel) {
-        dom.mobileQualityLabel.textContent = option.label;
+    // 移除音质选择功能，不再更新音质标签
+    // 如果有音质标签元素，隐藏它们
+    if (dom.qualityLabel) {
+        dom.qualityLabel.textContent = "";
     }
-    if (dom.mobileQualityToggle) {
-        dom.mobileQualityToggle.title = `音质: ${option.label} (${option.description})`;
+    if (dom.mobileQualityLabel) {
+        dom.mobileQualityLabel.textContent = "";
     }
 }
 
