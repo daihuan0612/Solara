@@ -641,10 +641,10 @@ function buildAudioProxyUrl(url) {
 }
 
 const SOURCE_OPTIONS = [
-    { value: "wy", label: "网易云", enabled: true, searchApi: "wySearchMusic", detailApi: "wyMusicDetail", levels: ["standard", "exhigh", "lossless", "hires"] },
-    { value: "kw", label: "酷我", enabled: true, searchApi: "fetchSearchMusic", detailApi: "fetchMusicDetail", levels: ["standard", "exhigh", "lossless"] },
-    { value: "tx", label: "QQ", enabled: true, searchApi: "txSearchMusic", detailApi: "txMusicDetail", levels: ["standard", "exhigh", "lossless"] },
-    { value: "mg", label: "咪咕", enabled: true, searchApi: "mgSearchMusic", detailApi: "mgMusicDetail", levels: ["standard", "exhigh"] }
+    { value: "tx", label: "QQ音乐", enabled: true, searchApi: "txSearchMusic", detailApi: "txMusicDetail", levels: ["standard", "exhigh", "lossless"] },
+    { value: "kw", label: "酷我音乐", enabled: true, searchApi: "fetchSearchMusic", detailApi: "fetchMusicDetail", levels: ["standard", "exhigh", "lossless"] },
+    { value: "mg", label: "咪咕音乐", enabled: true, searchApi: "mgSearchMusic", detailApi: "mgMusicDetail", levels: ["standard", "exhigh"] },
+    { value: "wy", label: "网易云音乐", enabled: true, searchApi: "wySearchMusic", detailApi: "wyMusicDetail", levels: ["standard", "exhigh", "lossless", "hires"] }
 ];
 
 function normalizeSource(value) {
@@ -794,7 +794,7 @@ const API = {
         }
     },
 
-    search: async (keyword, source = "wy", count = 20, page = 1) => {
+    search: async (keyword, source = "tx", count = 20, page = 1) => {
         const signature = API.generateSignature();
         const url = `${API.baseUrl}?types=search&source=${source}&name=${encodeURIComponent(keyword)}&count=${count}&pages=${page}&s=${signature}`;
 
@@ -864,7 +864,7 @@ const API = {
                 id: track.id,
                 name: track.name,
                 artist: Array.isArray(track.ar) ? track.ar.map(artist => artist.name).join(" / ") : "",
-                source: "netease",
+                source: "wy",
                 lyric_id: track.id,
                 pic_id: track.al?.pic_str || track.al?.pic || track.al?.picUrl || "",
             }));
@@ -876,17 +876,17 @@ const API = {
 
     getSongUrl: (song, quality = "320") => {
         const signature = API.generateSignature();
-        return `${API.baseUrl}?types=url&id=${song.id}&source=${song.source || "wy"}&br=${quality}&s=${signature}`;
+        return `${API.baseUrl}?types=url&id=${song.id}&source=${song.source || "tx"}&br=${quality}&s=${signature}`;
     },
 
     getLyric: (song) => {
         const signature = API.generateSignature();
-        return `${API.baseUrl}?types=lyric&id=${song.lyric_id || song.id}&source=${song.source || "wy"}&s=${signature}`;
+        return `${API.baseUrl}?types=lyric&id=${song.lyric_id || song.id}&source=${song.source || "tx"}&s=${signature}`;
     },
 
     getPicUrl: (song) => {
         const signature = API.generateSignature();
-        return `${API.baseUrl}?types=pic&id=${song.pic_id}&source=${song.source || "wy"}&size=300&s=${signature}`;
+        return `${API.baseUrl}?types=pic&id=${song.pic_id}&source=${song.source || "tx"}&size=300&s=${signature}`;
     }
 };
 
@@ -5576,11 +5576,11 @@ function pickRandomExploreGenre() {
     return EXPLORE_RADAR_GENRES[index];
 }
 
-const EXPLORE_RADAR_SOURCES = ["netease", "kuwo"];
+const EXPLORE_RADAR_SOURCES = ["tx", "kw", "mg", "wy"];
 
 function pickRandomExploreSource() {
     if (!Array.isArray(EXPLORE_RADAR_SOURCES) || EXPLORE_RADAR_SOURCES.length === 0) {
-        return "netease";
+        return "tx";
     }
     const index = Math.floor(Math.random() * EXPLORE_RADAR_SOURCES.length);
     return EXPLORE_RADAR_SOURCES[index];
