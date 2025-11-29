@@ -796,74 +796,56 @@ const API = {
         debugLog(`搜索关键词: ${keyword}`);
         debugLog(`搜索源: ${source}`);
         
-        // 从调试日志来看，项目自带的代理没有正确处理source参数
-        // 让我们直接使用新的API地址，并根据搜索源设置不同的server参数
-        let server = "netease";
-        if (source === "tx") {
-            server = "tencent";
-        }
+        // 直接使用项目自带的代理，它会处理CORS问题
+        const proxyUrl = `/proxy`;
+        // 使用正确的API参数，确保不同搜索源返回不同的结果
+        // 注意：这里使用的是"types"而不是"type"，这是项目代理的正确参数名
+        const proxyFinalUrl = `${proxyUrl}?types=search&source=${source}&name=${encodeURIComponent(keyword)}&count=${count}&pages=${page}`;
         
-        const encodedKeyword = encodeURIComponent(keyword);
-        // 直接使用新的API地址，不再使用项目自带的代理
-        const finalUrl = `${API.baseUrl}?type=search&name=${encodedKeyword}&server=${server}&limit=${count}&offset=${(page - 1) * count}`;
-        
-        debugLog(`直接使用新API: ${finalUrl}`);
-        debugLog(`API参数: type=search&name=${encodedKeyword}&server=${server}&limit=${count}&offset=${(page - 1) * count}`);
+        debugLog(`使用项目自带代理: ${proxyFinalUrl}`);
         
         try {
-            // 使用fetch请求，添加CORS配置
-            const response = await fetch(finalUrl, {
+            const proxyResponse = await fetch(proxyFinalUrl, {
                 method: 'GET',
                 headers: {
                     'Accept': 'application/json'
                 },
-                mode: 'cors',
-                credentials: 'omit'
+                mode: 'cors'
             });
             
-            debugLog(`响应状态: ${response.status}`);
+            debugLog(`代理响应状态: ${proxyResponse.status}`);
             
-            if (!response.ok) {
-                throw new Error(`HTTP错误! 状态: ${response.status}`);
+            if (!proxyResponse.ok) {
+                throw new Error(`HTTP错误! 状态: ${proxyResponse.status}`);
             }
             
-            const responseText = await response.text();
-            debugLog(`响应原始文本: ${responseText}`);
+            const proxyResponseText = await proxyResponse.text();
+            debugLog(`代理响应原始文本: ${proxyResponseText}`);
             
-            let parsedData;
+            let proxyParsedData;
             try {
-                parsedData = JSON.parse(responseText);
-                debugLog(`解析后的数据类型: ${typeof parsedData}`);
-                if (Array.isArray(parsedData)) {
-                    debugLog(`解析后的数据是数组，长度: ${parsedData.length}`);
-                } else if (parsedData && typeof parsedData === 'object') {
-                    debugLog(`解析后的数据是对象，包含的键: ${Object.keys(parsedData).join(', ')}`);
-                }
-            } catch (parseError) {
-                debugLog(`JSON解析失败: ${parseError.message}`);
-                parsedData = null;
+                proxyParsedData = JSON.parse(proxyResponseText);
+                debugLog(`代理解析后的数据类型: ${typeof proxyParsedData}`);
+            } catch (proxyParseError) {
+                debugLog(`代理JSON解析失败: ${proxyParseError.message}`);
+                proxyParsedData = null;
             }
             
             // 处理搜索结果
-            let songs = [];
-            if (Array.isArray(parsedData)) {
-                songs = parsedData;
-            } else if (parsedData && Array.isArray(parsedData.songs)) {
-                songs = parsedData.songs;
-            } else if (parsedData && typeof parsedData === 'object') {
-                songs = [parsedData];
+            let proxySongs = [];
+            if (Array.isArray(proxyParsedData)) {
+                proxySongs = proxyParsedData;
+            } else if (proxyParsedData && Array.isArray(proxyParsedData.songs)) {
+                proxySongs = proxyParsedData.songs;
+            } else if (proxyParsedData && typeof proxyParsedData === 'object') {
+                proxySongs = [proxyParsedData];
             }
             
-            debugLog(`处理后得到 ${songs.length} 首歌曲`);
+            debugLog(`代理处理后得到 ${proxySongs.length} 首歌曲`);
             
             // 映射歌曲格式，确保source字段正确设置为传入的source参数
-            const result = songs.map((song, index) => {
-                debugLog(`映射第 ${index + 1} 首歌曲: ${song.name || '未知歌曲'}`);
-                debugLog(`原始source字段: ${song.source || 'undefined'}`);
-                debugLog(`期望source字段: ${source}`);
-                
+            const proxyResult = proxySongs.map((song, index) => {
                 // 强制覆盖source字段为传入的source参数，确保不同搜索源返回不同的结果
-                // 同时根据source设置正确的server参数，用于后续的播放和下载
                 const mappedSong = {
                     id: song.id,
                     name: song.name || '未知歌曲',
@@ -873,96 +855,23 @@ const API = {
                     url_id: song.id,
                     lyric_id: song.id,
                     source: source, // 强制设置为当前搜索源
-                    server: source === "tx" ? "tencent" : "netease" // 根据source设置正确的server参数
+                    server: source // 直接使用source作为server参数，确保不同搜索源使用不同的服务器
                 };
                 
+                debugLog(`映射第 ${index + 1} 首歌曲: ${mappedSong.name}`);
                 debugLog(`映射后歌曲: ${JSON.stringify(mappedSong)}`);
                 return mappedSong;
             });
             
-            debugLog(`映射完成，返回 ${result.length} 首歌曲`);
+            debugLog(`映射完成，返回 ${proxyResult.length} 首歌曲`);
             debugLog(`=== 搜索结束 ===`);
-            return result;
+            return proxyResult;
             
-        } catch (error) {
-            debugLog(`搜索错误: ${error.message}`);
-            debugLog(`错误堆栈: ${error.stack}`);
-            
-            // 如果直接API请求失败，尝试使用项目自带的代理
-            debugLog(`尝试使用项目自带代理...`);
-            try {
-                // 使用项目自带的代理，它会处理CORS问题
-                const proxyUrl = `/proxy`;
-                // 根据搜索源设置不同的参数，确保不同搜索源返回不同的结果
-                const proxyType = source; // 直接使用搜索源作为代理参数
-                const proxyFinalUrl = `${proxyUrl}?types=search&source=${proxyType}&name=${encodeURIComponent(keyword)}&count=${count}&pages=${page}`;
-                
-                debugLog(`使用项目自带代理: ${proxyFinalUrl}`);
-                
-                const proxyResponse = await fetch(proxyFinalUrl, {
-                    method: 'GET',
-                    headers: {
-                        'Accept': 'application/json'
-                    },
-                    mode: 'cors'
-                });
-                
-                debugLog(`代理响应状态: ${proxyResponse.status}`);
-                
-                if (!proxyResponse.ok) {
-                    throw new Error(`HTTP错误! 状态: ${proxyResponse.status}`);
-                }
-                
-                const proxyResponseText = await proxyResponse.text();
-                debugLog(`代理响应原始文本: ${proxyResponseText}`);
-                
-                let proxyParsedData;
-                try {
-                    proxyParsedData = JSON.parse(proxyResponseText);
-                    debugLog(`代理解析后的数据类型: ${typeof proxyParsedData}`);
-                } catch (proxyParseError) {
-                    debugLog(`代理JSON解析失败: ${proxyParseError.message}`);
-                    proxyParsedData = null;
-                }
-                
-                // 处理搜索结果
-                let proxySongs = [];
-                if (Array.isArray(proxyParsedData)) {
-                    proxySongs = proxyParsedData;
-                } else if (proxyParsedData && Array.isArray(proxyParsedData.songs)) {
-                    proxySongs = proxyParsedData.songs;
-                } else if (proxyParsedData && typeof proxyParsedData === 'object') {
-                    proxySongs = [proxyParsedData];
-                }
-                
-                debugLog(`代理处理后得到 ${proxySongs.length} 首歌曲`);
-                
-                // 映射歌曲格式，确保source字段正确设置为传入的source参数
-                const proxyResult = proxySongs.map((song, index) => {
-                    // 强制覆盖source字段为传入的source参数，确保不同搜索源返回不同的结果
-                    return {
-                        id: song.id,
-                        name: song.name || '未知歌曲',
-                        artist: song.artist || '未知艺术家',
-                        album: song.album || '未知专辑',
-                        pic_id: song.pic || song.pic_id || '',
-                        url_id: song.id,
-                        lyric_id: song.id,
-                        source: source, // 强制设置为当前搜索源
-                        server: source === "tx" ? "tencent" : "netease" // 根据source设置正确的server参数
-                    };
-                });
-                
-                debugLog(`代理映射完成，返回 ${proxyResult.length} 首歌曲`);
-                debugLog(`=== 搜索结束 ===`);
-                return proxyResult;
-                
-            } catch (proxyError) {
-                debugLog(`代理搜索错误: ${proxyError.message}`);
-                debugLog(`代理错误堆栈: ${proxyError.stack}`);
-                debugLog(`=== 搜索结束（失败） ===`);
-                return [];
-            }
+        } catch (proxyError) {
+            debugLog(`搜索错误: ${proxyError.message}`);
+            debugLog(`错误堆栈: ${proxyError.stack}`);
+            debugLog(`=== 搜索结束（失败） ===`);
+            return [];
         }
     },
 
