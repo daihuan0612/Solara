@@ -893,11 +893,8 @@ const API = {
             try {
                 // 使用项目自带的代理，它会处理CORS问题
                 const proxyUrl = `/proxy`;
-                // 根据搜索源设置不同的参数
-                let proxyType = "wy";
-                if (source === "tx") {
-                    proxyType = "tx";
-                }
+                // 根据搜索源设置不同的参数，确保不同搜索源返回不同的结果
+                const proxyType = source; // 直接使用搜索源作为代理参数
                 const proxyFinalUrl = `${proxyUrl}?types=search&source=${proxyType}&name=${encodeURIComponent(keyword)}&count=${count}&pages=${page}`;
                 
                 debugLog(`使用项目自带代理: ${proxyFinalUrl}`);
@@ -976,13 +973,18 @@ const API = {
 
     getSongUrl: (song) => {
         // 根据song.source设置server参数
-        let server = "netease";
-        if (song.source === "tx") {
+        let server = song.source;
+        // 确保不同搜索源使用不同的server参数
+        if (server === "wy") {
+            server = "netease";
+        } else if (server === "tx") {
             server = "tencent";
+        } else if (server === "kw") {
+            server = "kuwo";
+        } else if (server === "mg") {
+            server = "migu";
         }
-        // 修复：使用正确的API地址格式和参数
-        // 从调试日志中可以看到，当前的URL返回400错误，说明参数格式不正确
-        // 让我们尝试使用不同的参数格式
+        // 使用正确的API地址格式和参数
         return `${API.baseUrl}?type=url&id=${song.id}&server=${server}`;
     },
 
