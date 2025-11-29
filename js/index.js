@@ -885,79 +885,8 @@ const API = {
         } catch (error) {
             debugLog(`搜索错误: ${error.message}`);
             debugLog(`错误堆栈: ${error.stack}`);
-            
-            // 如果直接API请求失败，尝试使用项目自带的代理
-            debugLog(`尝试使用项目自带代理...`);
-            try {
-                // 使用项目自带的代理，它会处理CORS问题
-                const proxyUrl = `/proxy`;
-                const proxyFinalUrl = `${proxyUrl}?types=search&source=${source}&name=${encodeURIComponent(keyword)}&count=${count}&pages=${page}`;
-                
-                debugLog(`使用项目自带代理: ${proxyFinalUrl}`);
-                
-                const proxyResponse = await fetch(proxyFinalUrl, {
-                    method: 'GET',
-                    headers: {
-                        'Accept': 'application/json'
-                    },
-                    mode: 'cors'
-                });
-                
-                debugLog(`代理响应状态: ${proxyResponse.status}`);
-                
-                if (!proxyResponse.ok) {
-                    throw new Error(`HTTP错误! 状态: ${proxyResponse.status}`);
-                }
-                
-                const proxyResponseText = await proxyResponse.text();
-                debugLog(`代理响应原始文本: ${proxyResponseText}`);
-                
-                let proxyParsedData;
-                try {
-                    proxyParsedData = JSON.parse(proxyResponseText);
-                    debugLog(`代理解析后的数据类型: ${typeof proxyParsedData}`);
-                } catch (proxyParseError) {
-                    debugLog(`代理JSON解析失败: ${proxyParseError.message}`);
-                    proxyParsedData = null;
-                }
-                
-                // 处理搜索结果
-                let proxySongs = [];
-                if (Array.isArray(proxyParsedData)) {
-                    proxySongs = proxyParsedData;
-                } else if (proxyParsedData && Array.isArray(proxyParsedData.songs)) {
-                    proxySongs = proxyParsedData.songs;
-                } else if (proxyParsedData && typeof proxyParsedData === 'object') {
-                    proxySongs = [proxyParsedData];
-                }
-                
-                debugLog(`代理处理后得到 ${proxySongs.length} 首歌曲`);
-                
-                // 映射歌曲格式，确保source字段正确设置为传入的source参数
-                const proxyResult = proxySongs.map((song, index) => {
-                    // 强制覆盖source字段为传入的source参数，确保不同搜索源返回不同的结果
-                    return {
-                        id: song.id,
-                        name: song.name || '未知歌曲',
-                        artist: song.artist || '未知艺术家',
-                        album: song.album || '未知专辑',
-                        pic_id: song.pic || song.pic_id || '',
-                        url_id: song.id,
-                        lyric_id: song.id,
-                        source: source // 强制设置为当前搜索源
-                    };
-                });
-                
-                debugLog(`代理映射完成，返回 ${proxyResult.length} 首歌曲`);
-                debugLog(`=== 搜索结束 ===`);
-                return proxyResult;
-                
-            } catch (proxyError) {
-                debugLog(`代理搜索错误: ${proxyError.message}`);
-                debugLog(`代理错误堆栈: ${proxyError.stack}`);
-                debugLog(`=== 搜索结束（失败） ===`);
-                return [];
-            }
+            debugLog(`=== 搜索结束（失败） ===`);
+            return [];
         }
     },
 
@@ -5327,52 +5256,21 @@ async function playSong(song, options = {}) {
 
         state.pendingSeekTime = startTime > 0 ? startTime : null;
 
-        let selectedAudioUrl = null;
-        let lastAudioError = null;
-        let usedFallbackAudio = false;
-
-        for (const candidateUrl of candidateAudioUrls) {
-            dom.audioPlayer.src = candidateUrl;
-            dom.audioPlayer.load();
-
-            try {
-                await waitForAudioReady(dom.audioPlayer);
-                selectedAudioUrl = candidateUrl;
-                usedFallbackAudio = candidateUrl !== primaryAudioUrl && candidateAudioUrls.length > 1;
-                break;
-            } catch (error) {
-                lastAudioError = error;
-                console.warn('音频元数据加载异常', error);
-
-                if (candidateUrl === primaryAudioUrl && candidateAudioUrls.length > 1) {
-                    debugLog('主音频地址加载失败，尝试使用备用地址');
-                }
-            }
-        }
-
-        if (!selectedAudioUrl) {
-            throw lastAudioError || new Error('音频加载失败');
-        }
-
-        if (usedFallbackAudio) {
-            debugLog(`已回退至备用音频地址: ${selectedAudioUrl}`);
-            showNotification('主音频加载失败，已切换到备用音源', 'warning');
-        }
-
-        state.currentAudioUrl = selectedAudioUrl;
-
+        // 直接设置音频URL，不等待元数据加载
+        dom.audioPlayer.src = primaryAudioUrl;
+        state.currentAudioUrl = primaryAudioUrl;
+        
         if (state.pendingSeekTime != null) {
-            setAudioCurrentTime(state.pendingSeekTime);
             state.pendingSeekTime = null;
-        } else {
-            setAudioCurrentTime(dom.audioPlayer.currentTime || 0);
         }
-
-        state.lastSavedPlaybackTime = state.currentPlaybackTime;
-
+        
+        state.lastSavedPlaybackTime = 0;
+        
         let playPromise = null;
-
+        
         if (autoplay) {
+            // 直接播放，不等待元数据加载
+            dom.audioPlayer.load();
             playPromise = dom.audioPlayer.play();
             if (playPromise !== undefined) {
                 playPromise.catch(error => {
@@ -6051,51 +5949,9 @@ async function downloadSong(song) {
         debugLog(`下载失败详情: ${error.message}`);
         debugLog(`错误堆栈: ${error.stack}`);
         
-        // 如果代理下载失败，尝试直接使用API URL获取Blob数据
-        debugLog("尝试直接使用API URL获取Blob数据...");
-        try {
-            const directUrl = API.getSongUrl(song);
-            
-            // 使用fetch请求获取音频数据，添加CORS配置
-            const directResponse = await fetch(directUrl, {
-                method: 'GET',
-                mode: 'cors',
-                credentials: 'omit'
-            });
-            
-            if (!directResponse.ok) {
-                throw new Error(`直接请求失败，状态码: ${directResponse.status}`);
-            }
-
-            // 使用Blob API获取音频数据并下载
-            const blob = await directResponse.blob();
-            const blobUrl = URL.createObjectURL(blob);
-            
-            // 生成安全的文件名
-            const safeFileName = `${song.name} - ${Array.isArray(song.artist) ? song.artist.join(", ") : song.artist}.mp3`
-                .replace(/[<>:"/\\|?*]/g, "") // 移除Windows不允许的字符
-                .replace(/\s+/g, " ") // 替换多个空格为单个空格
-                .trim();
-            
-            const link = document.createElement("a");
-            link.href = blobUrl;
-            link.download = safeFileName;
-            // 确保不跳转到新页面
-            link.target = "_self";
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            
-            // 释放Blob URL
-            setTimeout(() => {
-                URL.revokeObjectURL(blobUrl);
-            }, 100);
-
-            showNotification("下载已开始", "success");
-        } catch (directError) {
-            console.error("直接下载也失败:", directError);
-            showNotification("下载失败，请稍后重试", "error");
-        }
+        // 如果代理下载失败，显示错误信息
+        console.error("下载失败:", error);
+        showNotification("下载失败，请稍后重试", "error");
     }
 }
 
