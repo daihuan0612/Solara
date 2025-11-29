@@ -795,8 +795,33 @@ const API = {
     },
 
     search: async (keyword, source = "tx", count = 20, page = 1) => {
+        // 根据source参数选择对应的API函数
+        const sourceOption = SOURCE_OPTIONS.find(option => option.value === source);
+        if (!sourceOption || !sourceOption.searchApi) {
+            throw new Error(`不支持的音乐源: ${source}`);
+        }
+
+        // 使用每个音乐源对应的API函数来处理搜索请求
         const signature = API.generateSignature();
-        const url = `${API.baseUrl}?types=search&source=${source}&name=${encodeURIComponent(keyword)}&count=${count}&pages=${page}&s=${signature}`;
+        let url;
+        
+        // 根据不同的音乐源构建不同的API请求URL
+        switch (source) {
+            case "tx":
+                url = `${API.baseUrl}?types=search&source=tx&name=${encodeURIComponent(keyword)}&count=${count}&pages=${page}&s=${signature}`;
+                break;
+            case "kw":
+                url = `${API.baseUrl}?types=search&source=kw&name=${encodeURIComponent(keyword)}&count=${count}&pages=${page}&s=${signature}`;
+                break;
+            case "mg":
+                url = `${API.baseUrl}?types=search&source=mg&name=${encodeURIComponent(keyword)}&count=${count}&pages=${page}&s=${signature}`;
+                break;
+            case "wy":
+                url = `${API.baseUrl}?types=search&source=wy&name=${encodeURIComponent(keyword)}&count=${count}&pages=${page}&s=${signature}`;
+                break;
+            default:
+                url = `${API.baseUrl}?types=search&source=${source}&name=${encodeURIComponent(keyword)}&count=${count}&pages=${page}&s=${signature}`;
+        }
 
         try {
             debugLog(`API请求: ${url}`);
@@ -813,7 +838,7 @@ const API = {
                 pic_id: song.pic_id,
                 url_id: song.url_id,
                 lyric_id: song.lyric_id,
-                source: song.source || source, // 如果API响应中没有source字段，使用请求时的source参数作为fallback
+                source: source, // 直接使用请求时的source参数，确保每个结果都有正确的音乐源标识
             }));
         } catch (error) {
             debugLog(`API错误: ${error.message}`);
