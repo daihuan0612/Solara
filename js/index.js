@@ -766,7 +766,9 @@ const API = {
             // 使用用户提供的请求示例格式，不设置特殊请求头
             const response = await fetch(url, {
                 method: 'GET',
-                redirect: 'follow'
+                redirect: 'follow',
+                mode: 'cors',
+                credentials: 'omit'
             });
 
             if (!response.ok) {
@@ -787,25 +789,31 @@ const API = {
     },
 
     search: async (keyword, source = "tx", count = 20, page = 1) => {
-        // 使用项目自带的代理功能，避免CORS问题
+        // 修复搜索功能，使用正确的参数格式
+        const server = source === "tx" ? "tencent" : "netease";
+        
+        // 从web搜索结果来看，API返回"请输入参数"，说明参数格式可能不正确
+        // 尝试使用不同的参数格式
+        const encodedKeyword = encodeURIComponent(keyword);
+        
+        // 尝试使用keywords参数，因为之前的调试日志显示使用的是keywords
+        const finalUrl = `${API.baseUrl}?type=search&keywords=${encodedKeyword}&server=${server}&limit=${count}&offset=${(page - 1) * count}`;
+        
         debugLog(`=== 开始搜索 ===`);
         debugLog(`搜索关键词: ${keyword}`);
-        debugLog(`搜索源: ${source}`);
-        
-        // 使用项目自带的代理，它会处理CORS问题
-        // 代理期望的参数格式：types=search&source=tx&name=关键词&count=20&pages=1
-        const proxyUrl = `/proxy`;
-        const finalUrl = `${proxyUrl}?types=search&source=${source}&name=${encodeURIComponent(keyword)}&count=${count}&pages=${page}`;
-        
-        debugLog(`使用项目自带代理: ${finalUrl}`);
+        debugLog(`搜索源: ${source} (${server})`);
+        debugLog(`最终请求URL: ${finalUrl}`);
         
         try {
+            // 使用fetch请求，添加CORS配置
             const response = await fetch(finalUrl, {
                 method: 'GET',
                 headers: {
-                    'Accept': 'application/json'
+                    'Accept': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest'
                 },
-                mode: 'cors'
+                mode: 'cors',
+                credentials: 'omit'
             });
             
             debugLog(`响应状态: ${response.status}`);
@@ -865,6 +873,69 @@ const API = {
         } catch (error) {
             debugLog(`搜索错误: ${error.message}`);
             debugLog(`错误堆栈: ${error.stack}`);
+            
+            // 如果keywords参数失败，尝试使用name参数
+            debugLog(`尝试使用name参数重新搜索...`);
+            const nameUrl = `${API.baseUrl}?type=search&name=${encodedKeyword}&server=${server}&limit=${count}&offset=${(page - 1) * count}`;
+            debugLog(`使用name参数的URL: ${nameUrl}`);
+            
+            try {
+                const nameResponse = await fetch(nameUrl, {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest'
+                    },
+                    mode: 'cors',
+                    credentials: 'omit'
+                });
+                
+                debugLog(`name参数响应状态: ${nameResponse.status}`);
+                
+                if (nameResponse.ok) {
+                    const nameResponseText = await nameResponse.text();
+                    debugLog(`name参数响应原始文本: ${nameResponseText}`);
+                    
+                    let nameParsedData;
+                    try {
+                        nameParsedData = JSON.parse(nameResponseText);
+                    } catch (nameParseError) {
+                        debugLog(`name参数JSON解析失败: ${nameParseError.message}`);
+                        nameParsedData = null;
+                    }
+                    
+                    // 处理搜索结果
+                    let nameSongs = [];
+                    if (Array.isArray(nameParsedData)) {
+                        nameSongs = nameParsedData;
+                    } else if (nameParsedData && Array.isArray(nameParsedData.songs)) {
+                        nameSongs = nameParsedData.songs;
+                    } else if (nameParsedData && typeof nameParsedData === 'object') {
+                        nameSongs = [nameParsedData];
+                    }
+                    
+                    debugLog(`name参数处理后得到 ${nameSongs.length} 首歌曲`);
+                    
+                    // 映射歌曲格式
+                    const nameResult = nameSongs.map((song, index) => ({
+                        id: song.id,
+                        name: song.name || '未知歌曲',
+                        artist: song.artist || '未知艺术家',
+                        album: song.album || '未知专辑',
+                        pic_id: song.pic || song.pic_id || '',
+                        url_id: song.id,
+                        lyric_id: song.id,
+                        source: source
+                    }));
+                    
+                    debugLog(`name参数映射完成，返回 ${nameResult.length} 首歌曲`);
+                    return nameResult;
+                }
+                
+            } catch (nameError) {
+                debugLog(`name参数搜索也失败: ${nameError.message}`);
+            }
+            
             debugLog(`=== 搜索结束（失败） ===`);
             return [];
         }
