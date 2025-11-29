@@ -787,46 +787,82 @@ const API = {
     },
 
     search: async (keyword, source = "tx", count = 20, page = 1) => {
-        // 使用新API进行搜索
-        let server = "netease";
-        if (source === "tx") {
-            server = "tencent";
-        }
-        const url = `${API.baseUrl}?type=search&name=${encodeURIComponent(keyword)}&server=${server}&limit=${count}&offset=${(page - 1) * count}`;
-
+        // 完全重写搜索函数，确保使用正确的参数名和URL
+        const server = source === "tx" ? "tencent" : "netease";
+        
+        // 手动构建URL，确保使用name参数
+        const encodedKeyword = encodeURIComponent(keyword);
+        const finalUrl = `https://api.nxvav.cn/api/music?type=search&name=${encodedKeyword}&server=${server}&limit=${count}&offset=${(page - 1) * count}`;
+        
+        debugLog(`=== 开始搜索 ===`);
+        debugLog(`搜索关键词: ${keyword}`);
+        debugLog(`搜索源: ${source} (${server})`);
+        debugLog(`最终请求URL: ${finalUrl}`);
+        debugLog(`URL中是否包含name参数: ${finalUrl.includes('name=')}`);
+        debugLog(`URL中是否包含keywords参数: ${finalUrl.includes('keywords=')}`);
+        
         try {
-            debugLog(`API请求: ${url}`);
-            const data = await API.fetchJson(url);
-            debugLog(`API响应: ${JSON.stringify(data).substring(0, 200)}...`);
-
-            let songs = [];
-            // 处理不同的API响应格式
-            if (Array.isArray(data)) {
-                // 如果直接是数组，使用它
-                songs = data;
-            } else if (data && Array.isArray(data.songs)) {
-                // 如果包含在songs字段中，使用songs字段
-                songs = data.songs;
-            } else if (data && typeof data === 'object') {
-                // 如果是单个歌曲对象，包装成数组
-                songs = [data];
-            } else {
-                throw new Error("搜索结果格式错误");
+            // 使用简单的fetch请求，不添加额外的CORS配置
+            const response = await fetch(finalUrl);
+            
+            debugLog(`响应状态: ${response.status}`);
+            
+            if (!response.ok) {
+                throw new Error(`HTTP错误! 状态: ${response.status}`);
             }
-
-            return songs.map(song => ({
-                id: song.id,
-                name: song.name,
-                artist: song.artist,
-                album: song.album,
-                pic_id: song.pic || song.pic_id,
-                url_id: song.id,
-                lyric_id: song.id,
-                source: source, // 直接使用请求时的source参数，确保每个结果都有正确的音乐源标识
-            }));
+            
+            const responseText = await response.text();
+            debugLog(`响应原始文本: ${responseText}`);
+            
+            let parsedData;
+            try {
+                parsedData = JSON.parse(responseText);
+                debugLog(`解析后的数据类型: ${typeof parsedData}`);
+                if (Array.isArray(parsedData)) {
+                    debugLog(`解析后的数据是数组，长度: ${parsedData.length}`);
+                } else if (parsedData && typeof parsedData === 'object') {
+                    debugLog(`解析后的数据是对象，包含的键: ${Object.keys(parsedData).join(', ')}`);
+                }
+            } catch (parseError) {
+                debugLog(`JSON解析失败: ${parseError.message}`);
+                parsedData = null;
+            }
+            
+            // 处理搜索结果
+            let songs = [];
+            if (Array.isArray(parsedData)) {
+                songs = parsedData;
+            } else if (parsedData && Array.isArray(parsedData.songs)) {
+                songs = parsedData.songs;
+            } else if (parsedData && typeof parsedData === 'object') {
+                songs = [parsedData];
+            }
+            
+            debugLog(`处理后得到 ${songs.length} 首歌曲`);
+            
+            // 映射歌曲格式
+            const result = songs.map((song, index) => {
+                debugLog(`映射第 ${index + 1} 首歌曲: ${song.name || '未知歌曲'}`);
+                return {
+                    id: song.id,
+                    name: song.name || '未知歌曲',
+                    artist: song.artist || '未知艺术家',
+                    album: song.album || '未知专辑',
+                    pic_id: song.pic || song.pic_id || '',
+                    url_id: song.id,
+                    lyric_id: song.id,
+                    source: source
+                };
+            });
+            
+            debugLog(`映射完成，返回 ${result.length} 首歌曲`);
+            debugLog(`=== 搜索结束 ===`);
+            return result;
+            
         } catch (error) {
-            debugLog(`API错误: ${error.message}`);
-            // 搜索失败时，返回空数组，让前端能够处理
+            debugLog(`搜索错误: ${error.message}`);
+            debugLog(`错误堆栈: ${error.stack}`);
+            debugLog(`=== 搜索结束（失败） ===`);
             return [];
         }
     },
@@ -884,7 +920,7 @@ const state = {
     hasMoreResults: typeof savedLastSearchState?.hasMore === "boolean" ? savedLastSearchState.hasMore : true,
     currentSong: savedCurrentSong,
     currentArtworkUrl: null,
-    debugMode: false,
+    debugMode: true,
     isSearchMode: false, // 新增：搜索模式状态
     playlistSongs: savedPlaylistSongs, // 新增：统一播放列表
     playMode: savedPlayMode, // 新增：播放模式 'list', 'single', 'random'
