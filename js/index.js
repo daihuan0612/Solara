@@ -650,17 +650,8 @@ function normalizeSource(value) {
     return allowed.includes(value) ? value : SOURCE_OPTIONS[0].value;
 }
 
-const QUALITY_OPTIONS = [
-    { value: "128", label: "标准音质", description: "128 kbps" },
-    { value: "192", label: "高品音质", description: "192 kbps" },
-    { value: "320", label: "极高音质", description: "320 kbps" },
-    { value: "999", label: "无损音质", description: "FLAC" }
-];
-
-function normalizeQuality(value) {
-    const match = QUALITY_OPTIONS.find(option => option.value === value);
-    return match ? match.value : "320";
-}
+// 移除音质选择功能，使用固定音质
+const normalizeQuality = (value) => "320"; // 始终返回固定音质
 
 const savedPlaylistSongs = (() => {
     const stored = safeGetLocalStorage("playlistSongs");
@@ -759,16 +750,20 @@ const savedCurrentPlaylist = (() => {
     return playlists.includes(stored) ? stored : "playlist";
 })();
 
-// API配置 - 恢复使用原来的API接口
+// API配置 - 使用新的音乐API接口
 const API = {
-    baseUrl: "https://api.nxvav.cn/api/music/", // 只使用新API
+    baseUrl: "https://api.nxvav.cn/api/music", // 使用正确的API地址，没有末尾斜杠
+
+    generateSignature: () => {
+        return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+    },
 
     fetchJson: async (url) => {
         try {
+            // 使用用户提供的请求示例格式，不设置特殊请求头
             const response = await fetch(url, {
-                headers: {
-                    "Accept": "application/json",
-                },
+                method: 'GET',
+                redirect: 'follow'
             });
 
             if (!response.ok) {
@@ -791,7 +786,7 @@ const API = {
     search: async (keyword, source = "tx", count = 20, page = 1) => {
         // 注意：新API不直接支持搜索功能，我们继续使用原有搜索逻辑
         const oldBaseUrl = "/proxy";
-        const signature = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+        const signature = API.generateSignature();
         const url = `${oldBaseUrl}?types=search&source=${source}&name=${encodeURIComponent(keyword)}&count=${count}&pages=${page}&s=${signature}`;
 
         try {
@@ -813,7 +808,8 @@ const API = {
             }));
         } catch (error) {
             debugLog(`API错误: ${error.message}`);
-            throw error;
+            // 搜索失败时，返回空数组，让前端能够处理
+            return [];
         }
     },
 
@@ -822,19 +818,34 @@ const API = {
         return [];
     },
 
-    getSongUrl: (song, quality = "320") => {
-        // 只使用新API，直接返回音频流URL
-        return `${API.baseUrl}?type=url&id=${song.id}`;
+    getSongUrl: (song) => {
+        // 根据song.source设置server参数
+        let server = "netease";
+        if (song.source === "tx") {
+            server = "tencent";
+        }
+        // 只使用新API，直接返回音频流URL，使用正确的API地址格式和参数
+        return `${API.baseUrl}?type=url&id=${song.id}&server=${server}`;
     },
 
     getLyric: (song) => {
-        // 只使用新API，直接返回歌词URL
-        return `${API.baseUrl}?type=lrc&id=${song.id}`;
+        // 根据song.source设置server参数
+        let server = "netease";
+        if (song.source === "tx") {
+            server = "tencent";
+        }
+        // 只使用新API，直接返回歌词URL，使用正确的API地址格式和参数
+        return `${API.baseUrl}?type=lrc&id=${song.id}&server=${server}`;
     },
 
     getPicUrl: (song) => {
-        // 只使用新API，直接返回图片URL
-        return `${API.baseUrl}?type=pic&id=${song.id}`;
+        // 根据song.source设置server参数
+        let server = "netease";
+        if (song.source === "tx") {
+            server = "tencent";
+        }
+        // 只使用新API，直接返回图片URL，使用正确的API地址格式和参数
+        return `${API.baseUrl}?type=pic&id=${song.id}&server=${server}`;
     }
 };
 
@@ -866,14 +877,13 @@ const state = {
     favoritePlayMode: savedFavoritePlayMode,
     favoriteLastNonRandomMode: savedFavoritePlayMode === "random" ? "list" : savedFavoritePlayMode,
     favoritePlaybackTime: savedFavoritePlaybackTime,
-    playbackQuality: savedPlaybackQuality,
+    playbackQuality: "320", // 使用固定音质，不再支持切换
     volume: savedVolume,
     currentPlaybackTime: savedPlaybackTime,
     lastSavedPlaybackTime: savedPlaybackTime,
     favoriteLastSavedPlaybackTime: savedFavoritePlaybackTime,
     pendingSeekTime: null,
     isSeeking: false,
-    qualityMenuOpen: false,
     sourceMenuOpen: false,
     userScrolledLyrics: false, // 新增：用户是否手动滚动歌词
     lyricsScrollTimeout: null, // 新增：歌词滚动超时
@@ -3074,15 +3084,16 @@ function setupInteractions() {
         dom.sourceSelectButton.addEventListener("click", toggleSourceMenu);
         dom.sourceMenu.addEventListener("click", handleSourceSelection);
     }
-    dom.qualityToggle.addEventListener("click", togglePlayerQualityMenu);
-    if (dom.mobileQualityToggle) {
-        dom.mobileQualityToggle.addEventListener("click", togglePlayerQualityMenu);
+    // 移除音质选择功能，隐藏相关UI元素
+    if (dom.qualityToggle) {
+        dom.qualityToggle.style.display = "none"; // 隐藏音质选择按钮
     }
-    setQualityAnchorState(dom.qualityToggle, false);
     if (dom.mobileQualityToggle) {
-        setQualityAnchorState(dom.mobileQualityToggle, false);
+        dom.mobileQualityToggle.style.display = "none"; // 隐藏移动端音质选择按钮
     }
-    dom.playerQualityMenu.addEventListener("click", handlePlayerQualitySelection);
+    if (dom.playerQualityMenu) {
+        dom.playerQualityMenu.style.display = "none"; // 隐藏音质选择菜单
+    }
 
     if (isMobileView && dom.albumCover) {
         dom.albumCover.addEventListener("click", () => {
@@ -3445,82 +3456,48 @@ function updateCurrentSongInfo(song, options = {}) {
         dom.albumCover.classList.add("loading");
         const picUrl = API.getPicUrl(song);
 
-        // 检查是否是新API地址
-        const isNewApi = picUrl.startsWith('https://api.nxvav.cn/api/music/');
-        
-        if (isNewApi) {
-            // 新API直接返回图片数据，URL就是实际的图片URL
-            const img = new Image();
-            const imageUrl = picUrl;
-            const absoluteImageUrl = toAbsoluteUrl(imageUrl);
-            if (state.currentSong === song) {
-                state.currentArtworkUrl = absoluteImageUrl;
-                if (typeof window.__SOLARA_UPDATE_MEDIA_METADATA === 'function') {
-                    window.__SOLARA_UPDATE_MEDIA_METADATA();
+        // 新API返回JSON数据，包含pic字段
+        API.fetchJson(picUrl)
+            .then(data => {
+                if (!data || !data.pic) {
+                    throw new Error("封面地址缺失");
                 }
-            }
-            img.crossOrigin = "anonymous";
-            img.onload = () => {
-                if (state.currentSong !== song) {
-                    return;
-                }
-                setAlbumCoverImage(imageUrl);
-                const shouldApplyImmediately = paletteCache.has(imageUrl) ||
-                    (state.currentPaletteImage === imageUrl && state.dynamicPalette);
-                scheduleDeferredPaletteUpdate(imageUrl, { immediate: shouldApplyImmediately });
-            };
-            img.onerror = () => {
-                if (state.currentSong !== song) {
-                    return;
-                }
-                cancelDeferredPaletteUpdate();
-                showAlbumCoverPlaceholder();
-            };
-            img.src = imageUrl;
-        } else {
-            // 旧API返回JSON数据，需要从中提取封面URL
-            API.fetchJson(picUrl)
-                .then(data => {
-                    if (!data || !data.url) {
-                        throw new Error("封面地址缺失");
-                    }
 
-                    const img = new Image();
-                    const imageUrl = preferHttpsUrl(data.url);
-                    const absoluteImageUrl = toAbsoluteUrl(imageUrl);
-                    if (state.currentSong === song) {
-                        state.currentArtworkUrl = absoluteImageUrl;
-                        if (typeof window.__SOLARA_UPDATE_MEDIA_METADATA === 'function') {
-                            window.__SOLARA_UPDATE_MEDIA_METADATA();
-                        }
+                const img = new Image();
+                const imageUrl = preferHttpsUrl(data.pic);
+                const absoluteImageUrl = toAbsoluteUrl(imageUrl);
+                if (state.currentSong === song) {
+                    state.currentArtworkUrl = absoluteImageUrl;
+                    if (typeof window.__SOLARA_UPDATE_MEDIA_METADATA === 'function') {
+                        window.__SOLARA_UPDATE_MEDIA_METADATA();
                     }
-                    img.crossOrigin = "anonymous";
-                    img.onload = () => {
-                        if (state.currentSong !== song) {
-                            return;
-                        }
-                        setAlbumCoverImage(imageUrl);
-                        const shouldApplyImmediately = paletteCache.has(imageUrl) ||
-                            (state.currentPaletteImage === imageUrl && state.dynamicPalette);
-                        scheduleDeferredPaletteUpdate(imageUrl, { immediate: shouldApplyImmediately });
-                    };
-                    img.onerror = () => {
-                        if (state.currentSong !== song) {
-                            return;
-                        }
-                        cancelDeferredPaletteUpdate();
-                        showAlbumCoverPlaceholder();
-                    };
-                    img.src = imageUrl;
-                })
-                .catch(error => {
-                    console.error("加载封面失败:", error);
-                    if (state.currentSong === song) {
-                        cancelDeferredPaletteUpdate();
-                        showAlbumCoverPlaceholder();
+                }
+                img.crossOrigin = "anonymous";
+                img.onload = () => {
+                    if (state.currentSong !== song) {
+                        return;
                     }
-                });
-        }
+                    setAlbumCoverImage(imageUrl);
+                    const shouldApplyImmediately = paletteCache.has(imageUrl) ||
+                        (state.currentPaletteImage === imageUrl && state.dynamicPalette);
+                    scheduleDeferredPaletteUpdate(imageUrl, { immediate: shouldApplyImmediately });
+                };
+                img.onerror = () => {
+                    if (state.currentSong !== song) {
+                        return;
+                    }
+                    cancelDeferredPaletteUpdate();
+                    showAlbumCoverPlaceholder();
+                };
+                img.src = imageUrl;
+            })
+            .catch(error => {
+                console.error("加载封面失败:", error);
+                if (state.currentSong === song) {
+                    cancelDeferredPaletteUpdate();
+                    showAlbumCoverPlaceholder();
+                }
+            });
     } else {
         cancelDeferredPaletteUpdate();
         showAlbumCoverPlaceholder();
@@ -5207,40 +5184,42 @@ async function playSong(song, options = {}) {
     try {
         updateCurrentSongInfo(song, { loadArtwork: false });
 
-        const quality = state.playbackQuality || '320';
-        const audioUrl = API.getSongUrl(song, quality);
+        // 移除音质选择功能，使用固定音质
+        const audioUrl = API.getSongUrl(song);
         debugLog(`获取音频URL: ${audioUrl}`);
 
-        // 检查是否是新API地址
-        const isNewApi = audioUrl.startsWith('https://api.nxvav.cn/api/music/');
         let primaryAudioUrl;
         
-        if (isNewApi) {
-            // 新API直接返回音频流，URL就是实际的音频URL
+        try {
+            // 尝试将API返回的内容作为JSON处理
+            const audioData = await API.fetchJson(audioUrl);
+            debugLog(`新API音频响应(JSON): ${JSON.stringify(audioData).substring(0, 100)}...`);
+
+            if (audioData && audioData.url) {
+                // 如果是JSON格式且包含url字段，使用该url
+                const originalAudioUrl = audioData.url;
+                const proxiedAudioUrl = buildAudioProxyUrl(originalAudioUrl);
+                const preferredAudioUrl = preferHttpsUrl(originalAudioUrl);
+                const candidateAudioUrls = Array.from(
+                    new Set([proxiedAudioUrl, preferredAudioUrl, originalAudioUrl].filter(Boolean))
+                );
+
+                primaryAudioUrl = candidateAudioUrls[0] || originalAudioUrl;
+
+                if (proxiedAudioUrl && proxiedAudioUrl !== originalAudioUrl) {
+                    debugLog(`音频地址已通过代理转换为 HTTPS: ${proxiedAudioUrl}`);
+                } else if (preferredAudioUrl && preferredAudioUrl !== originalAudioUrl) {
+                    debugLog(`音频地址由 HTTP 升级为 HTTPS: ${preferredAudioUrl}`);
+                }
+            } else {
+                // 如果JSON格式不包含url字段，直接使用API URL作为音频流URL
+                primaryAudioUrl = audioUrl;
+                debugLog(`新API直接返回音频流: ${primaryAudioUrl}`);
+            }
+        } catch (jsonError) {
+            // 如果不是JSON格式，直接使用API URL作为音频流URL
             primaryAudioUrl = audioUrl;
             debugLog(`新API直接返回音频流: ${primaryAudioUrl}`);
-        } else {
-            // 旧API返回JSON数据，需要从中提取音频URL
-            const audioData = await API.fetchJson(audioUrl);
-
-            if (!audioData || !audioData.url) {
-                throw new Error('无法获取音频播放地址');
-            }
-
-            const originalAudioUrl = audioData.url;
-            const proxiedAudioUrl = buildAudioProxyUrl(originalAudioUrl);
-            const preferredAudioUrl = preferHttpsUrl(originalAudioUrl);
-            const candidateAudioUrls = Array.from(
-                new Set([proxiedAudioUrl, preferredAudioUrl, originalAudioUrl].filter(Boolean))
-            );
-
-            primaryAudioUrl = candidateAudioUrls[0] || originalAudioUrl;
-
-            if (proxiedAudioUrl && proxiedAudioUrl !== originalAudioUrl) {
-                debugLog(`音频地址已通过代理转换为 HTTPS: ${proxiedAudioUrl}`);
-            } else if (preferredAudioUrl && preferredAudioUrl !== originalAudioUrl) {
-                debugLog(`音频地址由 HTTP 升级为 HTTPS: ${preferredAudioUrl}`);
-            }
         }
 
         state.currentSong = song;
@@ -5696,45 +5675,22 @@ async function loadLyrics(song) {
         const lyricUrl = API.getLyric(song);
         debugLog(`获取歌词URL: ${lyricUrl}`);
 
-        // 检查是否是新API地址
-        const isNewApi = lyricUrl.startsWith('https://api.nxvav.cn/api/music/');
-        
-        if (isNewApi) {
-            // 新API直接返回歌词文本，而不是JSON格式
-            const response = await fetch(lyricUrl);
-            const lyricText = await response.text();
-            debugLog(`新API歌词响应: ${lyricText.substring(0, 100)}...`);
-            
-            if (lyricText && lyricText.trim() && lyricText !== "请输入参数") {
-                parseLyrics(lyricText);
-                dom.lyrics.classList.remove("empty");
-                dom.lyrics.dataset.placeholder = "default";
-                debugLog(`歌词加载成功: ${state.lyricsData.length} 行`);
-            } else {
-                setLyricsContentHtml("<div>暂无歌词</div>");
-                dom.lyrics.classList.add("empty");
-                dom.lyrics.dataset.placeholder = "message";
-                state.lyricsData = [];
-                state.currentLyricLine = -1;
-                debugLog("歌词加载失败: 无歌词数据");
-            }
-        } else {
-            // 旧API返回JSON数据，需要从中提取歌词
-            const lyricData = await API.fetchJson(lyricUrl);
+        // 新API返回JSON数据，包含lrc字段
+        const lyricData = await API.fetchJson(lyricUrl);
+        debugLog(`新API歌词响应: ${JSON.stringify(lyricData).substring(0, 100)}...`);
 
-            if (lyricData && lyricData.lyric) {
-                parseLyrics(lyricData.lyric);
-                dom.lyrics.classList.remove("empty");
-                dom.lyrics.dataset.placeholder = "default";
-                debugLog(`歌词加载成功: ${state.lyricsData.length} 行`);
-            } else {
-                setLyricsContentHtml("<div>暂无歌词</div>");
-                dom.lyrics.classList.add("empty");
-                dom.lyrics.dataset.placeholder = "message";
-                state.lyricsData = [];
-                state.currentLyricLine = -1;
-                debugLog("歌词加载失败: 无歌词数据");
-            }
+        if (lyricData && lyricData.lrc) {
+            parseLyrics(lyricData.lrc);
+            dom.lyrics.classList.remove("empty");
+            dom.lyrics.dataset.placeholder = "default";
+            debugLog(`歌词加载成功: ${state.lyricsData.length} 行`);
+        } else {
+            setLyricsContentHtml("<div>暂无歌词</div>");
+            dom.lyrics.classList.add("empty");
+            dom.lyrics.dataset.placeholder = "message";
+            state.lyricsData = [];
+            state.currentLyricLine = -1;
+            debugLog("歌词加载失败: 无歌词数据");
         }
     } catch (error) {
         console.error("加载歌词失败:", error);
@@ -5907,57 +5863,60 @@ function scrollToCurrentLyric(element, containerOverride) {
 }
 
 // 修复：下载歌曲
-async function downloadSong(song, quality = "320") {
+async function downloadSong(song) {
     try {
         showNotification("正在准备下载...");
 
-        const audioUrl = API.getSongUrl(song, quality);
+        const audioUrl = API.getSongUrl(song);
+        debugLog(`获取下载URL: ${audioUrl}`);
         
-        // 检查是否是新API地址
-        const isNewApi = audioUrl.startsWith('https://api.nxvav.cn/api/music/');
         let downloadUrl;
         let fileExtension = "mp3";
         
-        if (isNewApi) {
-            // 新API直接返回音频流，URL就是实际的下载URL
+        try {
+            // 尝试将API返回的内容作为JSON处理
+            const audioData = await API.fetchJson(audioUrl);
+            debugLog(`新API下载响应(JSON): ${JSON.stringify(audioData).substring(0, 100)}...`);
+
+            if (audioData && audioData.url) {
+                // 如果是JSON格式且包含url字段，使用该url
+                const originalAudioUrl = audioData.url;
+                const proxiedAudioUrl = buildAudioProxyUrl(originalAudioUrl);
+                const preferredAudioUrl = preferHttpsUrl(originalAudioUrl);
+
+                if (proxiedAudioUrl !== originalAudioUrl) {
+                    debugLog(`下载链接已通过代理转换为 HTTPS: ${proxiedAudioUrl}`);
+                } else if (preferredAudioUrl !== originalAudioUrl) {
+                    debugLog(`下载链接由 HTTP 升级为 HTTPS: ${preferredAudioUrl}`);
+                }
+
+                downloadUrl = proxiedAudioUrl || preferredAudioUrl || originalAudioUrl;
+                
+                // 解析文件扩展名
+                fileExtension = (() => {
+                    try {
+                        const url = new URL(audioData.url);
+                        const pathname = url.pathname || "";
+                        const match = pathname.match(/\.([a-z0-9]+)$/i);
+                        if (match) {
+                            return match[1];
+                        }
+                    } catch (error) {
+                        console.warn("无法从下载链接中解析扩展名:", error);
+                    }
+                    return "mp3"; // 默认返回MP3格式
+                })();
+            } else {
+                // 如果JSON格式不包含url字段，直接使用API URL作为下载URL
+                downloadUrl = audioUrl;
+                fileExtension = "mp3"; // 新API默认返回MP3格式
+                debugLog(`新API直接返回下载链接: ${downloadUrl}`);
+            }
+        } catch (jsonError) {
+            // 如果不是JSON格式，直接使用API URL作为下载URL
             downloadUrl = audioUrl;
             fileExtension = "mp3"; // 新API默认返回MP3格式
             debugLog(`新API直接返回下载链接: ${downloadUrl}`);
-        } else {
-            // 旧API返回JSON数据，需要从中提取下载URL
-            const audioData = await API.fetchJson(audioUrl);
-
-            if (!audioData || !audioData.url) {
-                throw new Error("无法获取下载地址");
-            }
-
-            const proxiedAudioUrl = buildAudioProxyUrl(audioData.url);
-            const preferredAudioUrl = preferHttpsUrl(audioData.url);
-
-            if (proxiedAudioUrl !== audioData.url) {
-                debugLog(`下载链接已通过代理转换为 HTTPS: ${proxiedAudioUrl}`);
-            } else if (preferredAudioUrl !== audioData.url) {
-                debugLog(`下载链接由 HTTP 升级为 HTTPS: ${preferredAudioUrl}`);
-            }
-
-            downloadUrl = proxiedAudioUrl || preferredAudioUrl || audioData.url;
-            
-            // 解析文件扩展名
-            const preferredExtension =
-                quality === "999" ? "flac" : quality === "740" ? "ape" : "mp3";
-            fileExtension = (() => {
-                try {
-                    const url = new URL(audioData.url);
-                    const pathname = url.pathname || "";
-                    const match = pathname.match(/\.([a-z0-9]+)$/i);
-                    if (match) {
-                        return match[1];
-                    }
-                } catch (error) {
-                    console.warn("无法从下载链接中解析扩展名:", error);
-                }
-                return preferredExtension;
-            })();
         }
 
         const link = document.createElement("a");
