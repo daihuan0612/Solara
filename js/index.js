@@ -846,7 +846,7 @@ const API = {
             // 映射歌曲格式，确保source字段正确设置为传入的source参数
             const proxyResult = proxySongs.map((song, index) => {
                 // 强制覆盖source字段为传入的source参数，确保不同搜索源返回不同的结果
-                const mappedSong = {
+                return {
                     id: song.id,
                     name: song.name || '未知歌曲',
                     artist: song.artist || '未知艺术家',
@@ -855,21 +855,17 @@ const API = {
                     url_id: song.id,
                     lyric_id: song.id,
                     source: source, // 强制设置为当前搜索源
-                    server: source // 直接使用source作为server参数，确保不同搜索源使用不同的服务器
+                    server: source === "tx" ? "tencent" : "netease" // 根据source设置正确的server参数
                 };
-                
-                debugLog(`映射第 ${index + 1} 首歌曲: ${mappedSong.name}`);
-                debugLog(`映射后歌曲: ${JSON.stringify(mappedSong)}`);
-                return mappedSong;
             });
             
-            debugLog(`映射完成，返回 ${proxyResult.length} 首歌曲`);
+            debugLog(`代理映射完成，返回 ${proxyResult.length} 首歌曲`);
             debugLog(`=== 搜索结束 ===`);
             return proxyResult;
             
         } catch (proxyError) {
-            debugLog(`搜索错误: ${proxyError.message}`);
-            debugLog(`错误堆栈: ${proxyError.stack}`);
+            debugLog(`代理搜索错误: ${proxyError.message}`);
+            debugLog(`代理错误堆栈: ${proxyError.stack}`);
             debugLog(`=== 搜索结束（失败） ===`);
             return [];
         }
