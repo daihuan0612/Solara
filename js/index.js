@@ -787,23 +787,26 @@ const API = {
     },
 
     search: async (keyword, source = "tx", count = 20, page = 1) => {
-        // 完全重写搜索函数，确保使用正确的参数名和URL
-        const server = source === "tx" ? "tencent" : "netease";
-        
-        // 手动构建URL，确保使用name参数
-        const encodedKeyword = encodeURIComponent(keyword);
-        const finalUrl = `https://api.nxvav.cn/api/music?type=search&name=${encodedKeyword}&server=${server}&limit=${count}&offset=${(page - 1) * count}`;
-        
+        // 使用项目自带的代理功能，避免CORS问题
         debugLog(`=== 开始搜索 ===`);
         debugLog(`搜索关键词: ${keyword}`);
-        debugLog(`搜索源: ${source} (${server})`);
-        debugLog(`最终请求URL: ${finalUrl}`);
-        debugLog(`URL中是否包含name参数: ${finalUrl.includes('name=')}`);
-        debugLog(`URL中是否包含keywords参数: ${finalUrl.includes('keywords=')}`);
+        debugLog(`搜索源: ${source}`);
+        
+        // 使用项目自带的代理，它会处理CORS问题
+        // 代理期望的参数格式：types=search&source=tx&name=关键词&count=20&pages=1
+        const proxyUrl = `/proxy`;
+        const finalUrl = `${proxyUrl}?types=search&source=${source}&name=${encodeURIComponent(keyword)}&count=${count}&pages=${page}`;
+        
+        debugLog(`使用项目自带代理: ${finalUrl}`);
         
         try {
-            // 使用简单的fetch请求，不添加额外的CORS配置
-            const response = await fetch(finalUrl);
+            const response = await fetch(finalUrl, {
+                method: 'GET',
+                headers: {
+                    'Accept': 'application/json'
+                },
+                mode: 'cors'
+            });
             
             debugLog(`响应状态: ${response.status}`);
             
