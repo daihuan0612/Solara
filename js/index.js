@@ -787,10 +787,12 @@ const API = {
     },
 
     search: async (keyword, source = "tx", count = 20, page = 1) => {
-        // 注意：新API不直接支持搜索功能，我们继续使用原有搜索逻辑
-        const oldBaseUrl = "/proxy";
-        const signature = API.generateSignature();
-        const url = `${oldBaseUrl}?types=search&source=${source}&name=${encodeURIComponent(keyword)}&count=${count}&pages=${page}&s=${signature}`;
+        // 使用新API进行搜索
+        let server = "netease";
+        if (source === "tx") {
+            server = "tencent";
+        }
+        const url = `${API.baseUrl}?type=search&keywords=${encodeURIComponent(keyword)}&server=${server}&limit=${count}&offset=${(page - 1) * count}`;
 
         try {
             debugLog(`API请求: ${url}`);
@@ -804,9 +806,9 @@ const API = {
                 name: song.name,
                 artist: song.artist,
                 album: song.album,
-                pic_id: song.pic_id,
-                url_id: song.url_id,
-                lyric_id: song.lyric_id,
+                pic_id: song.pic || song.pic_id,
+                url_id: song.id,
+                lyric_id: song.id,
                 source: source, // 直接使用请求时的source参数，确保每个结果都有正确的音乐源标识
             }));
         } catch (error) {
@@ -2769,14 +2771,7 @@ async function selectPlaybackQuality(quality) {
 
     state.playbackQuality = normalized;
     updateQualityLabel();
-    buildQualityMenu();
     savePlayerState();
-    closePlayerQualityMenu();
-
-    const option = QUALITY_OPTIONS.find(item => item.value === normalized);
-    if (option) {
-        showNotification(`音质已切换为 ${option.label} (${option.description})`);
-    }
 
     if (state.currentSong) {
         const success = await reloadCurrentSong();
@@ -3057,11 +3052,9 @@ function setupInteractions() {
 
     buildSourceMenu();
     updateSourceLabel();
-    buildQualityMenu();
     ensureQualityMenuPortal();
     initializePlaylistEventHandlers();
     initializeFavoritesEventHandlers();
-    updateQualityLabel();
     updatePlayPauseButton();
     const initialTime = state.currentList === "favorite"
         ? state.favoritePlaybackTime
@@ -5151,6 +5144,7 @@ async function playSong(song, options = {}) {
         debugLog(`获取音频URL: ${audioUrl}`);
 
         let primaryAudioUrl;
+        let candidateAudioUrls = [];
         
         try {
             // 尝试将API返回的内容作为JSON处理
@@ -5162,7 +5156,7 @@ async function playSong(song, options = {}) {
                 const originalAudioUrl = audioData.url;
                 const proxiedAudioUrl = buildAudioProxyUrl(originalAudioUrl);
                 const preferredAudioUrl = preferHttpsUrl(originalAudioUrl);
-                const candidateAudioUrls = Array.from(
+                candidateAudioUrls = Array.from(
                     new Set([proxiedAudioUrl, preferredAudioUrl, originalAudioUrl].filter(Boolean))
                 );
 
@@ -5176,11 +5170,13 @@ async function playSong(song, options = {}) {
             } else {
                 // 如果JSON格式不包含url字段，直接使用API URL作为音频流URL
                 primaryAudioUrl = audioUrl;
+                candidateAudioUrls = [primaryAudioUrl];
                 debugLog(`新API直接返回音频流: ${primaryAudioUrl}`);
             }
         } catch (jsonError) {
             // 如果不是JSON格式，直接使用API URL作为音频流URL
             primaryAudioUrl = audioUrl;
+            candidateAudioUrls = [primaryAudioUrl];
             debugLog(`新API直接返回音频流: ${primaryAudioUrl}`);
         }
 
@@ -5273,7 +5269,7 @@ async function playSong(song, options = {}) {
 
         scheduleDeferredSongAssets(song, playPromise);
 
-        debugLog(`开始播放: ${song.name} @${quality}`);
+        debugLog(`开始播放: ${song.name}`);
 
         if (typeof window.__SOLARA_UPDATE_MEDIA_METADATA === 'function') {
             window.__SOLARA_UPDATE_MEDIA_METADATA();
@@ -5829,65 +5825,57 @@ async function downloadSong(song) {
     try {
         showNotification("正在准备下载...");
 
-        const audioUrl = API.getSongUrl(song);
-        debugLog(`获取下载URL: ${audioUrl}`);
+        const apiUrl = API.getSongUrl(song);
+        debugLog(`获取API下载URL: ${apiUrl}`);
         
         let downloadUrl;
         let fileExtension = "mp3";
         
+        // 直接获取音频流，不经过JSON处理
+        const response = await fetch(apiUrl);
+        if (!response.ok) {
+            throw new Error(`请求失败，状态码: ${response.status}`);
+        }
+        
+        // 获取实际的音频URL（可能是重定向后的URL）
+        downloadUrl = response.url;
+        debugLog(`实际下载URL: ${downloadUrl}`);
+        
+        // 解析文件扩展名
         try {
-            // 尝试将API返回的内容作为JSON处理
-            const audioData = await API.fetchJson(audioUrl);
-            debugLog(`新API下载响应(JSON): ${JSON.stringify(audioData).substring(0, 100)}...`);
-
-            if (audioData && audioData.url) {
-                // 如果是JSON格式且包含url字段，使用该url
-                const originalAudioUrl = audioData.url;
-                const proxiedAudioUrl = buildAudioProxyUrl(originalAudioUrl);
-                const preferredAudioUrl = preferHttpsUrl(originalAudioUrl);
-
-                if (proxiedAudioUrl !== originalAudioUrl) {
-                    debugLog(`下载链接已通过代理转换为 HTTPS: ${proxiedAudioUrl}`);
-                } else if (preferredAudioUrl !== originalAudioUrl) {
-                    debugLog(`下载链接由 HTTP 升级为 HTTPS: ${preferredAudioUrl}`);
-                }
-
-                downloadUrl = proxiedAudioUrl || preferredAudioUrl || originalAudioUrl;
-                
-                // 解析文件扩展名
-                fileExtension = (() => {
-                    try {
-                        const url = new URL(audioData.url);
-                        const pathname = url.pathname || "";
-                        const match = pathname.match(/\.([a-z0-9]+)$/i);
-                        if (match) {
-                            return match[1];
-                        }
-                    } catch (error) {
-                        console.warn("无法从下载链接中解析扩展名:", error);
-                    }
-                    return "mp3"; // 默认返回MP3格式
-                })();
-            } else {
-                // 如果JSON格式不包含url字段，直接使用API URL作为下载URL
-                downloadUrl = audioUrl;
-                fileExtension = "mp3"; // 新API默认返回MP3格式
-                debugLog(`新API直接返回下载链接: ${downloadUrl}`);
+            const url = new URL(downloadUrl);
+            const pathname = url.pathname || "";
+            const match = pathname.match(/\.([a-z0-9]+)$/i);
+            if (match) {
+                fileExtension = match[1];
             }
-        } catch (jsonError) {
-            // 如果不是JSON格式，直接使用API URL作为下载URL
-            downloadUrl = audioUrl;
-            fileExtension = "mp3"; // 新API默认返回MP3格式
-            debugLog(`新API直接返回下载链接: ${downloadUrl}`);
+        } catch (error) {
+            console.warn("无法从下载链接中解析扩展名:", error);
+            fileExtension = "mp3"; // 默认返回MP3格式
         }
 
+        // 生成安全的文件名
+        const safeFileName = `${song.name} - ${Array.isArray(song.artist) ? song.artist.join(", ") : song.artist}.${fileExtension}`
+            .replace(/[<>:"/\\|?*]/g, "") // 移除Windows不允许的字符
+            .replace(/\s+/g, " ") // 替换多个空格为单个空格
+            .trim();
+
+        // 使用Blob API获取音频数据并下载
+        const blob = await response.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        
         const link = document.createElement("a");
-        link.href = downloadUrl;
-        link.download = `${song.name} - ${Array.isArray(song.artist) ? song.artist.join(", ") : song.artist}.${fileExtension}`;
+        link.href = blobUrl;
+        link.download = safeFileName;
         link.target = "_blank";
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
+        
+        // 释放Blob URL
+        setTimeout(() => {
+            URL.revokeObjectURL(blobUrl);
+        }, 100);
 
         showNotification("下载已开始", "success");
     } catch (error) {
