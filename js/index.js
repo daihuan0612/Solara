@@ -641,8 +641,10 @@ function buildAudioProxyUrl(url) {
 }
 
 const SOURCE_OPTIONS = [
+    { value: "kw", label: "酷我音乐", enabled: true, searchApi: "fetchSearchMusic", detailApi: "fetchMusicDetail", levels: ["standard", "exhigh", "lossless"] },
+    { value: "wy", label: "网易云音乐", enabled: true, searchApi: "wySearchMusic", detailApi: "wyMusicDetail", levels: ["standard", "exhigh", "lossless", "hires", "sky", "jyeffect", "jymaster"] },
     { value: "tx", label: "QQ音乐", enabled: true, searchApi: "txSearchMusic", detailApi: "txMusicDetail", levels: ["standard", "exhigh", "lossless"] },
-    { value: "wy", label: "网易云音乐", enabled: true, searchApi: "wySearchMusic", detailApi: "wyMusicDetail", levels: ["standard", "exhigh", "lossless", "hires"] }
+    { value: "mg", label: "咪咕音乐", enabled: true, searchApi: "mgSearchMusic", detailApi: "mgMusicDetail", levels: ["standard", "exhigh"] }
 ];
 
 function normalizeSource(value) {
