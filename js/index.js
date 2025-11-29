@@ -794,18 +794,19 @@ const API = {
         debugLog(`搜索关键词: ${keyword}`);
         debugLog(`搜索源: ${source}`);
         
-        // 从README.md和functions/proxy.ts中可以看到，项目使用了Cloudflare Pages Functions作为代理
-        // 代理期望的参数格式：types=search&source=tx&name=关键词&count=20&pages=1
-        // 注意：是types=search而不是type=search，是source=tx而不是server=tencent
+        // 从调试日志来看，项目自带的代理没有正确处理source参数
+        // 让我们直接使用新的API地址，不再使用项目自带的代理
+        let server = "netease";
+        if (source === "tx") {
+            server = "tencent";
+        }
+        
         const encodedKeyword = encodeURIComponent(keyword);
+        // 直接使用新的API地址，不再使用项目自带的代理
+        const finalUrl = `${API.baseUrl}?type=search&keywords=${encodedKeyword}&server=${server}&limit=${count}&offset=${(page - 1) * count}`;
         
-        // 使用项目自带的代理，它会处理CORS问题
-        // 代理会将请求转发到实际的API，并添加正确的CORS头
-        const proxyUrl = `/proxy`;
-        const finalUrl = `${proxyUrl}?types=search&source=${source}&name=${encodedKeyword}&count=${count}&pages=${page}`;
-        
-        debugLog(`使用项目自带代理: ${finalUrl}`);
-        debugLog(`代理期望的参数格式: types=search&source=${source}&name=关键词&count=${count}&pages=${page}`);
+        debugLog(`直接使用新API: ${finalUrl}`);
+        debugLog(`API参数: type=search&keywords=${encodedKeyword}&server=${server}&limit=${count}&offset=${(page - 1) * count}`);
         
         try {
             // 使用fetch请求，添加CORS配置
@@ -814,7 +815,8 @@ const API = {
                 headers: {
                     'Accept': 'application/json'
                 },
-                mode: 'cors'
+                mode: 'cors',
+                credentials: 'omit'
             });
             
             debugLog(`响应状态: ${response.status}`);
@@ -852,7 +854,7 @@ const API = {
             
             debugLog(`处理后得到 ${songs.length} 首歌曲`);
             
-            // 映射歌曲格式
+            // 映射歌曲格式，确保source字段正确设置为传入的source参数
             const result = songs.map((song, index) => {
                 debugLog(`映射第 ${index + 1} 首歌曲: ${song.name || '未知歌曲'}`);
                 return {
@@ -863,7 +865,7 @@ const API = {
                     pic_id: song.pic || song.pic_id || '',
                     url_id: song.id,
                     lyric_id: song.id,
-                    source: source
+                    source: source // 强制设置source字段为传入的source参数，确保不同搜索源返回不同的结果
                 };
             });
             
@@ -5207,39 +5209,16 @@ async function playSong(song, options = {}) {
         let primaryAudioUrl;
         let candidateAudioUrls = [];
         
-        try {
-            // 尝试将API返回的内容作为JSON处理
-            const audioData = await API.fetchJson(audioUrl);
-            debugLog(`新API音频响应(JSON): ${JSON.stringify(audioData).substring(0, 100)}...`);
-
-            if (audioData && audioData.url) {
-                // 如果是JSON格式且包含url字段，使用该url
-                const originalAudioUrl = audioData.url;
-                const proxiedAudioUrl = buildAudioProxyUrl(originalAudioUrl);
-                const preferredAudioUrl = preferHttpsUrl(originalAudioUrl);
-                candidateAudioUrls = Array.from(
-                    new Set([proxiedAudioUrl, preferredAudioUrl, originalAudioUrl].filter(Boolean))
-                );
-
-                primaryAudioUrl = candidateAudioUrls[0] || originalAudioUrl;
-
-                if (proxiedAudioUrl && proxiedAudioUrl !== originalAudioUrl) {
-                    debugLog(`音频地址已通过代理转换为 HTTPS: ${proxiedAudioUrl}`);
-                } else if (preferredAudioUrl && preferredAudioUrl !== originalAudioUrl) {
-                    debugLog(`音频地址由 HTTP 升级为 HTTPS: ${preferredAudioUrl}`);
-                }
-            } else {
-                // 如果JSON格式不包含url字段，直接使用API URL作为音频流URL
-                primaryAudioUrl = audioUrl;
-                candidateAudioUrls = [primaryAudioUrl];
-                debugLog(`新API直接返回音频流: ${primaryAudioUrl}`);
-            }
-        } catch (jsonError) {
-            // 如果不是JSON格式，直接使用API URL作为音频流URL
-            primaryAudioUrl = audioUrl;
-            candidateAudioUrls = [primaryAudioUrl];
-            debugLog(`新API直接返回音频流: ${primaryAudioUrl}`);
-        }
+        // 修复：直接使用音频流URL，不再尝试JSON处理
+        // 新API直接返回音频流，不是JSON格式
+        primaryAudioUrl = audioUrl;
+        candidateAudioUrls = [primaryAudioUrl];
+        debugLog(`新API直接返回音频流: ${primaryAudioUrl}`);
+        
+        // 添加项目自带的代理支持，解决CORS问题
+        const proxyAudioUrl = `/proxy?target=${encodeURIComponent(primaryAudioUrl)}`;
+        candidateAudioUrls.push(proxyAudioUrl);
+        debugLog(`添加项目自带代理URL: ${proxyAudioUrl}`);
 
         state.currentSong = song;
         state.currentAudioUrl = null;
@@ -5892,8 +5871,12 @@ async function downloadSong(song) {
         let downloadUrl;
         let fileExtension = "mp3";
         
-        // 直接获取音频流，不经过JSON处理
-        const response = await fetch(apiUrl);
+        // 尝试使用项目自带的代理解决CORS问题
+        const proxyUrl = `/proxy?target=${encodeURIComponent(apiUrl)}`;
+        debugLog(`使用项目自带代理下载: ${proxyUrl}`);
+        
+        // 使用代理URL获取音频数据
+        const response = await fetch(proxyUrl);
         if (!response.ok) {
             throw new Error(`请求失败，状态码: ${response.status}`);
         }
@@ -5941,7 +5924,25 @@ async function downloadSong(song) {
         showNotification("下载已开始", "success");
     } catch (error) {
         console.error("下载失败:", error);
-        showNotification("下载失败，请稍后重试", "error");
+        debugLog(`下载失败详情: ${error.message}`);
+        debugLog(`错误堆栈: ${error.stack}`);
+        
+        // 如果代理下载失败，尝试直接下载
+        debugLog("尝试直接下载...");
+        try {
+            const directUrl = API.getSongUrl(song);
+            const link = document.createElement("a");
+            link.href = directUrl;
+            link.download = `${song.name} - ${Array.isArray(song.artist) ? song.artist.join(", ") : song.artist}.mp3`;
+            link.target = "_blank";
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            showNotification("下载已开始", "success");
+        } catch (directError) {
+            console.error("直接下载也失败:", directError);
+            showNotification("下载失败，请稍后重试", "error");
+        }
     }
 }
 
