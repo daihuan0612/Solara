@@ -4070,12 +4070,14 @@ function importSelectedSearchResults(target = "playlist") {
     let duplicates = 0;
 
     songsToAdd.forEach((song) => {
-        const key = getSongKey(song);
+        // 修复：导入到播放列表时，也需要对歌曲对象进行处理，确保它有正确的格式
+        const normalized = sanitizeImportedSong(song) || song;
+        const key = getSongKey(normalized);
         if (key && existingKeys.has(key)) {
             duplicates++;
             return;
         }
-        state.playlistSongs.push(song);
+        state.playlistSongs.push(normalized);
         if (key) {
             existingKeys.add(key);
         }
@@ -4364,9 +4366,10 @@ function sanitizeImportedSong(rawSong) {
 
     const normalized = { ...rawSong, name };
     const sourceCandidate = rawSong.source || rawSong.platform || rawSong.provider || rawSong.vendor;
+    // 修复：如果sourceCandidate为空，不要默认设置为"netease"，保留原始值或使用当前搜索源
     normalized.source = typeof sourceCandidate === "string" && sourceCandidate.trim() !== ""
         ? sourceCandidate.trim()
-        : "netease";
+        : (rawSong.source || "netease");
 
     const resolvedId = resolveSongId(rawSong);
     if (resolvedId) {
