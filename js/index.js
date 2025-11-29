@@ -794,19 +794,19 @@ const API = {
         debugLog(`搜索关键词: ${keyword}`);
         debugLog(`搜索源: ${source}`);
         
-        // 从web搜索结果来看，API返回了"请输入参数"的提示，说明API期望的参数格式不正确
-        // 从functions/proxy.ts中可以看到，项目使用了Cloudflare Pages Functions作为代理
-        // 代理期望的参数格式：types=search&source=tx&name=关键词&count=20&pages=1
-        // 注意：是types=search而不是type=search，是source=tx而不是server=tencent
+        // 从调试日志来看，项目自带的代理没有正确处理source参数
+        // 让我们直接使用新的API地址，并根据搜索源设置不同的server参数
+        let server = "netease";
+        if (source === "tx") {
+            server = "tencent";
+        }
+        
         const encodedKeyword = encodeURIComponent(keyword);
+        // 直接使用新的API地址，不再使用项目自带的代理
+        const finalUrl = `${API.baseUrl}?type=search&keywords=${encodedKeyword}&server=${server}&limit=${count}&offset=${(page - 1) * count}`;
         
-        // 使用项目自带的代理，它会处理CORS问题
-        // 代理会将请求转发到实际的API，并添加正确的CORS头
-        const proxyUrl = `/proxy`;
-        const finalUrl = `${proxyUrl}?types=search&source=${source}&name=${encodedKeyword}&count=${count}&pages=${page}`;
-        
-        debugLog(`使用项目自带代理: ${finalUrl}`);
-        debugLog(`代理期望的参数格式: types=search&source=${source}&name=关键词&count=${count}&pages=${page}`);
+        debugLog(`直接使用新API: ${finalUrl}`);
+        debugLog(`API参数: type=search&keywords=${encodedKeyword}&server=${server}&limit=${count}&offset=${(page - 1) * count}`);
         
         try {
             // 使用fetch请求，添加CORS配置
@@ -815,7 +815,8 @@ const API = {
                 headers: {
                     'Accept': 'application/json'
                 },
-                mode: 'cors'
+                mode: 'cors',
+                credentials: 'omit'
             });
             
             debugLog(`响应状态: ${response.status}`);
@@ -882,8 +883,79 @@ const API = {
         } catch (error) {
             debugLog(`搜索错误: ${error.message}`);
             debugLog(`错误堆栈: ${error.stack}`);
-            debugLog(`=== 搜索结束（失败） ===`);
-            return [];
+            
+            // 如果直接API请求失败，尝试使用项目自带的代理
+            debugLog(`尝试使用项目自带代理...`);
+            try {
+                // 使用项目自带的代理，它会处理CORS问题
+                const proxyUrl = `/proxy`;
+                const proxyFinalUrl = `${proxyUrl}?types=search&source=${source}&name=${encodeURIComponent(keyword)}&count=${count}&pages=${page}`;
+                
+                debugLog(`使用项目自带代理: ${proxyFinalUrl}`);
+                
+                const proxyResponse = await fetch(proxyFinalUrl, {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json'
+                    },
+                    mode: 'cors'
+                });
+                
+                debugLog(`代理响应状态: ${proxyResponse.status}`);
+                
+                if (!proxyResponse.ok) {
+                    throw new Error(`HTTP错误! 状态: ${proxyResponse.status}`);
+                }
+                
+                const proxyResponseText = await proxyResponse.text();
+                debugLog(`代理响应原始文本: ${proxyResponseText}`);
+                
+                let proxyParsedData;
+                try {
+                    proxyParsedData = JSON.parse(proxyResponseText);
+                    debugLog(`代理解析后的数据类型: ${typeof proxyParsedData}`);
+                } catch (proxyParseError) {
+                    debugLog(`代理JSON解析失败: ${proxyParseError.message}`);
+                    proxyParsedData = null;
+                }
+                
+                // 处理搜索结果
+                let proxySongs = [];
+                if (Array.isArray(proxyParsedData)) {
+                    proxySongs = proxyParsedData;
+                } else if (proxyParsedData && Array.isArray(proxyParsedData.songs)) {
+                    proxySongs = proxyParsedData.songs;
+                } else if (proxyParsedData && typeof proxyParsedData === 'object') {
+                    proxySongs = [proxyParsedData];
+                }
+                
+                debugLog(`代理处理后得到 ${proxySongs.length} 首歌曲`);
+                
+                // 映射歌曲格式，确保source字段正确设置为传入的source参数
+                const proxyResult = proxySongs.map((song, index) => {
+                    // 强制覆盖source字段为传入的source参数，确保不同搜索源返回不同的结果
+                    return {
+                        id: song.id,
+                        name: song.name || '未知歌曲',
+                        artist: song.artist || '未知艺术家',
+                        album: song.album || '未知专辑',
+                        pic_id: song.pic || song.pic_id || '',
+                        url_id: song.id,
+                        lyric_id: song.id,
+                        source: source // 强制设置为当前搜索源
+                    };
+                });
+                
+                debugLog(`代理映射完成，返回 ${proxyResult.length} 首歌曲`);
+                debugLog(`=== 搜索结束 ===`);
+                return proxyResult;
+                
+            } catch (proxyError) {
+                debugLog(`代理搜索错误: ${proxyError.message}`);
+                debugLog(`代理错误堆栈: ${proxyError.stack}`);
+                debugLog(`=== 搜索结束（失败） ===`);
+                return [];
+            }
         }
     },
 
@@ -5678,13 +5750,55 @@ async function loadLyrics(song) {
     try {
         const lyricUrl = API.getLyric(song);
         debugLog(`获取歌词URL: ${lyricUrl}`);
+        debugLog(`当前歌曲信息: ${JSON.stringify(song).substring(0, 100)}...`);
 
-        // 新API返回JSON数据，包含lrc字段
-        const lyricData = await API.fetchJson(lyricUrl);
-        debugLog(`新API歌词响应: ${JSON.stringify(lyricData).substring(0, 100)}...`);
+        // 直接获取歌词数据，不经过JSON处理
+        const response = await fetch(lyricUrl, {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json, text/plain'
+            },
+            mode: 'cors',
+            credentials: 'omit'
+        });
+        
+        debugLog(`歌词响应状态: ${response.status}`);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP错误! 状态: ${response.status}`);
+        }
+        
+        const responseText = await response.text();
+        debugLog(`歌词响应原始文本: ${responseText}`);
+        
+        let lyricData;
+        let lyricContent;
+        
+        try {
+            // 尝试将响应作为JSON处理
+            lyricData = JSON.parse(responseText);
+            debugLog(`歌词JSON解析成功: ${typeof lyricData}`);
+            
+            // 从JSON中提取lrc字段
+            if (lyricData && lyricData.lrc) {
+                lyricContent = lyricData.lrc;
+                debugLog(`从JSON中提取歌词: ${lyricContent.substring(0, 100)}...`);
+            } else if (lyricData && typeof lyricData === 'string') {
+                // 如果JSON解析后是字符串，直接使用
+                lyricContent = lyricData;
+                debugLog(`歌词JSON解析后是字符串: ${lyricContent.substring(0, 100)}...`);
+            } else {
+                throw new Error(`歌词JSON格式错误，缺少lrc字段`);
+            }
+        } catch (parseError) {
+            // 如果JSON解析失败，直接将响应文本作为歌词
+            debugLog(`歌词JSON解析失败，尝试直接使用响应文本: ${parseError.message}`);
+            lyricContent = responseText;
+            debugLog(`直接使用响应文本作为歌词: ${lyricContent.substring(0, 100)}...`);
+        }
 
-        if (lyricData && lyricData.lrc) {
-            parseLyrics(lyricData.lrc);
+        if (lyricContent) {
+            parseLyrics(lyricContent);
             dom.lyrics.classList.remove("empty");
             dom.lyrics.dataset.placeholder = "default";
             debugLog(`歌词加载成功: ${state.lyricsData.length} 行`);
@@ -5698,12 +5812,13 @@ async function loadLyrics(song) {
         }
     } catch (error) {
         console.error("加载歌词失败:", error);
+        debugLog(`歌词加载失败详情: ${error.message}`);
+        debugLog(`错误堆栈: ${error.stack}`);
         setLyricsContentHtml("<div>歌词加载失败</div>");
         dom.lyrics.classList.add("empty");
         dom.lyrics.dataset.placeholder = "message";
         state.lyricsData = [];
         state.currentLyricLine = -1;
-        debugLog(`歌词加载失败: ${error}`);
     }
 }
 
@@ -5917,7 +6032,8 @@ async function downloadSong(song) {
         const link = document.createElement("a");
         link.href = blobUrl;
         link.download = safeFileName;
-        link.target = "_blank";
+        // 移除target="_blank"，避免跳转到新标签页
+        // link.target = "_blank";
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -5940,7 +6056,8 @@ async function downloadSong(song) {
             const link = document.createElement("a");
             link.href = directUrl;
             link.download = `${song.name} - ${Array.isArray(song.artist) ? song.artist.join(", ") : song.artist}.mp3`;
-            link.target = "_blank";
+            // 移除target="_blank"，避免跳转到新标签页
+            // link.target = "_blank";
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
