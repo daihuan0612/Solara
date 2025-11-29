@@ -813,7 +813,7 @@ const API = {
                 pic_id: song.pic_id,
                 url_id: song.url_id,
                 lyric_id: song.lyric_id,
-                source: song.source,
+                source: song.source || source, // 如果API响应中没有source字段，使用请求时的source参数作为fallback
             }));
         } catch (error) {
             debugLog(`API错误: ${error.message}`);
@@ -3079,6 +3079,13 @@ function setupInteractions() {
         safeSetLocalStorage("theme", isDark ? "dark" : "light");
     });
 
+    // 添加歌词全屏切换功能
+    if (dom.lyrics) {
+        dom.lyrics.addEventListener("click", () => {
+            document.body.classList.toggle("lyrics-fullscreen");
+        });
+    }
+
     dom.audioPlayer.volume = state.volume;
     dom.volumeSlider.value = state.volume;
     updateVolumeSliderBackground(state.volume);
@@ -3702,8 +3709,15 @@ function createSearchResultItem(song, index) {
     const albumText = song.album ? ` - ${song.album}` : "";
     artist.textContent = `${artistName}${albumText}`;
 
+    // 添加音乐源标签
+    const sourceLabel = document.createElement("div");
+    sourceLabel.className = "search-result-source";
+    const sourceOption = SOURCE_OPTIONS.find(option => option.value === song.source);
+    sourceLabel.textContent = sourceOption ? sourceOption.label : song.source || "未知源";
+
     info.appendChild(title);
     info.appendChild(artist);
+    info.appendChild(sourceLabel);
 
     const actions = document.createElement("div");
     actions.className = "search-result-actions";
