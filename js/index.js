@@ -642,8 +642,6 @@ function buildAudioProxyUrl(url) {
 
 const SOURCE_OPTIONS = [
     { value: "tx", label: "QQ音乐", enabled: true, searchApi: "txSearchMusic", detailApi: "txMusicDetail", levels: ["standard", "exhigh", "lossless"] },
-    { value: "kw", label: "酷我音乐", enabled: true, searchApi: "fetchSearchMusic", detailApi: "fetchMusicDetail", levels: ["standard", "exhigh", "lossless"] },
-    { value: "mg", label: "咪咕音乐", enabled: true, searchApi: "mgSearchMusic", detailApi: "mgMusicDetail", levels: ["standard", "exhigh"] },
     { value: "wy", label: "网易云音乐", enabled: true, searchApi: "wySearchMusic", detailApi: "wyMusicDetail", levels: ["standard", "exhigh", "lossless", "hires"] }
 ];
 
@@ -763,11 +761,7 @@ const savedCurrentPlaylist = (() => {
 
 // API配置 - 恢复使用原来的API接口
 const API = {
-    baseUrl: "/proxy",
-
-    generateSignature: () => {
-        return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-    },
+    baseUrl: "https://api.nxvav.cn/api/music/", // 只使用新API
 
     fetchJson: async (url) => {
         try {
@@ -795,8 +789,10 @@ const API = {
     },
 
     search: async (keyword, source = "tx", count = 20, page = 1) => {
-        const signature = API.generateSignature();
-        const url = `${API.baseUrl}?types=search&source=${source}&name=${encodeURIComponent(keyword)}&count=${count}&pages=${page}&s=${signature}`;
+        // 注意：新API不直接支持搜索功能，我们继续使用原有搜索逻辑
+        const oldBaseUrl = "/proxy";
+        const signature = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+        const url = `${oldBaseUrl}?types=search&source=${source}&name=${encodeURIComponent(keyword)}&count=${count}&pages=${page}&s=${signature}`;
 
         try {
             debugLog(`API请求: ${url}`);
@@ -822,92 +818,23 @@ const API = {
     },
 
     getRadarPlaylist: async (playlistId = "3778678", options = {}) => {
-        const signature = API.generateSignature();
-
-        let limit = 50;
-        let offset = 0;
-
-        if (typeof options === "number") {
-            limit = options;
-        } else if (options && typeof options === "object") {
-            if (Number.isFinite(options.limit)) {
-                limit = options.limit;
-            } else if (Number.isFinite(options.count)) {
-                limit = options.count;
-            }
-            if (Number.isFinite(options.offset)) {
-                offset = options.offset;
-            }
-        }
-
-        limit = Math.max(1, Math.min(200, Math.trunc(limit)) || 50);
-        offset = Math.max(0, Math.trunc(offset) || 0);
-
-        const params = new URLSearchParams({
-            types: "playlist",
-            id: playlistId,
-            limit: String(limit),
-            offset: String(offset),
-            s: signature,
-        });
-        const url = `${API.baseUrl}?${params.toString()}`;
-
-        try {
-            const data = await API.fetchJson(url);
-            const tracks = data && data.playlist && Array.isArray(data.playlist.tracks)
-                ? data.playlist.tracks.slice(0, limit)
-                : [];
-
-            if (tracks.length === 0) throw new Error("No tracks found");
-
-            return tracks.map(track => ({
-                id: track.id,
-                name: track.name,
-                artist: Array.isArray(track.ar) ? track.ar.map(artist => artist.name).join(" / ") : "",
-                source: "wy",
-                lyric_id: track.id,
-                pic_id: track.al?.pic_str || track.al?.pic || track.al?.picUrl || "",
-            }));
-        } catch (error) {
-            console.error("API request failed:", error);
-            throw error;
-        }
+        // 新API不支持歌单功能，返回空数组
+        return [];
     },
 
     getSongUrl: (song, quality = "320") => {
-        // 网易云和QQ音乐使用新API，其他音乐源使用原版API
-        if (song.source === "tx" || song.source === "wy") {
-            // 新API格式，与示例链接格式一致
-            return `https://api.nxvav.cn/api/music/?type=url&id=${song.id}`;
-        } else {
-            // 原版API格式
-            const signature = API.generateSignature();
-            return `${API.baseUrl}?types=url&id=${song.id}&source=${song.source || "tx"}&br=${quality}&s=${signature}`;
-        }
+        // 只使用新API，直接返回音频流URL
+        return `${API.baseUrl}?type=url&id=${song.id}`;
     },
 
     getLyric: (song) => {
-        // 网易云和QQ音乐使用新API，其他音乐源使用原版API
-        if (song.source === "tx" || song.source === "wy") {
-            // 新API格式，与示例链接格式一致
-            return `https://api.nxvav.cn/api/music/?type=lrc&id=${song.id}`;
-        } else {
-            // 原版API格式
-            const signature = API.generateSignature();
-            return `${API.baseUrl}?types=lyric&id=${song.lyric_id || song.id}&source=${song.source || "tx"}&s=${signature}`;
-        }
+        // 只使用新API，直接返回歌词URL
+        return `${API.baseUrl}?type=lrc&id=${song.id}`;
     },
 
     getPicUrl: (song) => {
-        // 网易云和QQ音乐使用新API，其他音乐源使用原版API
-        if (song.source === "tx" || song.source === "wy") {
-            // 新API格式，与示例链接格式一致
-            return `https://api.nxvav.cn/api/music/?type=pic&id=${song.id}`;
-        } else {
-            // 原版API格式
-            const signature = API.generateSignature();
-            return `${API.baseUrl}?types=pic&id=${song.pic_id}&source=${song.source || "tx"}&size=300&s=${signature}`;
-        }
+        // 只使用新API，直接返回图片URL
+        return `${API.baseUrl}?type=pic&id=${song.id}`;
     }
 };
 
