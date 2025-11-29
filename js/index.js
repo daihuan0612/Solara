@@ -862,7 +862,7 @@ const state = {
     currentPlaylist: savedCurrentPlaylist, // 'online', 'search', or 'playlist'
     searchPage: savedLastSearchState?.page || 1,
     searchKeyword: savedLastSearchState?.keyword || "", // 确保这里有初始值
-    searchSource: savedLastSearchState ? savedLastSearchState.source : savedSearchSource,
+    searchSource: savedSearchSource, // 直接使用从localStorage加载的搜索源，不再依赖lastSearchState
     hasMoreResults: typeof savedLastSearchState?.hasMore === "boolean" ? savedLastSearchState.hasMore : true,
     currentSong: savedCurrentSong,
     currentArtworkUrl: null,
@@ -1952,9 +1952,7 @@ function showSearchResults(options = {}) {
     if (state.sourceMenuOpen) {
         scheduleSourceMenuPositionUpdate();
     }
-    if (state.qualityMenuOpen) {
-        schedulePlayerQualityMenuPositionUpdate();
-    }
+    // 移除对state.qualityMenuOpen的引用，因为我们已经移除了音质选择功能
     if (restore) {
         restoreSearchResultsList();
     }
@@ -1966,9 +1964,7 @@ function hideSearchResults() {
     if (state.sourceMenuOpen) {
         scheduleSourceMenuPositionUpdate();
     }
-    if (state.qualityMenuOpen) {
-        schedulePlayerQualityMenuPositionUpdate();
-    }
+    // 移除对state.qualityMenuOpen的引用，因为我们已经移除了音质选择功能
     // 立即清空搜索结果内容
     const container = dom.searchResultsList || dom.searchResults;
     if (container) {
@@ -2504,11 +2500,20 @@ function selectSearchSource(source) {
         closeSourceMenu();
         return;
     }
+    debugLog(`切换搜索源: ${state.searchSource} -> ${normalized}`);
     state.searchSource = normalized;
     safeSetLocalStorage("searchSource", normalized);
     updateSourceLabel();
     buildSourceMenu();
     closeSourceMenu();
+    // 切换搜索源后，清空搜索结果，让用户可以重新搜索
+    state.searchResults = [];
+    state.renderedSearchCount = 0;
+    state.hasMoreResults = true;
+    const listContainer = dom.searchResultsList || dom.searchResults;
+    if (listContainer) {
+        listContainer.innerHTML = "";
+    }
 }
 
 function buildQualityMenu() {
@@ -3710,30 +3715,9 @@ function createSearchResultItem(song, index) {
     downloadButton.innerHTML = '<i class="fas fa-download"></i>';
     downloadButton.addEventListener("click", (event) => {
         event.stopPropagation();
-        showQualityMenu(event, index, "search");
+        // 移除音质选择功能，直接调用downloadSong函数
+        downloadSong(state.searchResults[index]);
     });
-
-    const qualityMenu = document.createElement("div");
-    qualityMenu.className = "quality-menu";
-
-    const qualityOptions = [
-        { label: "标准音质", suffix: " (128k)", quality: "128" },
-        { label: "高音质", suffix: " (192k)", quality: "192" },
-        { label: "超高音质", suffix: " (320k)", quality: "320" },
-        { label: "无损音质", suffix: "", quality: "999" },
-    ];
-
-    qualityOptions.forEach(option => {
-        const qualityItem = document.createElement("div");
-        qualityItem.className = "quality-option";
-        qualityItem.textContent = `${option.label}${option.suffix}`;
-        qualityItem.addEventListener("click", (event) => {
-            downloadWithQuality(event, index, "search", option.quality);
-        });
-        qualityMenu.appendChild(qualityItem);
-    });
-
-    downloadButton.appendChild(qualityMenu);
 
     actions.appendChild(favoriteButton);
     actions.appendChild(playButton);
@@ -4038,49 +4022,8 @@ function displaySearchResults(newItems, options = {}) {
 }
 
 // 显示质量选择菜单
+// 移除音质选择功能，直接下载
 function showQualityMenu(event, index, type) {
-    event.stopPropagation();
-
-    // 移除现有的质量菜单
-    const existingMenu = document.querySelector(".dynamic-quality-menu");
-    if (existingMenu) {
-        existingMenu.remove();
-    }
-
-    // 创建新的质量菜单
-    const menu = document.createElement("div");
-    menu.className = "dynamic-quality-menu";
-    menu.innerHTML = `
-        <div class="quality-option" onclick="downloadWithQuality(event, ${index}, '${type}', '128')">标准音质 (128k)</div>
-        <div class="quality-option" onclick="downloadWithQuality(event, ${index}, '${type}', '192')">高音质 (192k)</div>
-        <div class="quality-option" onclick="downloadWithQuality(event, ${index}, '${type}', '320')">超高音质 (320k)</div>
-        <div class="quality-option" onclick="downloadWithQuality(event, ${index}, '${type}', '999')">无损音质</div>
-    `;
-
-    // 设置菜单位置
-    const button = event.target.closest("button");
-    const rect = button.getBoundingClientRect();
-    menu.style.position = "fixed";
-    menu.style.top = (rect.bottom + 5) + "px";
-    menu.style.left = (rect.left - 50) + "px";
-    menu.style.zIndex = "10000";
-
-    // 添加到body
-    document.body.appendChild(menu);
-
-    // 点击其他地方关闭菜单
-    setTimeout(() => {
-        document.addEventListener("click", function closeMenu(e) {
-            if (!menu.contains(e.target)) {
-                menu.remove();
-                document.removeEventListener("click", closeMenu);
-            }
-        });
-    }, 0);
-}
-
-// 根据质量下载 - 支持播放列表模式
-async function downloadWithQuality(event, index, type, quality) {
     event.stopPropagation();
     let song;
 
@@ -4096,12 +4039,30 @@ async function downloadWithQuality(event, index, type, quality) {
 
     if (!song) return;
 
-    // 关闭菜单并移除 menu-active 类
-    document.querySelectorAll(".quality-menu").forEach(menu => {
-        menu.classList.remove("show");
-        const parentItem = menu.closest(".search-result-item");
-        if (parentItem) parentItem.classList.remove("menu-active");
-    });
+    try {
+        downloadSong(song);
+    } catch (error) {
+        console.error("下载失败:", error);
+        showNotification("下载失败，请稍后重试", "error");
+    }
+}
+
+// 移除音质选择功能，直接下载
+async function downloadWithQuality(event, index, type) {
+    event.stopPropagation();
+    let song;
+
+    if (type === "search") {
+        song = state.searchResults[index];
+    } else if (type === "online") {
+        song = state.onlineSongs[index];
+    } else if (type === "playlist") {
+        song = state.playlistSongs[index];
+    } else if (type === "favorites") {
+        song = state.favoriteSongs[index];
+    }
+
+    if (!song) return;
 
     // 关闭动态质量菜单
     const dynamicMenu = document.querySelector(".dynamic-quality-menu");
@@ -4110,7 +4071,7 @@ async function downloadWithQuality(event, index, type, quality) {
     }
 
     try {
-        await downloadSong(song, quality);
+        await downloadSong(song);
     } catch (error) {
         console.error("下载失败:", error);
         showNotification("下载失败，请稍后重试", "error");
