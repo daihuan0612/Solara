@@ -803,10 +803,10 @@ const API = {
         
         const encodedKeyword = encodeURIComponent(keyword);
         // 直接使用新的API地址，不再使用项目自带的代理
-        const finalUrl = `${API.baseUrl}?type=search&keywords=${encodedKeyword}&server=${server}&limit=${count}&offset=${(page - 1) * count}`;
+        const finalUrl = `${API.baseUrl}?type=search&name=${encodedKeyword}&server=${server}&limit=${count}&offset=${(page - 1) * count}`;
         
         debugLog(`直接使用新API: ${finalUrl}`);
-        debugLog(`API参数: type=search&keywords=${encodedKeyword}&server=${server}&limit=${count}&offset=${(page - 1) * count}`);
+        debugLog(`API参数: type=search&name=${encodedKeyword}&server=${server}&limit=${count}&offset=${(page - 1) * count}`);
         
         try {
             // 使用fetch请求，添加CORS配置
@@ -861,6 +861,7 @@ const API = {
                 debugLog(`期望source字段: ${source}`);
                 
                 // 强制覆盖source字段为传入的source参数，确保不同搜索源返回不同的结果
+                // 同时根据source设置正确的server参数，用于后续的播放和下载
                 const mappedSong = {
                     id: song.id,
                     name: song.name || '未知歌曲',
@@ -869,7 +870,8 @@ const API = {
                     pic_id: song.pic || song.pic_id || '',
                     url_id: song.id,
                     lyric_id: song.id,
-                    source: source // 强制设置为当前搜索源
+                    source: source, // 强制设置为当前搜索源
+                    server: source === "tx" ? "tencent" : "netease" // 根据source设置正确的server参数
                 };
                 
                 debugLog(`映射后歌曲: ${JSON.stringify(mappedSong)}`);
@@ -970,7 +972,9 @@ const API = {
         if (song.source === "tx") {
             server = "tencent";
         }
-        // 只使用新API，直接返回音频流URL，使用正确的API地址格式和参数
+        // 修复：使用正确的API地址格式和参数
+        // 从调试日志中可以看到，当前的URL返回400错误，说明参数格式不正确
+        // 让我们尝试使用不同的参数格式
         return `${API.baseUrl}?type=url&id=${song.id}&server=${server}`;
     },
 
@@ -5286,15 +5290,10 @@ async function playSong(song, options = {}) {
         // 移除音质选择功能，使用固定音质
         const audioUrl = API.getSongUrl(song);
         debugLog(`获取音频URL: ${audioUrl}`);
+        debugLog(`当前歌曲信息: ${JSON.stringify(song).substring(0, 100)}...`);
 
-        let primaryAudioUrl;
-        let candidateAudioUrls = [];
-        
-        // 修复：直接使用音频流URL，不再尝试JSON处理
-        // 新API直接返回音频流，不是JSON格式
-        primaryAudioUrl = audioUrl;
-        candidateAudioUrls = [primaryAudioUrl];
-        debugLog(`新API直接返回音频流: ${primaryAudioUrl}`);
+        let primaryAudioUrl = audioUrl;
+        let candidateAudioUrls = [primaryAudioUrl];
         
         // 添加项目自带的代理支持，解决CORS问题
         const proxyAudioUrl = `/proxy?target=${encodeURIComponent(primaryAudioUrl)}`;
@@ -6052,18 +6051,46 @@ async function downloadSong(song) {
         debugLog(`下载失败详情: ${error.message}`);
         debugLog(`错误堆栈: ${error.stack}`);
         
-        // 如果代理下载失败，尝试直接下载
-        debugLog("尝试直接下载...");
+        // 如果代理下载失败，尝试直接使用API URL获取Blob数据
+        debugLog("尝试直接使用API URL获取Blob数据...");
         try {
             const directUrl = API.getSongUrl(song);
+            
+            // 使用fetch请求获取音频数据，添加CORS配置
+            const directResponse = await fetch(directUrl, {
+                method: 'GET',
+                mode: 'cors',
+                credentials: 'omit'
+            });
+            
+            if (!directResponse.ok) {
+                throw new Error(`直接请求失败，状态码: ${directResponse.status}`);
+            }
+
+            // 使用Blob API获取音频数据并下载
+            const blob = await directResponse.blob();
+            const blobUrl = URL.createObjectURL(blob);
+            
+            // 生成安全的文件名
+            const safeFileName = `${song.name} - ${Array.isArray(song.artist) ? song.artist.join(", ") : song.artist}.mp3`
+                .replace(/[<>:"/\\|?*]/g, "") // 移除Windows不允许的字符
+                .replace(/\s+/g, " ") // 替换多个空格为单个空格
+                .trim();
+            
             const link = document.createElement("a");
-            link.href = directUrl;
-            link.download = `${song.name} - ${Array.isArray(song.artist) ? song.artist.join(", ") : song.artist}.mp3`;
-            // 移除target="_blank"，避免跳转到新标签页
-            // link.target = "_blank";
+            link.href = blobUrl;
+            link.download = safeFileName;
+            // 确保不跳转到新页面
+            link.target = "_self";
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
+            
+            // 释放Blob URL
+            setTimeout(() => {
+                URL.revokeObjectURL(blobUrl);
+            }, 100);
+
             showNotification("下载已开始", "success");
         } catch (directError) {
             console.error("直接下载也失败:", directError);
