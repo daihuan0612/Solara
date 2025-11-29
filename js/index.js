@@ -5899,27 +5899,36 @@ async function downloadSong(song) {
     try {
         showNotification("正在准备下载...");
 
-        const apiUrl = API.getSongUrl(song);
-        debugLog(`获取API下载URL: ${apiUrl}`);
-        
-        let downloadUrl;
-        let fileExtension = "mp3";
-        
-        // 尝试使用项目自带的代理解决CORS问题
-        const proxyUrl = `/proxy?target=${encodeURIComponent(apiUrl)}`;
+        // 直接使用项目自带的代理，不再使用API.getSongUrl
+        // 从调试日志来看，API.getSongUrl返回的URL格式不正确，导致下载失败
+        const proxyUrl = `/proxy?types=url&source=${song.source}&id=${song.id}`;
         debugLog(`使用项目自带代理下载: ${proxyUrl}`);
         
         // 使用代理URL获取音频数据
-        const response = await fetch(proxyUrl);
+        const response = await fetch(proxyUrl, {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json'
+            },
+            mode: 'cors'
+        });
+        
         if (!response.ok) {
             throw new Error(`请求失败，状态码: ${response.status}`);
         }
         
         // 获取实际的音频URL（可能是重定向后的URL）
-        downloadUrl = response.url;
+        const responseData = await response.json();
+        const downloadUrl = responseData.url || '';
+        
+        if (!downloadUrl) {
+            throw new Error('未获取到下载链接');
+        }
+        
         debugLog(`实际下载URL: ${downloadUrl}`);
         
         // 解析文件扩展名
+        let fileExtension = "mp3";
         try {
             const url = new URL(downloadUrl);
             const pathname = url.pathname || "";
@@ -5939,14 +5948,19 @@ async function downloadSong(song) {
             .trim();
 
         // 使用Blob API获取音频数据并下载
-        const blob = await response.blob();
+        const audioResponse = await fetch(downloadUrl);
+        if (!audioResponse.ok) {
+            throw new Error(`音频下载失败，状态码: ${audioResponse.status}`);
+        }
+        
+        const blob = await audioResponse.blob();
         const blobUrl = URL.createObjectURL(blob);
         
         const link = document.createElement("a");
         link.href = blobUrl;
         link.download = safeFileName;
-        // 移除target="_blank"，避免跳转到新标签页
-        // link.target = "_blank";
+        // 确保不跳转到新页面
+        link.target = "_self";
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -5961,9 +5975,6 @@ async function downloadSong(song) {
         console.error("下载失败:", error);
         debugLog(`下载失败详情: ${error.message}`);
         debugLog(`错误堆栈: ${error.stack}`);
-        
-        // 如果代理下载失败，显示错误信息
-        console.error("下载失败:", error);
         showNotification("下载失败，请稍后重试", "error");
     }
 }
