@@ -641,9 +641,10 @@ function buildAudioProxyUrl(url) {
 }
 
 const SOURCE_OPTIONS = [
-    { value: "netease", label: "网易云音乐" },
-    { value: "kuwo", label: "酷我音乐" },
-    { value: "joox", label: "JOOX音乐" }
+    { value: "wy", label: "网易云", enabled: true, searchApi: "wySearchMusic", detailApi: "wyMusicDetail", levels: ["standard", "exhigh", "lossless", "hires"] },
+    { value: "kw", label: "酷我", enabled: true, searchApi: "fetchSearchMusic", detailApi: "fetchMusicDetail", levels: ["standard", "exhigh", "lossless"] },
+    { value: "tx", label: "QQ", enabled: true, searchApi: "txSearchMusic", detailApi: "txMusicDetail", levels: ["standard", "exhigh", "lossless"] },
+    { value: "mg", label: "咪咕", enabled: true, searchApi: "mgSearchMusic", detailApi: "mgMusicDetail", levels: ["standard", "exhigh"] }
 ];
 
 function normalizeSource(value) {
@@ -793,7 +794,7 @@ const API = {
         }
     },
 
-    search: async (keyword, source = "netease", count = 20, page = 1) => {
+    search: async (keyword, source = "wy", count = 20, page = 1) => {
         const signature = API.generateSignature();
         const url = `${API.baseUrl}?types=search&source=${source}&name=${encodeURIComponent(keyword)}&count=${count}&pages=${page}&s=${signature}`;
 
@@ -875,17 +876,17 @@ const API = {
 
     getSongUrl: (song, quality = "320") => {
         const signature = API.generateSignature();
-        return `${API.baseUrl}?types=url&id=${song.id}&source=${song.source || "netease"}&br=${quality}&s=${signature}`;
+        return `${API.baseUrl}?types=url&id=${song.id}&source=${song.source || "wy"}&br=${quality}&s=${signature}`;
     },
 
     getLyric: (song) => {
         const signature = API.generateSignature();
-        return `${API.baseUrl}?types=lyric&id=${song.lyric_id || song.id}&source=${song.source || "netease"}&s=${signature}`;
+        return `${API.baseUrl}?types=lyric&id=${song.lyric_id || song.id}&source=${song.source || "wy"}&s=${signature}`;
     },
 
     getPicUrl: (song) => {
         const signature = API.generateSignature();
-        return `${API.baseUrl}?types=pic&id=${song.pic_id}&source=${song.source || "netease"}&size=300&s=${signature}`;
+        return `${API.baseUrl}?types=pic&id=${song.pic_id}&source=${song.source || "wy"}&size=300&s=${signature}`;
     }
 };
 
