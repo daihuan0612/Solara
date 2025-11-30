@@ -809,7 +809,7 @@ const API = {
         };
         const server = serverMap[source] || "netease";
         
-            // 根据source参数选择正确的types
+        // 根据source参数选择正确的types
         const types = source === "wy" ? "wySearchMusic" : "txSearchMusic";
         
         // 构建新的API URL，完全按照新API规范
