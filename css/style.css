@@ -44,7 +44,7 @@ async function proxyApiRequest(url: URL, request: Request): Promise<Response> {
     wy: "netease",
     tx: "tencent",
   };
-  const server = serverMap[source] || "netease";
+  let server = serverMap[source] || "netease";
   
   // 处理搜索请求
   if (types === "wySearchMusic" || types === "txSearchMusic" || types === "search") {
@@ -121,6 +121,11 @@ async function proxyApiRequest(url: URL, request: Request): Promise<Response> {
       source: source
     }));
     
+    return new Response(JSON.stringify(processedResults), {
+      status: 200,
+      headers: createCorsHeaders(),
+    });
+  }
   
   // 处理详情请求（获取音频URL、歌词、封面等）
   // 从URL中获取type参数，如果没有则使用types参数作为备选
@@ -168,7 +173,7 @@ async function proxyApiRequest(url: URL, request: Request): Promise<Response> {
   }
   
   // 从URL中获取server参数，如果没有则使用source参数作为备选
-  const server = url.searchParams.get("server") || serverMap[source] || "netease";
+  server = url.searchParams.get("server") || serverMap[source] || "netease";
   
   // 构建新的API URL，严格按照规范格式
   const apiUrl = new URL(API_BASE_URL);
