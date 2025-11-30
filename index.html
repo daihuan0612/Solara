@@ -135,7 +135,7 @@
                 <input type="text" id="searchInput" class="search-input" placeholder="在小苹果Music搜索歌曲、歌手或专辑...">
                 <div class="source-select-wrapper" id="sourceSelectWrapper">
                     <button id="sourceSelectButton" class="source-select-btn" type="button" aria-haspopup="listbox" aria-expanded="false">
-                        <span id="sourceSelectLabel">QQ音乐</span>
+                        <span id="sourceSelectLabel">网易云音乐</span>
                         <i class="fas fa-chevron-down caret-icon" aria-hidden="true"></i>
                     </button>
                     <div id="sourceMenu" class="source-menu" role="listbox" aria-labelledby="sourceSelectButton"></div>
@@ -209,10 +209,7 @@
                         </button>
                     </div>
                     <div class="current-song-artist" id="currentSongArtist">未知艺术家</div>
-                    <button class="mobile-quality-chip" id="mobileQualityToggle" type="button" aria-haspopup="menu" aria-expanded="false">
-                        <span id="mobileQualityLabel">极高音质</span>
-                        <i class="fas fa-chevron-down" aria-hidden="true"></i>
-                    </button>
+
                 </div>
             </div>
 
@@ -480,12 +477,7 @@
             </div>
             <div class="control-trailing">
                 <div class="audio-tools">
-                    <div class="player-quality">
-                        <button id="qualityToggle" class="player-quality-btn" type="button">
-                            <span id="qualityLabel">极高音质</span>
-                        </button>
-                        <div id="playerQualityMenu" class="player-quality-menu"></div>
-                    </div>
+    
                     <div class="volume-container">
                         <i id="volumeIcon" class="fas fa-volume-up"></i>
                         <input type="range" id="volumeSlider" min="0" max="1" step="0.01" value="0.8">
