@@ -641,9 +641,10 @@ function buildAudioProxyUrl(url) {
 }
 
 const SOURCE_OPTIONS = [
-    { value: "netease", label: "网易云音乐" },
-    { value: "kuwo", label: "酷我音乐" },
-    { value: "joox", label: "JOOX音乐" }
+    { value: "wy", label: "网易云音乐" },
+    { value: "kw", label: "酷我音乐" },
+    { value: "tx", label: "QQ音乐" },
+    { value: "mg", label: "咪咕音乐" }
 ];
 
 function normalizeSource(value) {
@@ -793,7 +794,7 @@ const API = {
         }
     },
 
-    search: async (keyword, source = "netease", count = 20, page = 1) => {
+    search: async (keyword, source = "wy", count = 20, page = 1) => {
         const signature = API.generateSignature();
         const url = `${API.baseUrl}?types=search&source=${source}&name=${encodeURIComponent(keyword)}&count=${count}&pages=${page}&s=${signature}`;
 
@@ -863,7 +864,7 @@ const API = {
                 id: track.id,
                 name: track.name,
                 artist: Array.isArray(track.ar) ? track.ar.map(artist => artist.name).join(" / ") : "",
-                source: "netease",
+                source: "wy",
                 lyric_id: track.id,
                 pic_id: track.al?.pic_str || track.al?.pic || track.al?.picUrl || "",
             }));
@@ -875,17 +876,17 @@ const API = {
 
     getSongUrl: (song, quality = "320") => {
         const signature = API.generateSignature();
-        return `${API.baseUrl}?types=url&id=${song.id}&source=${song.source || "netease"}&br=${quality}&s=${signature}`;
+        return `${API.baseUrl}?types=url&id=${song.id}&source=${song.source || "wy"}&br=${quality}&s=${signature}`;
     },
 
     getLyric: (song) => {
         const signature = API.generateSignature();
-        return `${API.baseUrl}?types=lyric&id=${song.lyric_id || song.id}&source=${song.source || "netease"}&s=${signature}`;
+        return `${API.baseUrl}?types=lyric&id=${song.lyric_id || song.id}&source=${song.source || "wy"}&s=${signature}`;
     },
 
     getPicUrl: (song) => {
         const signature = API.generateSignature();
-        return `${API.baseUrl}?types=pic&id=${song.pic_id}&source=${song.source || "netease"}&size=300&s=${signature}`;
+        return `${API.baseUrl}?types=pic&id=${song.pic_id}&source=${song.source || "wy"}&size=300&s=${signature}`;
     }
 };
 
@@ -3701,8 +3702,15 @@ function createSearchResultItem(song, index) {
     const albumText = song.album ? ` - ${song.album}` : "";
     artist.textContent = `${artistName}${albumText}`;
 
+    // 添加音乐源标签
+    const sourceTag = document.createElement("div");
+    sourceTag.className = "search-result-source";
+    const sourceOption = SOURCE_OPTIONS.find(option => option.value === (song.source || "wy"));
+    sourceTag.textContent = sourceOption ? sourceOption.label : "未知音源";
+
     info.appendChild(title);
     info.appendChild(artist);
+    info.appendChild(sourceTag);
 
     const actions = document.createElement("div");
     actions.className = "search-result-actions";
@@ -4253,7 +4261,7 @@ function getSongKey(song) {
         ? song.source.trim().toLowerCase()
         : (typeof song.platform === "string" && song.platform.trim() !== ""
             ? song.platform.trim().toLowerCase()
-            : "netease");
+            : "wy");
     const id = resolveSongId(song);
     if (id) {
         return `${source}:${id}`;
@@ -5584,11 +5592,11 @@ function pickRandomExploreGenre() {
     return EXPLORE_RADAR_GENRES[index];
 }
 
-const EXPLORE_RADAR_SOURCES = ["netease", "kuwo"];
+const EXPLORE_RADAR_SOURCES = ["wy", "kw", "tx", "mg"];
 
 function pickRandomExploreSource() {
     if (!Array.isArray(EXPLORE_RADAR_SOURCES) || EXPLORE_RADAR_SOURCES.length === 0) {
-        return "netease";
+        return "wy";
     }
     const index = Math.floor(Math.random() * EXPLORE_RADAR_SOURCES.length);
     return EXPLORE_RADAR_SOURCES[index];
