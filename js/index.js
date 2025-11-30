@@ -3114,9 +3114,10 @@ function setupInteractions() {
 
     dom.volumeSlider.addEventListener("input", handleVolumeChange);
 
-    if (dom.sourceSelectButton && dom.sourceMenu) {
+    if (dom.sourceSelectButton && dom.sourceMenu && !dom.sourceSelectButton.dataset.listenerAdded) {
         dom.sourceSelectButton.addEventListener("click", toggleSourceMenu);
         dom.sourceMenu.addEventListener("click", handleSourceSelection);
+        dom.sourceSelectButton.dataset.listenerAdded = "true";
     }
     dom.qualityToggle.addEventListener("click", togglePlayerQualityMenu);
     if (dom.mobileQualityToggle) {
@@ -3299,26 +3300,32 @@ function setupInteractions() {
     }
 
     // 搜索相关事件 - 修复搜索下拉框显示问题
-    dom.searchBtn.addEventListener("click", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        debugLog("搜索按钮被点击");
-        performSearch();
-    });
-
-    dom.searchInput.addEventListener("focus", () => {
-        debugLog("搜索输入框获得焦点，尝试恢复上次搜索结果");
-        handleSearchInputFocus();
-    });
-
-    dom.searchInput.addEventListener("keypress", (e) => {
-        if (e.key === "Enter") {
+    if (dom.searchBtn && !dom.searchBtn.dataset.listenerAdded) {
+        dom.searchBtn.addEventListener("click", (e) => {
             e.preventDefault();
             e.stopPropagation();
-            debugLog("搜索输入框回车键被按下");
+            debugLog("搜索按钮被点击");
             performSearch();
-        }
-    });
+        });
+        dom.searchBtn.dataset.listenerAdded = "true";
+    }
+
+    if (dom.searchInput && !dom.searchInput.dataset.listenerAdded) {
+        dom.searchInput.addEventListener("focus", () => {
+            debugLog("搜索输入框获得焦点，尝试恢复上次搜索结果");
+            handleSearchInputFocus();
+        });
+
+        dom.searchInput.addEventListener("keypress", (e) => {
+            if (e.key === "Enter") {
+                e.preventDefault();
+                e.stopPropagation();
+                debugLog("搜索输入框回车键被按下");
+                performSearch();
+            }
+        });
+        dom.searchInput.dataset.listenerAdded = "true";
+    }
 
     updateImportSelectedButton();
 
@@ -3844,8 +3851,9 @@ function toggleSearchResultSelection(index) {
     } else {
         state.selectedSearchResults.add(numericIndex);
     }
-    updateSearchResultSelectionUI(numericIndex);
     updateImportSelectedButton();
+    updateSearchResultSelectionUI(numericIndex);
+
 }
 
 function resetSelectedSearchResults() {
