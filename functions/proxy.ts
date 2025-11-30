@@ -1,21 +1,6 @@
-const API_CONFIGS: Record<string, { baseUrl: string }> = {
-  "wy": { baseUrl: "https://api.nxvav.cn/api/music" },
-  "kw": { baseUrl: "https://api.nxvav.cn/api/music" },
-  "tx": { baseUrl: "https://api.nxvav.cn/api/music" },
-  "mg": { baseUrl: "https://music-api.gdstudio.xyz/api.php" },
-};
 
-// 允许的主机名模式
-const ALLOWED_HOST_PATTERNS = [
-  /(^|\.)music\.163\.com$/i,
-  /(^|\.)126\.net$/i,
-  /(^|\.)kuwo\.cn$/i,
-  /(^|\.)qq\.com$/i,
-  /(^|\.)music\.qq\.com$/i,
-  /(^|\.)y\.qq\.com$/i,
-  /(^|\.)migu\.cn$/i,
-  /(^|\.)music\.migu\.cn$/i
-];
+const API_BASE_URL = "https://music-api.gdstudio.xyz/api.php";
+const KUWO_HOST_PATTERN = /(^|\.)kuwo\.cn$/i;
 const SAFE_RESPONSE_HEADERS = ["content-type", "cache-control", "accept-ranges", "content-length", "content-range", "etag", "last-modified", "expires"];
 
 function createCorsHeaders(init?: Headers): Headers {
@@ -46,34 +31,15 @@ function handleOptions(): Response {
   });
 }
 
-function getRefererForHost(hostname: string): string {
-  if (/\.music\.163\.com$/.test(hostname)) {
-    return "https://music.163.com/";
-  }
-  if (/\.126\.net$/.test(hostname)) {
-    return "https://music.163.com/";
-  }
-  if (/\.kuwo\.cn$/.test(hostname)) {
-    return "http://www.kuwo.cn/";
-  }
-  if (/\.qq\.com$/.test(hostname) || /\.y\.qq\.com$/.test(hostname) || /\.music\.qq\.com$/.test(hostname)) {
-    return "https://y.qq.com/";
-  }
-  if (/\.migu\.cn$/.test(hostname) || /\.music\.migu\.cn$/.test(hostname)) {
-    return "https://music.migu.cn/";
-  }
-  return "";
-}
-
-function isAllowedHost(hostname: string): boolean {
+function isAllowedKuwoHost(hostname: string): boolean {
   if (!hostname) return false;
-  return ALLOWED_HOST_PATTERNS.some(pattern => pattern.test(hostname));
+  return KUWO_HOST_PATTERN.test(hostname);
 }
 
-function normalizeAudioUrl(rawUrl: string): URL | null {
+function normalizeKuwoUrl(rawUrl: string): URL | null {
   try {
     const parsed = new URL(rawUrl);
-    if (!isAllowedHost(parsed.hostname)) {
+    if (!isAllowedKuwoHost(parsed.hostname)) {
       return null;
     }
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
@@ -86,8 +52,8 @@ function normalizeAudioUrl(rawUrl: string): URL | null {
   }
 }
 
-async function proxyAudio(targetUrl: string, request: Request): Promise<Response> {
-  const normalized = normalizeAudioUrl(targetUrl);
+async function proxyKuwoAudio(targetUrl: string, request: Request): Promise<Response> {
+  const normalized = normalizeKuwoUrl(targetUrl);
   if (!normalized) {
     return new Response("Invalid target", { status: 400 });
   }
@@ -96,7 +62,7 @@ async function proxyAudio(targetUrl: string, request: Request): Promise<Response
     method: request.method,
     headers: {
       "User-Agent": request.headers.get("User-Agent") ?? "Mozilla/5.0",
-      "Referer": getRefererForHost(normalized.hostname),
+      "Referer": "https://www.kuwo.cn/",
     },
   };
 
@@ -119,21 +85,7 @@ async function proxyAudio(targetUrl: string, request: Request): Promise<Response
 }
 
 async function proxyApiRequest(url: URL, request: Request): Promise<Response> {
-  // 根据source参数选择不同的API端点
-  const source = url.searchParams.get("source") || "wy";
-  
-  // 不同平台的API配置
-  const API_CONFIGS: Record<string, { baseUrl: string }> = {
-    "wy": { baseUrl: "https://api.nxvav.cn/api/music" },
-    "kw": { baseUrl: "https://api.nxvav.cn/api/music" },
-    "tx": { baseUrl: "https://api.nxvav.cn/api/music" },
-    "mg": { baseUrl: "https://music-api.gdstudio.xyz/api.php" },
-  };
-  
-  // 获取对应平台的API配置
-  const config = API_CONFIGS[source] || API_CONFIGS["wy"];
-  const apiUrl = new URL(config.baseUrl);
-  
+  const apiUrl = new URL(API_BASE_URL);
   url.searchParams.forEach((value, key) => {
     if (key === "target" || key === "callback") {
       return;
@@ -177,7 +129,7 @@ export async function onRequest({ request }: { request: Request }): Promise<Resp
   const target = url.searchParams.get("target");
 
   if (target) {
-    return proxyAudio(target, request);
+    return proxyKuwoAudio(target, request);
   }
 
   return proxyApiRequest(url, request);
