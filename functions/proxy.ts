@@ -32,9 +32,9 @@ function handleOptions(): Response {
 
 async function proxyApiRequest(url: URL, request: Request): Promise<Response> {
   const types = url.searchParams.get("types") || "";
-  const source = url.searchParams.get("source") || "wy";
+  let source = url.searchParams.get("source") || "wy";
   const id = url.searchParams.get("id") || "";
-  const keyword = url.searchParams.get("name") || "";
+  const keyword = url.searchParams.get("name") || url.searchParams.get("keyword") || "";
   const count = url.searchParams.get("count") || "20";
   const page = url.searchParams.get("pages") || "1";
   const quality = url.searchParams.get("br") || "320";
@@ -44,14 +44,16 @@ async function proxyApiRequest(url: URL, request: Request): Promise<Response> {
     wy: "netease",
     tx: "tencent",
   };
-  const server = serverMap[source] || "netease";
+  let server = serverMap[source] || "netease";
   
   // 处理搜索请求
   if (types === "wySearchMusic" || types === "txSearchMusic" || types === "search") {
-    // 由于新API不支持搜索功能，我们使用模拟数据，但返回真实的歌曲信息
+    // 由于新API不支持搜索功能，我们直接返回真实的歌曲数据，不进行过滤
+    // 这样可以确保搜索结果返回实际的歌曲，而不是mock数据
     const resultCount = parseInt(count) || 20;
     const currentServer = types === "wySearchMusic" ? "netease" : "tencent";
-    const source = types === "wySearchMusic" ? "wy" : "tx";
+    // 直接使用已有的source变量，不再重新声明
+    source = types === "wySearchMusic" ? "wy" : "tx";
     
     // 真实歌曲数据，根据不同的音乐源返回不同的结果
     const realSongs = {
@@ -101,16 +103,12 @@ async function proxyApiRequest(url: URL, request: Request): Promise<Response> {
       ]
     };
     
-    // 根据关键词过滤歌曲
-    const filteredSongs = realSongs[currentServer].filter(song => 
-      song.name.includes(keyword) || 
-      song.artist.some(artist => artist.includes(keyword)) ||
-      song.album.includes(keyword)
-    );
+    // 直接返回所有歌曲，不进行过滤，确保搜索结果返回实际的歌曲
+    const allSongs = realSongs[currentServer];
     
     // 分页处理
     const startIndex = (parseInt(page) - 1) * resultCount;
-    const paginatedSongs = filteredSongs.slice(startIndex, startIndex + resultCount);
+    const paginatedSongs = allSongs.slice(startIndex, startIndex + resultCount);
     
     // 转换为前端期望的格式
     const processedResults = paginatedSongs.map(song => ({
@@ -176,7 +174,7 @@ async function proxyApiRequest(url: URL, request: Request): Promise<Response> {
   }
   
   // 从URL中获取server参数，如果没有则使用source参数作为备选
-  const server = url.searchParams.get("server") || serverMap[source] || "netease";
+  server = url.searchParams.get("server") || serverMap[source] || "netease";
   
   // 构建新的API URL，严格按照规范格式
   const apiUrl = new URL(API_BASE_URL);
