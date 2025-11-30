@@ -641,10 +641,9 @@ function buildAudioProxyUrl(url) {
 }
 
 const SOURCE_OPTIONS = [
-    { value: "kw", label: "酷我音乐", enabled: true, searchApi: "fetchSearchMusic", detailApi: "fetchMusicDetail", levels: ["standard", "exhigh", "lossless"] },
-    { value: "wy", label: "网易云音乐", enabled: true, searchApi: "wySearchMusic", detailApi: "wyMusicDetail", levels: ["standard", "exhigh", "lossless", "hires", "sky", "jyeffect", "jymaster"] },
-    { value: "tx", label: "QQ音乐", enabled: true, searchApi: "txSearchMusic", detailApi: "txMusicDetail", levels: ["standard", "exhigh", "lossless"] },
-    { value: "mg", label: "咪咕音乐", enabled: true, searchApi: "mgSearchMusic", detailApi: "mgMusicDetail", levels: ["standard", "exhigh"] }
+    { value: "netease", label: "网易云音乐" },
+    { value: "kuwo", label: "酷我音乐" },
+    { value: "joox", label: "JOOX音乐" }
 ];
 
 function normalizeSource(value) {
@@ -652,11 +651,17 @@ function normalizeSource(value) {
     return allowed.includes(value) ? value : SOURCE_OPTIONS[0].value;
 }
 
-// 移除音质选择功能，使用固定音质
-const normalizeQuality = (value) => "320"; // 始终返回固定音质
+const QUALITY_OPTIONS = [
+    { value: "128", label: "标准音质", description: "128 kbps" },
+    { value: "192", label: "高品音质", description: "192 kbps" },
+    { value: "320", label: "极高音质", description: "320 kbps" },
+    { value: "999", label: "无损音质", description: "FLAC" }
+];
 
-// 移除音质选择选项，不再支持多种音质
-const QUALITY_OPTIONS = [];
+function normalizeQuality(value) {
+    const match = QUALITY_OPTIONS.find(option => option.value === value);
+    return match ? match.value : "320";
+}
 
 const savedPlaylistSongs = (() => {
     const stored = safeGetLocalStorage("playlistSongs");
@@ -755,9 +760,9 @@ const savedCurrentPlaylist = (() => {
     return playlists.includes(stored) ? stored : "playlist";
 })();
 
-// API配置 - 使用新的音乐API接口
+// API配置 - 修复API地址和请求方式
 const API = {
-    baseUrl: "https://api.nxvav.cn/api/music", // 使用正确的API地址，没有末尾斜杠
+    baseUrl: "/proxy",
 
     generateSignature: () => {
         return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
@@ -765,12 +770,10 @@ const API = {
 
     fetchJson: async (url) => {
         try {
-            // 使用用户提供的请求示例格式，不设置特殊请求头
             const response = await fetch(url, {
-                method: 'GET',
-                redirect: 'follow',
-                mode: 'cors',
-                credentials: 'omit'
+                headers: {
+                    "Accept": "application/json",
+                },
             });
 
             if (!response.ok) {
@@ -790,127 +793,99 @@ const API = {
         }
     },
 
-    search: async (keyword, source = "tx", count = 20, page = 1) => {
-        // 修复搜索功能，使用正确的参数格式和代理
-        debugLog(`=== 开始搜索 ===`);
-        debugLog(`搜索关键词: ${keyword}`);
-        debugLog(`搜索源: ${source}`);
-        
-        // 直接使用项目自带的代理，它会处理CORS问题
-        const proxyUrl = `/proxy`;
-        // 使用正确的API参数，确保不同搜索源返回不同的结果
-        // 注意：这里使用的是"types"而不是"type"，这是项目代理的正确参数名
-        const proxyFinalUrl = `${proxyUrl}?types=search&source=${source}&name=${encodeURIComponent(keyword)}&count=${count}&pages=${page}`;
-        
-        debugLog(`使用项目自带代理: ${proxyFinalUrl}`);
-        
+    search: async (keyword, source = "netease", count = 20, page = 1) => {
+        const signature = API.generateSignature();
+        const url = `${API.baseUrl}?types=search&source=${source}&name=${encodeURIComponent(keyword)}&count=${count}&pages=${page}&s=${signature}`;
+
         try {
-            const proxyResponse = await fetch(proxyFinalUrl, {
-                method: 'GET',
-                headers: {
-                    'Accept': 'application/json'
-                },
-                mode: 'cors'
-            });
-            
-            debugLog(`代理响应状态: ${proxyResponse.status}`);
-            
-            if (!proxyResponse.ok) {
-                throw new Error(`HTTP错误! 状态: ${proxyResponse.status}`);
-            }
-            
-            const proxyResponseText = await proxyResponse.text();
-            debugLog(`代理响应原始文本: ${proxyResponseText}`);
-            
-            let proxyParsedData;
-            try {
-                proxyParsedData = JSON.parse(proxyResponseText);
-                debugLog(`代理解析后的数据类型: ${typeof proxyParsedData}`);
-            } catch (proxyParseError) {
-                debugLog(`代理JSON解析失败: ${proxyParseError.message}`);
-                proxyParsedData = null;
-            }
-            
-            // 处理搜索结果
-            let proxySongs = [];
-            if (Array.isArray(proxyParsedData)) {
-                proxySongs = proxyParsedData;
-            } else if (proxyParsedData && Array.isArray(proxyParsedData.songs)) {
-                proxySongs = proxyParsedData.songs;
-            } else if (proxyParsedData && typeof proxyParsedData === 'object') {
-                proxySongs = [proxyParsedData];
-            }
-            
-            debugLog(`代理处理后得到 ${proxySongs.length} 首歌曲`);
-            
-            // 映射歌曲格式，确保source字段正确设置为传入的source参数
-            const proxyResult = proxySongs.map((song, index) => {
-                // 强制覆盖source字段为传入的source参数，确保不同搜索源返回不同的结果
-                return {
-                    id: song.id,
-                    name: song.name || '未知歌曲',
-                    artist: song.artist || '未知艺术家',
-                    album: song.album || '未知专辑',
-                    pic_id: song.pic || song.pic_id || '',
-                    url_id: song.id,
-                    lyric_id: song.id,
-                    source: source, // 强制设置为当前搜索源
-                    server: source === "tx" ? "tencent" : "netease" // 根据source设置正确的server参数
-                };
-            });
-            
-            debugLog(`代理映射完成，返回 ${proxyResult.length} 首歌曲`);
-            debugLog(`=== 搜索结束 ===`);
-            return proxyResult;
-            
-        } catch (proxyError) {
-            debugLog(`代理搜索错误: ${proxyError.message}`);
-            debugLog(`代理错误堆栈: ${proxyError.stack}`);
-            debugLog(`=== 搜索结束（失败） ===`);
-            return [];
+            debugLog(`API请求: ${url}`);
+            const data = await API.fetchJson(url);
+            debugLog(`API响应: ${JSON.stringify(data).substring(0, 200)}...`);
+
+            if (!Array.isArray(data)) throw new Error("搜索结果格式错误");
+
+            return data.map(song => ({
+                id: song.id,
+                name: song.name,
+                artist: song.artist,
+                album: song.album,
+                pic_id: song.pic_id,
+                url_id: song.url_id,
+                lyric_id: song.lyric_id,
+                source: song.source,
+            }));
+        } catch (error) {
+            debugLog(`API错误: ${error.message}`);
+            throw error;
         }
     },
 
     getRadarPlaylist: async (playlistId = "3778678", options = {}) => {
-        // 新API不支持歌单功能，返回空数组
-        return [];
+        const signature = API.generateSignature();
+
+        let limit = 50;
+        let offset = 0;
+
+        if (typeof options === "number") {
+            limit = options;
+        } else if (options && typeof options === "object") {
+            if (Number.isFinite(options.limit)) {
+                limit = options.limit;
+            } else if (Number.isFinite(options.count)) {
+                limit = options.count;
+            }
+            if (Number.isFinite(options.offset)) {
+                offset = options.offset;
+            }
+        }
+
+        limit = Math.max(1, Math.min(200, Math.trunc(limit)) || 50);
+        offset = Math.max(0, Math.trunc(offset) || 0);
+
+        const params = new URLSearchParams({
+            types: "playlist",
+            id: playlistId,
+            limit: String(limit),
+            offset: String(offset),
+            s: signature,
+        });
+        const url = `${API.baseUrl}?${params.toString()}`;
+
+        try {
+            const data = await API.fetchJson(url);
+            const tracks = data && data.playlist && Array.isArray(data.playlist.tracks)
+                ? data.playlist.tracks.slice(0, limit)
+                : [];
+
+            if (tracks.length === 0) throw new Error("No tracks found");
+
+            return tracks.map(track => ({
+                id: track.id,
+                name: track.name,
+                artist: Array.isArray(track.ar) ? track.ar.map(artist => artist.name).join(" / ") : "",
+                source: "netease",
+                lyric_id: track.id,
+                pic_id: track.al?.pic_str || track.al?.pic || track.al?.picUrl || "",
+            }));
+        } catch (error) {
+            console.error("API request failed:", error);
+            throw error;
+        }
     },
 
-    getSongUrl: (song) => {
-        // 根据song.source设置server参数
-        let server = song.source;
-        // 确保不同搜索源使用不同的server参数
-        if (server === "wy") {
-            server = "netease";
-        } else if (server === "tx") {
-            server = "tencent";
-        } else if (server === "kw") {
-            server = "kuwo";
-        } else if (server === "mg") {
-            server = "migu";
-        }
-        // 使用正确的API地址格式和参数
-        return `${API.baseUrl}?type=url&id=${song.id}&server=${server}`;
+    getSongUrl: (song, quality = "320") => {
+        const signature = API.generateSignature();
+        return `${API.baseUrl}?types=url&id=${song.id}&source=${song.source || "netease"}&br=${quality}&s=${signature}`;
     },
 
     getLyric: (song) => {
-        // 根据song.source设置server参数
-        let server = "netease";
-        if (song.source === "tx") {
-            server = "tencent";
-        }
-        // 只使用新API，直接返回歌词URL，使用正确的API地址格式和参数
-        return `${API.baseUrl}?type=lrc&id=${song.id}&server=${server}`;
+        const signature = API.generateSignature();
+        return `${API.baseUrl}?types=lyric&id=${song.lyric_id || song.id}&source=${song.source || "netease"}&s=${signature}`;
     },
 
     getPicUrl: (song) => {
-        // 根据song.source设置server参数
-        let server = "netease";
-        if (song.source === "tx") {
-            server = "tencent";
-        }
-        // 只使用新API，直接返回图片URL，使用正确的API地址格式和参数
-        return `${API.baseUrl}?type=pic&id=${song.id}&server=${server}`;
+        const signature = API.generateSignature();
+        return `${API.baseUrl}?types=pic&id=${song.pic_id}&source=${song.source || "netease"}&size=300&s=${signature}`;
     }
 };
 
@@ -927,11 +902,11 @@ const state = {
     currentPlaylist: savedCurrentPlaylist, // 'online', 'search', or 'playlist'
     searchPage: savedLastSearchState?.page || 1,
     searchKeyword: savedLastSearchState?.keyword || "", // 确保这里有初始值
-    searchSource: savedSearchSource, // 直接使用从localStorage加载的搜索源，不再依赖lastSearchState
+    searchSource: savedLastSearchState ? savedLastSearchState.source : savedSearchSource,
     hasMoreResults: typeof savedLastSearchState?.hasMore === "boolean" ? savedLastSearchState.hasMore : true,
     currentSong: savedCurrentSong,
     currentArtworkUrl: null,
-    debugMode: true,
+    debugMode: false,
     isSearchMode: false, // 新增：搜索模式状态
     playlistSongs: savedPlaylistSongs, // 新增：统一播放列表
     playMode: savedPlayMode, // 新增：播放模式 'list', 'single', 'random'
@@ -942,13 +917,14 @@ const state = {
     favoritePlayMode: savedFavoritePlayMode,
     favoriteLastNonRandomMode: savedFavoritePlayMode === "random" ? "list" : savedFavoritePlayMode,
     favoritePlaybackTime: savedFavoritePlaybackTime,
-    playbackQuality: "320", // 使用固定音质，不再支持切换
+    playbackQuality: savedPlaybackQuality,
     volume: savedVolume,
     currentPlaybackTime: savedPlaybackTime,
     lastSavedPlaybackTime: savedPlaybackTime,
     favoriteLastSavedPlaybackTime: savedFavoritePlaybackTime,
     pendingSeekTime: null,
     isSeeking: false,
+    qualityMenuOpen: false,
     sourceMenuOpen: false,
     userScrolledLyrics: false, // 新增：用户是否手动滚动歌词
     lyricsScrollTimeout: null, // 新增：歌词滚动超时
@@ -2017,7 +1993,9 @@ function showSearchResults(options = {}) {
     if (state.sourceMenuOpen) {
         scheduleSourceMenuPositionUpdate();
     }
-    // 移除对state.qualityMenuOpen的引用，因为我们已经移除了音质选择功能
+    if (state.qualityMenuOpen) {
+        schedulePlayerQualityMenuPositionUpdate();
+    }
     if (restore) {
         restoreSearchResultsList();
     }
@@ -2029,7 +2007,9 @@ function hideSearchResults() {
     if (state.sourceMenuOpen) {
         scheduleSourceMenuPositionUpdate();
     }
-    // 移除对state.qualityMenuOpen的引用，因为我们已经移除了音质选择功能
+    if (state.qualityMenuOpen) {
+        schedulePlayerQualityMenuPositionUpdate();
+    }
     // 立即清空搜索结果内容
     const container = dom.searchResultsList || dom.searchResults;
     if (container) {
@@ -2565,20 +2545,11 @@ function selectSearchSource(source) {
         closeSourceMenu();
         return;
     }
-    debugLog(`切换搜索源: ${state.searchSource} -> ${normalized}`);
     state.searchSource = normalized;
     safeSetLocalStorage("searchSource", normalized);
     updateSourceLabel();
     buildSourceMenu();
     closeSourceMenu();
-    // 切换搜索源后，清空搜索结果，让用户可以重新搜索
-    state.searchResults = [];
-    state.renderedSearchCount = 0;
-    state.hasMoreResults = true;
-    const listContainer = dom.searchResultsList || dom.searchResults;
-    if (listContainer) {
-        listContainer.innerHTML = "";
-    }
 }
 
 function buildQualityMenu() {
@@ -2635,13 +2606,15 @@ function getQualityMenuAnchor() {
 }
 
 function updateQualityLabel() {
-    // 移除音质选择功能，不再更新音质标签
-    // 如果有音质标签元素，隐藏它们
-    if (dom.qualityLabel) {
-        dom.qualityLabel.textContent = "";
-    }
+    const option = QUALITY_OPTIONS.find(item => item.value === state.playbackQuality) || QUALITY_OPTIONS[0];
+    if (!option) return;
+    dom.qualityLabel.textContent = option.label;
+    dom.qualityToggle.title = `音质: ${option.label} (${option.description})`;
     if (dom.mobileQualityLabel) {
-        dom.mobileQualityLabel.textContent = "";
+        dom.mobileQualityLabel.textContent = option.label;
+    }
+    if (dom.mobileQualityToggle) {
+        dom.mobileQualityToggle.title = `音质: ${option.label} (${option.description})`;
     }
 }
 
@@ -2831,7 +2804,14 @@ async function selectPlaybackQuality(quality) {
 
     state.playbackQuality = normalized;
     updateQualityLabel();
+    buildQualityMenu();
     savePlayerState();
+    closePlayerQualityMenu();
+
+    const option = QUALITY_OPTIONS.find(item => item.value === normalized);
+    if (option) {
+        showNotification(`音质已切换为 ${option.label} (${option.description})`);
+    }
 
     if (state.currentSong) {
         const success = await reloadCurrentSong();
@@ -3098,13 +3078,6 @@ function setupInteractions() {
         safeSetLocalStorage("theme", isDark ? "dark" : "light");
     });
 
-    // 添加歌词全屏切换功能
-    if (dom.lyrics) {
-        dom.lyrics.addEventListener("click", () => {
-            document.body.classList.toggle("lyrics-fullscreen");
-        });
-    }
-
     dom.audioPlayer.volume = state.volume;
     dom.volumeSlider.value = state.volume;
     updateVolumeSliderBackground(state.volume);
@@ -3112,9 +3085,11 @@ function setupInteractions() {
 
     buildSourceMenu();
     updateSourceLabel();
+    buildQualityMenu();
     ensureQualityMenuPortal();
     initializePlaylistEventHandlers();
     initializeFavoritesEventHandlers();
+    updateQualityLabel();
     updatePlayPauseButton();
     const initialTime = state.currentList === "favorite"
         ? state.favoritePlaybackTime
@@ -3143,16 +3118,15 @@ function setupInteractions() {
         dom.sourceSelectButton.addEventListener("click", toggleSourceMenu);
         dom.sourceMenu.addEventListener("click", handleSourceSelection);
     }
-    // 移除音质选择功能，隐藏相关UI元素
-    if (dom.qualityToggle) {
-        dom.qualityToggle.style.display = "none"; // 隐藏音质选择按钮
-    }
+    dom.qualityToggle.addEventListener("click", togglePlayerQualityMenu);
     if (dom.mobileQualityToggle) {
-        dom.mobileQualityToggle.style.display = "none"; // 隐藏移动端音质选择按钮
+        dom.mobileQualityToggle.addEventListener("click", togglePlayerQualityMenu);
     }
-    if (dom.playerQualityMenu) {
-        dom.playerQualityMenu.style.display = "none"; // 隐藏音质选择菜单
+    setQualityAnchorState(dom.qualityToggle, false);
+    if (dom.mobileQualityToggle) {
+        setQualityAnchorState(dom.mobileQualityToggle, false);
     }
+    dom.playerQualityMenu.addEventListener("click", handlePlayerQualitySelection);
 
     if (isMobileView && dom.albumCover) {
         dom.albumCover.addEventListener("click", () => {
@@ -3515,15 +3489,14 @@ function updateCurrentSongInfo(song, options = {}) {
         dom.albumCover.classList.add("loading");
         const picUrl = API.getPicUrl(song);
 
-        // 新API返回JSON数据，包含pic字段
         API.fetchJson(picUrl)
             .then(data => {
-                if (!data || !data.pic) {
+                if (!data || !data.url) {
                     throw new Error("封面地址缺失");
                 }
 
                 const img = new Image();
-                const imageUrl = preferHttpsUrl(data.pic);
+                const imageUrl = preferHttpsUrl(data.url);
                 const absoluteImageUrl = toAbsoluteUrl(imageUrl);
                 if (state.currentSong === song) {
                     state.currentArtworkUrl = absoluteImageUrl;
@@ -3728,15 +3701,8 @@ function createSearchResultItem(song, index) {
     const albumText = song.album ? ` - ${song.album}` : "";
     artist.textContent = `${artistName}${albumText}`;
 
-    // 添加音乐源标签
-    const sourceLabel = document.createElement("div");
-    sourceLabel.className = "search-result-source";
-    const sourceOption = SOURCE_OPTIONS.find(option => option.value === song.source);
-    sourceLabel.textContent = sourceOption ? sourceOption.label : song.source || "未知源";
-
     info.appendChild(title);
     info.appendChild(artist);
-    info.appendChild(sourceLabel);
 
     const actions = document.createElement("div");
     actions.className = "search-result-actions";
@@ -3769,9 +3735,30 @@ function createSearchResultItem(song, index) {
     downloadButton.innerHTML = '<i class="fas fa-download"></i>';
     downloadButton.addEventListener("click", (event) => {
         event.stopPropagation();
-        // 移除音质选择功能，直接调用downloadSong函数
-        downloadSong(state.searchResults[index]);
+        showQualityMenu(event, index, "search");
     });
+
+    const qualityMenu = document.createElement("div");
+    qualityMenu.className = "quality-menu";
+
+    const qualityOptions = [
+        { label: "标准音质", suffix: " (128k)", quality: "128" },
+        { label: "高音质", suffix: " (192k)", quality: "192" },
+        { label: "超高音质", suffix: " (320k)", quality: "320" },
+        { label: "无损音质", suffix: "", quality: "999" },
+    ];
+
+    qualityOptions.forEach(option => {
+        const qualityItem = document.createElement("div");
+        qualityItem.className = "quality-option";
+        qualityItem.textContent = `${option.label}${option.suffix}`;
+        qualityItem.addEventListener("click", (event) => {
+            downloadWithQuality(event, index, "search", option.quality);
+        });
+        qualityMenu.appendChild(qualityItem);
+    });
+
+    downloadButton.appendChild(qualityMenu);
 
     actions.appendChild(favoriteButton);
     actions.appendChild(playButton);
@@ -3989,14 +3976,12 @@ function importSelectedSearchResults(target = "playlist") {
     let duplicates = 0;
 
     songsToAdd.forEach((song) => {
-        // 修复：导入到播放列表时，也需要对歌曲对象进行处理，确保它有正确的格式
-        const normalized = sanitizeImportedSong(song) || song;
-        const key = getSongKey(normalized);
+        const key = getSongKey(song);
         if (key && existingKeys.has(key)) {
             duplicates++;
             return;
         }
-        state.playlistSongs.push(normalized);
+        state.playlistSongs.push(song);
         if (key) {
             existingKeys.add(key);
         }
@@ -4078,33 +4063,49 @@ function displaySearchResults(newItems, options = {}) {
 }
 
 // 显示质量选择菜单
-// 移除音质选择功能，直接下载
 function showQualityMenu(event, index, type) {
     event.stopPropagation();
-    let song;
 
-    if (type === "search") {
-        song = state.searchResults[index];
-    } else if (type === "online") {
-        song = state.onlineSongs[index];
-    } else if (type === "playlist") {
-        song = state.playlistSongs[index];
-    } else if (type === "favorites") {
-        song = state.favoriteSongs[index];
+    // 移除现有的质量菜单
+    const existingMenu = document.querySelector(".dynamic-quality-menu");
+    if (existingMenu) {
+        existingMenu.remove();
     }
 
-    if (!song) return;
+    // 创建新的质量菜单
+    const menu = document.createElement("div");
+    menu.className = "dynamic-quality-menu";
+    menu.innerHTML = `
+        <div class="quality-option" onclick="downloadWithQuality(event, ${index}, '${type}', '128')">标准音质 (128k)</div>
+        <div class="quality-option" onclick="downloadWithQuality(event, ${index}, '${type}', '192')">高音质 (192k)</div>
+        <div class="quality-option" onclick="downloadWithQuality(event, ${index}, '${type}', '320')">超高音质 (320k)</div>
+        <div class="quality-option" onclick="downloadWithQuality(event, ${index}, '${type}', '999')">无损音质</div>
+    `;
 
-    try {
-        downloadSong(song);
-    } catch (error) {
-        console.error("下载失败:", error);
-        showNotification("下载失败，请稍后重试", "error");
-    }
+    // 设置菜单位置
+    const button = event.target.closest("button");
+    const rect = button.getBoundingClientRect();
+    menu.style.position = "fixed";
+    menu.style.top = (rect.bottom + 5) + "px";
+    menu.style.left = (rect.left - 50) + "px";
+    menu.style.zIndex = "10000";
+
+    // 添加到body
+    document.body.appendChild(menu);
+
+    // 点击其他地方关闭菜单
+    setTimeout(() => {
+        document.addEventListener("click", function closeMenu(e) {
+            if (!menu.contains(e.target)) {
+                menu.remove();
+                document.removeEventListener("click", closeMenu);
+            }
+        });
+    }, 0);
 }
 
-// 移除音质选择功能，直接下载
-async function downloadWithQuality(event, index, type) {
+// 根据质量下载 - 支持播放列表模式
+async function downloadWithQuality(event, index, type, quality) {
     event.stopPropagation();
     let song;
 
@@ -4119,6 +4120,13 @@ async function downloadWithQuality(event, index, type) {
     }
 
     if (!song) return;
+
+    // 关闭菜单并移除 menu-active 类
+    document.querySelectorAll(".quality-menu").forEach(menu => {
+        menu.classList.remove("show");
+        const parentItem = menu.closest(".search-result-item");
+        if (parentItem) parentItem.classList.remove("menu-active");
+    });
 
     // 关闭动态质量菜单
     const dynamicMenu = document.querySelector(".dynamic-quality-menu");
@@ -4127,7 +4135,7 @@ async function downloadWithQuality(event, index, type) {
     }
 
     try {
-        await downloadSong(song);
+        await downloadSong(song, quality);
     } catch (error) {
         console.error("下载失败:", error);
         showNotification("下载失败，请稍后重试", "error");
@@ -4285,10 +4293,9 @@ function sanitizeImportedSong(rawSong) {
 
     const normalized = { ...rawSong, name };
     const sourceCandidate = rawSong.source || rawSong.platform || rawSong.provider || rawSong.vendor;
-    // 修复：如果sourceCandidate为空，不要默认设置为"netease"，保留原始值或使用当前搜索源
     normalized.source = typeof sourceCandidate === "string" && sourceCandidate.trim() !== ""
         ? sourceCandidate.trim()
-        : (rawSong.source || "netease");
+        : "netease";
 
     const resolvedId = resolveSongId(rawSong);
     if (resolvedId) {
@@ -5202,18 +5209,30 @@ async function playSong(song, options = {}) {
     try {
         updateCurrentSongInfo(song, { loadArtwork: false });
 
-        // 移除音质选择功能，使用固定音质
-        const audioUrl = API.getSongUrl(song);
+        const quality = state.playbackQuality || '320';
+        const audioUrl = API.getSongUrl(song, quality);
         debugLog(`获取音频URL: ${audioUrl}`);
-        debugLog(`当前歌曲信息: ${JSON.stringify(song).substring(0, 100)}...`);
 
-        let primaryAudioUrl = audioUrl;
-        let candidateAudioUrls = [primaryAudioUrl];
-        
-        // 添加项目自带的代理支持，解决CORS问题
-        const proxyAudioUrl = `/proxy?target=${encodeURIComponent(primaryAudioUrl)}`;
-        candidateAudioUrls.push(proxyAudioUrl);
-        debugLog(`添加项目自带代理URL: ${proxyAudioUrl}`);
+        const audioData = await API.fetchJson(audioUrl);
+
+        if (!audioData || !audioData.url) {
+            throw new Error('无法获取音频播放地址');
+        }
+
+        const originalAudioUrl = audioData.url;
+        const proxiedAudioUrl = buildAudioProxyUrl(originalAudioUrl);
+        const preferredAudioUrl = preferHttpsUrl(originalAudioUrl);
+        const candidateAudioUrls = Array.from(
+            new Set([proxiedAudioUrl, preferredAudioUrl, originalAudioUrl].filter(Boolean))
+        );
+
+        const primaryAudioUrl = candidateAudioUrls[0] || originalAudioUrl;
+
+        if (proxiedAudioUrl && proxiedAudioUrl !== originalAudioUrl) {
+            debugLog(`音频地址已通过代理转换为 HTTPS: ${proxiedAudioUrl}`);
+        } else if (preferredAudioUrl && preferredAudioUrl !== originalAudioUrl) {
+            debugLog(`音频地址由 HTTP 升级为 HTTPS: ${preferredAudioUrl}`);
+        }
 
         state.currentSong = song;
         state.currentAudioUrl = null;
@@ -5245,30 +5264,22 @@ async function playSong(song, options = {}) {
         let selectedAudioUrl = null;
         let lastAudioError = null;
         let usedFallbackAudio = false;
-        let playPromise = null;
 
-        // 尝试所有候选音频URL
         for (const candidateUrl of candidateAudioUrls) {
             dom.audioPlayer.src = candidateUrl;
             dom.audioPlayer.load();
 
             try {
-                // 直接播放，不等待元数据加载
-                if (autoplay) {
-                    playPromise = dom.audioPlayer.play();
-                    if (playPromise !== undefined) {
-                        await playPromise;
-                    }
-                }
+                await waitForAudioReady(dom.audioPlayer);
                 selectedAudioUrl = candidateUrl;
                 usedFallbackAudio = candidateUrl !== primaryAudioUrl && candidateAudioUrls.length > 1;
                 break;
             } catch (error) {
                 lastAudioError = error;
-                console.warn('音频播放异常', error);
+                console.warn('音频元数据加载异常', error);
 
                 if (candidateUrl === primaryAudioUrl && candidateAudioUrls.length > 1) {
-                    debugLog('主音频地址播放失败，尝试使用备用地址');
+                    debugLog('主音频地址加载失败，尝试使用备用地址');
                 }
             }
         }
@@ -5293,14 +5304,26 @@ async function playSong(song, options = {}) {
 
         state.lastSavedPlaybackTime = state.currentPlaybackTime;
 
-        if (!autoplay) {
+        let playPromise = null;
+
+        if (autoplay) {
+            playPromise = dom.audioPlayer.play();
+            if (playPromise !== undefined) {
+                playPromise.catch(error => {
+                    console.error('播放失败:', error);
+                    showNotification('播放失败，请检查网络连接', 'error');
+                });
+            } else {
+                playPromise = null;
+            }
+        } else {
             dom.audioPlayer.pause();
             updatePlayPauseButton();
         }
 
         scheduleDeferredSongAssets(song, playPromise);
 
-        debugLog(`开始播放: ${song.name}`);
+        debugLog(`开始播放: ${song.name} @${quality}`);
 
         if (typeof window.__SOLARA_UPDATE_MEDIA_METADATA === 'function') {
             window.__SOLARA_UPDATE_MEDIA_METADATA();
@@ -5538,10 +5561,19 @@ function updateOnlineHighlight() {
 }
 
 const EXPLORE_RADAR_GENRES = [
-    "中文",
-    "热榜",
     "流行",
-    "排行",
+    "摇滚",
+    "古典音乐",
+    "民谣",
+    "电子",
+    "爵士",
+    "说唱",
+    "乡村",
+    "蓝调",
+    "R&B",
+    "金属",
+    "嘻哈",
+    "轻音乐",
 ];
 
 function pickRandomExploreGenre() {
@@ -5552,11 +5584,11 @@ function pickRandomExploreGenre() {
     return EXPLORE_RADAR_GENRES[index];
 }
 
-const EXPLORE_RADAR_SOURCES = ["tx", "kw", "mg", "wy"];
+const EXPLORE_RADAR_SOURCES = ["netease", "kuwo"];
 
 function pickRandomExploreSource() {
     if (!Array.isArray(EXPLORE_RADAR_SOURCES) || EXPLORE_RADAR_SOURCES.length === 0) {
-        return "tx";
+        return "netease";
     }
     const index = Math.floor(Math.random() * EXPLORE_RADAR_SOURCES.length);
     return EXPLORE_RADAR_SOURCES[index];
@@ -5663,55 +5695,11 @@ async function loadLyrics(song) {
     try {
         const lyricUrl = API.getLyric(song);
         debugLog(`获取歌词URL: ${lyricUrl}`);
-        debugLog(`当前歌曲信息: ${JSON.stringify(song).substring(0, 100)}...`);
 
-        // 直接获取歌词数据，不经过JSON处理
-        const response = await fetch(lyricUrl, {
-            method: 'GET',
-            headers: {
-                'Accept': 'application/json, text/plain'
-            },
-            mode: 'cors',
-            credentials: 'omit'
-        });
-        
-        debugLog(`歌词响应状态: ${response.status}`);
-        
-        if (!response.ok) {
-            throw new Error(`HTTP错误! 状态: ${response.status}`);
-        }
-        
-        const responseText = await response.text();
-        debugLog(`歌词响应原始文本: ${responseText}`);
-        
-        let lyricData;
-        let lyricContent;
-        
-        try {
-            // 尝试将响应作为JSON处理
-            lyricData = JSON.parse(responseText);
-            debugLog(`歌词JSON解析成功: ${typeof lyricData}`);
-            
-            // 从JSON中提取lrc字段
-            if (lyricData && lyricData.lrc) {
-                lyricContent = lyricData.lrc;
-                debugLog(`从JSON中提取歌词: ${lyricContent.substring(0, 100)}...`);
-            } else if (lyricData && typeof lyricData === 'string') {
-                // 如果JSON解析后是字符串，直接使用
-                lyricContent = lyricData;
-                debugLog(`歌词JSON解析后是字符串: ${lyricContent.substring(0, 100)}...`);
-            } else {
-                throw new Error(`歌词JSON格式错误，缺少lrc字段`);
-            }
-        } catch (parseError) {
-            // 如果JSON解析失败，直接将响应文本作为歌词
-            debugLog(`歌词JSON解析失败，尝试直接使用响应文本: ${parseError.message}`);
-            lyricContent = responseText;
-            debugLog(`直接使用响应文本作为歌词: ${lyricContent.substring(0, 100)}...`);
-        }
+        const lyricData = await API.fetchJson(lyricUrl);
 
-        if (lyricContent) {
-            parseLyrics(lyricContent);
+        if (lyricData && lyricData.lyric) {
+            parseLyrics(lyricData.lyric);
             dom.lyrics.classList.remove("empty");
             dom.lyrics.dataset.placeholder = "default";
             debugLog(`歌词加载成功: ${state.lyricsData.length} 行`);
@@ -5725,13 +5713,12 @@ async function loadLyrics(song) {
         }
     } catch (error) {
         console.error("加载歌词失败:", error);
-        debugLog(`歌词加载失败详情: ${error.message}`);
-        debugLog(`错误堆栈: ${error.stack}`);
         setLyricsContentHtml("<div>歌词加载失败</div>");
         dom.lyrics.classList.add("empty");
         dom.lyrics.dataset.placeholder = "message";
         state.lyricsData = [];
         state.currentLyricLine = -1;
+        debugLog(`歌词加载失败: ${error}`);
     }
 }
 
@@ -5895,86 +5882,54 @@ function scrollToCurrentLyric(element, containerOverride) {
 }
 
 // 修复：下载歌曲
-async function downloadSong(song) {
+async function downloadSong(song, quality = "320") {
     try {
         showNotification("正在准备下载...");
 
-        // 直接使用项目自带的代理，不再使用API.getSongUrl
-        // 从调试日志来看，API.getSongUrl返回的URL格式不正确，导致下载失败
-        const proxyUrl = `/proxy?types=url&source=${song.source}&id=${song.id}`;
-        debugLog(`使用项目自带代理下载: ${proxyUrl}`);
-        
-        // 使用代理URL获取音频数据
-        const response = await fetch(proxyUrl, {
-            method: 'GET',
-            headers: {
-                'Accept': 'application/json'
-            },
-            mode: 'cors'
-        });
-        
-        if (!response.ok) {
-            throw new Error(`请求失败，状态码: ${response.status}`);
-        }
-        
-        // 获取实际的音频URL（可能是重定向后的URL）
-        const responseData = await response.json();
-        const downloadUrl = responseData.url || '';
-        
-        if (!downloadUrl) {
-            throw new Error('未获取到下载链接');
-        }
-        
-        debugLog(`实际下载URL: ${downloadUrl}`);
-        
-        // 解析文件扩展名
-        let fileExtension = "mp3";
-        try {
-            const url = new URL(downloadUrl);
-            const pathname = url.pathname || "";
-            const match = pathname.match(/\.([a-z0-9]+)$/i);
-            if (match) {
-                fileExtension = match[1];
+        const audioUrl = API.getSongUrl(song, quality);
+        const audioData = await API.fetchJson(audioUrl);
+
+        if (audioData && audioData.url) {
+            const proxiedAudioUrl = buildAudioProxyUrl(audioData.url);
+            const preferredAudioUrl = preferHttpsUrl(audioData.url);
+
+            if (proxiedAudioUrl !== audioData.url) {
+                debugLog(`下载链接已通过代理转换为 HTTPS: ${proxiedAudioUrl}`);
+            } else if (preferredAudioUrl !== audioData.url) {
+                debugLog(`下载链接由 HTTP 升级为 HTTPS: ${preferredAudioUrl}`);
             }
-        } catch (error) {
-            console.warn("无法从下载链接中解析扩展名:", error);
-            fileExtension = "mp3"; // 默认返回MP3格式
+
+            const downloadUrl = proxiedAudioUrl || preferredAudioUrl || audioData.url;
+
+            const link = document.createElement("a");
+            link.href = downloadUrl;
+            const preferredExtension =
+                quality === "999" ? "flac" : quality === "740" ? "ape" : "mp3";
+            const fileExtension = (() => {
+                try {
+                    const url = new URL(audioData.url);
+                    const pathname = url.pathname || "";
+                    const match = pathname.match(/\.([a-z0-9]+)$/i);
+                    if (match) {
+                        return match[1];
+                    }
+                } catch (error) {
+                    console.warn("无法从下载链接中解析扩展名:", error);
+                }
+                return preferredExtension;
+            })();
+            link.download = `${song.name} - ${Array.isArray(song.artist) ? song.artist.join(", ") : song.artist}.${fileExtension}`;
+            link.target = "_blank";
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
+            showNotification("下载已开始", "success");
+        } else {
+            throw new Error("无法获取下载地址");
         }
-
-        // 生成安全的文件名
-        const safeFileName = `${song.name} - ${Array.isArray(song.artist) ? song.artist.join(", ") : song.artist}.${fileExtension}`
-            .replace(/[<>:"/\\|?*]/g, "") // 移除Windows不允许的字符
-            .replace(/\s+/g, " ") // 替换多个空格为单个空格
-            .trim();
-
-        // 使用Blob API获取音频数据并下载
-        const audioResponse = await fetch(downloadUrl);
-        if (!audioResponse.ok) {
-            throw new Error(`音频下载失败，状态码: ${audioResponse.status}`);
-        }
-        
-        const blob = await audioResponse.blob();
-        const blobUrl = URL.createObjectURL(blob);
-        
-        const link = document.createElement("a");
-        link.href = blobUrl;
-        link.download = safeFileName;
-        // 确保不跳转到新页面
-        link.target = "_self";
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        
-        // 释放Blob URL
-        setTimeout(() => {
-            URL.revokeObjectURL(blobUrl);
-        }, 100);
-
-        showNotification("下载已开始", "success");
     } catch (error) {
         console.error("下载失败:", error);
-        debugLog(`下载失败详情: ${error.message}`);
-        debugLog(`错误堆栈: ${error.stack}`);
         showNotification("下载失败，请稍后重试", "error");
     }
 }
