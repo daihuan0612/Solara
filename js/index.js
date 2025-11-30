@@ -3119,15 +3119,23 @@ function setupInteractions() {
         dom.sourceSelectButton.addEventListener("click", toggleSourceMenu);
         dom.sourceMenu.addEventListener("click", handleSourceSelection);
     }
-    dom.qualityToggle.addEventListener("click", togglePlayerQualityMenu);
+    
+    if (dom.qualityToggle) {
+        dom.qualityToggle.addEventListener("click", togglePlayerQualityMenu);
+    }
+    
     if (dom.mobileQualityToggle) {
         dom.mobileQualityToggle.addEventListener("click", togglePlayerQualityMenu);
     }
+    
+    if (dom.playerQualityMenu) {
+        dom.playerQualityMenu.addEventListener("click", handlePlayerQualitySelection);
+    }
+    
     setQualityAnchorState(dom.qualityToggle, false);
     if (dom.mobileQualityToggle) {
         setQualityAnchorState(dom.mobileQualityToggle, false);
     }
-    dom.playerQualityMenu.addEventListener("click", handlePlayerQualitySelection);
 
     if (isMobileView && dom.albumCover) {
         dom.albumCover.addEventListener("click", () => {
@@ -3300,26 +3308,30 @@ function setupInteractions() {
     }
 
     // 搜索相关事件 - 修复搜索下拉框显示问题
-    dom.searchBtn.addEventListener("click", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        debugLog("搜索按钮被点击");
-        performSearch();
-    });
-
-    dom.searchInput.addEventListener("focus", () => {
-        debugLog("搜索输入框获得焦点，尝试恢复上次搜索结果");
-        handleSearchInputFocus();
-    });
-
-    dom.searchInput.addEventListener("keypress", (e) => {
-        if (e.key === "Enter") {
+    if (dom.searchBtn) {
+        dom.searchBtn.addEventListener("click", (e) => {
             e.preventDefault();
             e.stopPropagation();
-            debugLog("搜索输入框回车键被按下");
+            debugLog("搜索按钮被点击");
             performSearch();
-        }
-    });
+        });
+    }
+
+    if (dom.searchInput) {
+        dom.searchInput.addEventListener("focus", () => {
+            debugLog("搜索输入框获得焦点，尝试恢复上次搜索结果");
+            handleSearchInputFocus();
+        });
+
+        dom.searchInput.addEventListener("keypress", (e) => {
+            if (e.key === "Enter") {
+                e.preventDefault();
+                e.stopPropagation();
+                debugLog("搜索输入框回车键被按下");
+                performSearch();
+            }
+        });
+    }
 
     updateImportSelectedButton();
 
