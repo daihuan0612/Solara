@@ -641,10 +641,9 @@ function buildAudioProxyUrl(url) {
 }
 
 const SOURCE_OPTIONS = [
-    { value: "wy", label: "网易云音乐" },
-    { value: "kw", label: "酷我音乐" },
-    { value: "tx", label: "QQ音乐" },
-    { value: "mg", label: "咪咕音乐" }
+    { value: "netease", label: "网易云音乐" },
+    { value: "kuwo", label: "酷我音乐" },
+    { value: "joox", label: "JOOX音乐" }
 ];
 
 function normalizeSource(value) {
@@ -770,60 +769,40 @@ const API = {
     },
 
     fetchJson: async (url) => {
-        debugLog(`API.fetchJson 被调用: ${url}`);
         try {
             const response = await fetch(url, {
                 headers: {
                     "Accept": "application/json",
                 },
             });
-            debugLog(`API响应状态: ${response.status} ${response.statusText}`);
 
             if (!response.ok) {
                 throw new Error(`Request failed with status ${response.status}`);
             }
 
             const text = await response.text();
-            debugLog(`API响应文本长度: ${text.length}`);
-            
             try {
-                const data = JSON.parse(text);
-                debugLog(`成功解析JSON，数据类型: ${typeof data}`);
-                return data;
+                return JSON.parse(text);
             } catch (parseError) {
-                debugLog(`JSON解析失败: ${parseError.message}`);
-                debugLog(`响应文本预览: ${text.substring(0, 100)}...`);
                 console.warn("JSON parse failed, returning raw text", parseError);
                 return text;
             }
         } catch (error) {
-            debugLog(`API请求错误: ${error.message}`);
             console.error("API request error:", error);
             throw error;
         }
     },
 
-    search: async (keyword, source = "wy", count = 20, page = 1) => {
-        debugLog(`API.search 被调用: keyword=${keyword}, source=${source}, count=${count}, page=${page}`);
+    search: async (keyword, source = "netease", count = 20, page = 1) => {
         const signature = API.generateSignature();
         const url = `${API.baseUrl}?types=search&source=${source}&name=${encodeURIComponent(keyword)}&count=${count}&pages=${page}&s=${signature}`;
-        debugLog(`构建的API URL: ${url}`);
 
         try {
             debugLog(`API请求: ${url}`);
             const data = await API.fetchJson(url);
             debugLog(`API响应: ${JSON.stringify(data).substring(0, 200)}...`);
-            
-            // 检查响应数据
-            if (!data) {
-                debugLog("API返回空数据");
-                throw new Error("API返回空数据");
-            }
 
-            if (!Array.isArray(data)) {
-                debugLog("搜索结果格式错误，不是数组");
-                throw new Error("搜索结果格式错误");
-            }
+            if (!Array.isArray(data)) throw new Error("搜索结果格式错误");
 
             return data.map(song => ({
                 id: song.id,
@@ -884,7 +863,7 @@ const API = {
                 id: track.id,
                 name: track.name,
                 artist: Array.isArray(track.ar) ? track.ar.map(artist => artist.name).join(" / ") : "",
-                source: "wy",
+                source: "netease",
                 lyric_id: track.id,
                 pic_id: track.al?.pic_str || track.al?.pic || track.al?.picUrl || "",
             }));
@@ -896,17 +875,17 @@ const API = {
 
     getSongUrl: (song, quality = "320") => {
         const signature = API.generateSignature();
-        return `${API.baseUrl}?types=url&id=${song.id}&source=${song.source || "wy"}&br=${quality}&s=${signature}`;
+        return `${API.baseUrl}?types=url&id=${song.id}&source=${song.source || "netease"}&br=${quality}&s=${signature}`;
     },
 
     getLyric: (song) => {
         const signature = API.generateSignature();
-        return `${API.baseUrl}?types=lyric&id=${song.lyric_id || song.id}&source=${song.source || "wy"}&s=${signature}`;
+        return `${API.baseUrl}?types=lyric&id=${song.lyric_id || song.id}&source=${song.source || "netease"}&s=${signature}`;
     },
 
     getPicUrl: (song) => {
         const signature = API.generateSignature();
-        return `${API.baseUrl}?types=pic&id=${song.pic_id}&source=${song.source || "wy"}&size=300&s=${signature}`;
+        return `${API.baseUrl}?types=pic&id=${song.pic_id}&source=${song.source || "netease"}&size=300&s=${signature}`;
     }
 };
 
@@ -1997,7 +1976,6 @@ document.addEventListener("keydown", (e) => {
 
 // 新增：切换搜索模式
 function toggleSearchMode(enable) {
-    debugLog(`切换搜索模式: ${enable}`);
     state.isSearchMode = enable;
     if (enable) {
         dom.container.classList.add("search-mode");
@@ -2010,7 +1988,6 @@ function toggleSearchMode(enable) {
 
 // 新增：显示搜索结果
 function showSearchResults(options = {}) {
-    debugLog(`显示搜索结果，options: ${JSON.stringify(options)}`);
     const { restore = false } = options;
     toggleSearchMode(true);
     if (state.sourceMenuOpen) {
@@ -2022,12 +1999,10 @@ function showSearchResults(options = {}) {
     if (restore) {
         restoreSearchResultsList();
     }
-    debugLog("搜索结果已显示");
 }
 
 // 新增：隐藏搜索结果 - 优化立即收起
 function hideSearchResults() {
-    debugLog("隐藏搜索结果");
     toggleSearchMode(false);
     if (state.sourceMenuOpen) {
         scheduleSourceMenuPositionUpdate();
@@ -2043,7 +2018,6 @@ function hideSearchResults() {
     state.renderedSearchCount = 0;
     resetSelectedSearchResults();
     closeImportSelectedMenu();
-    debugLog("搜索结果已隐藏");
 }
 
 function createSearchStateSnapshot() {
@@ -2467,21 +2441,13 @@ function buildSourceMenu() {
 }
 
 function updateSourceLabel() {
-    debugLog("更新源标签");
     const option = SOURCE_OPTIONS.find(item => item.value === state.searchSource) || SOURCE_OPTIONS[0];
-    if (!option || !dom.sourceSelectLabel || !dom.sourceSelectButton) {
-        debugLog("缺少必要的DOM元素或选项");
-        if (!option) debugLog("未找到选项");
-        if (!dom.sourceSelectLabel) debugLog("未找到 sourceSelectLabel");
-        if (!dom.sourceSelectButton) debugLog("未找到 sourceSelectButton");
-        return;
-    }
+    if (!option || !dom.sourceSelectLabel || !dom.sourceSelectButton) return;
     dom.sourceSelectLabel.textContent = option.label;
     dom.sourceSelectButton.dataset.source = option.value;
     dom.sourceSelectButton.setAttribute("aria-expanded", state.sourceMenuOpen ? "true" : "false");
     dom.sourceSelectButton.setAttribute("aria-label", `当前音源：${option.label}，点击切换音源`);
     dom.sourceSelectButton.setAttribute("title", `音源：${option.label}`);
-    debugLog(`源标签已更新为: ${option.label}`);
 }
 
 function updateSourceMenuPosition() {
@@ -2530,12 +2496,7 @@ function resetSourceMenuPosition() {
 }
 
 function openSourceMenu() {
-    debugLog("尝试打开源选择菜单");
-    if (!dom.sourceMenu || !dom.sourceSelectButton) {
-        debugLog("源菜单或源选择按钮不存在");
-        return;
-    }
-    debugLog("源菜单和按钮都存在");
+    if (!dom.sourceMenu || !dom.sourceSelectButton) return;
     state.sourceMenuOpen = true;
     ensureFloatingMenuListeners();
     buildSourceMenu();
@@ -2544,36 +2505,25 @@ function openSourceMenu() {
     dom.sourceSelectButton.setAttribute("aria-expanded", "true");
     updateSourceMenuPosition();
     scheduleSourceMenuPositionUpdate();
-    debugLog("源选择菜单已打开");
 }
 
 function closeSourceMenu() {
-    debugLog("尝试关闭源选择菜单");
-    if (!dom.sourceMenu) {
-        debugLog("源菜单不存在");
-        return;
-    }
+    if (!dom.sourceMenu) return;
     dom.sourceMenu.classList.remove("show");
-    if (dom.sourceSelectButton) {
-        dom.sourceSelectButton.classList.remove("active");
-        dom.sourceSelectButton.setAttribute("aria-expanded", "false");
-    }
+    dom.sourceSelectButton.classList.remove("active");
+    dom.sourceSelectButton.setAttribute("aria-expanded", "false");
     state.sourceMenuOpen = false;
     cancelSourceMenuPositionUpdate();
     resetSourceMenuPosition();
     releaseFloatingMenuListenersIfIdle();
-    debugLog("源选择菜单已关闭");
 }
 
 function toggleSourceMenu(event) {
-    debugLog("切换源选择菜单");
     event.preventDefault();
     event.stopPropagation();
     if (state.sourceMenuOpen) {
-        debugLog("菜单当前是打开的，准备关闭");
         closeSourceMenu();
     } else {
-        debugLog("菜单当前是关闭的，准备打开");
         openSourceMenu();
     }
 }
@@ -2590,11 +2540,8 @@ function handleSourceSelection(event) {
 }
 
 function selectSearchSource(source) {
-    debugLog(`选择搜索源: ${source}`);
     const normalized = normalizeSource(source);
-    debugLog(`标准化后的搜索源: ${normalized}`);
     if (normalized === state.searchSource) {
-        debugLog("选择的源与当前源相同，关闭菜单");
         closeSourceMenu();
         return;
     }
@@ -2603,7 +2550,6 @@ function selectSearchSource(source) {
     updateSourceLabel();
     buildSourceMenu();
     closeSourceMenu();
-    debugLog("搜索源已更新");
 }
 
 function buildQualityMenu() {
@@ -2919,14 +2865,6 @@ if (!("mediaSession" in navigator)) {
 }
 
 function setupInteractions() {
-    // 添加一个简单的检查来确认DOM元素是否存在
-    console.log("检查DOM元素:");
-    console.log("sourceSelectButton:", dom.sourceSelectButton);
-    console.log("sourceMenu:", dom.sourceMenu);
-    console.log("searchBtn:", dom.searchBtn);
-    console.log("searchInput:", dom.searchInput);
-    console.log("searchResults:", dom.searchResults);
-    
     function ensureQualityMenuPortal() {
         if (!dom.playerQualityMenu || !document.body || !isMobileView) {
             return;
@@ -3177,31 +3115,18 @@ function setupInteractions() {
     dom.volumeSlider.addEventListener("input", handleVolumeChange);
 
     if (dom.sourceSelectButton && dom.sourceMenu) {
-        debugLog("找到源选择按钮和菜单，添加点击事件监听器");
         dom.sourceSelectButton.addEventListener("click", toggleSourceMenu);
         dom.sourceMenu.addEventListener("click", handleSourceSelection);
-    } else {
-        debugLog("未找到源选择按钮或菜单元素");
-        if (!dom.sourceSelectButton) debugLog("未找到 sourceSelectButton");
-        if (!dom.sourceMenu) debugLog("未找到 sourceMenu");
     }
-    
-    if (dom.qualityToggle) {
-        dom.qualityToggle.addEventListener("click", togglePlayerQualityMenu);
-    }
-    
+    dom.qualityToggle.addEventListener("click", togglePlayerQualityMenu);
     if (dom.mobileQualityToggle) {
         dom.mobileQualityToggle.addEventListener("click", togglePlayerQualityMenu);
     }
-    
-    if (dom.playerQualityMenu) {
-        dom.playerQualityMenu.addEventListener("click", handlePlayerQualitySelection);
-    }
-    
     setQualityAnchorState(dom.qualityToggle, false);
     if (dom.mobileQualityToggle) {
         setQualityAnchorState(dom.mobileQualityToggle, false);
     }
+    dom.playerQualityMenu.addEventListener("click", handlePlayerQualitySelection);
 
     if (isMobileView && dom.albumCover) {
         dom.albumCover.addEventListener("click", () => {
@@ -3374,59 +3299,27 @@ function setupInteractions() {
     }
 
     // 搜索相关事件 - 修复搜索下拉框显示问题
-    if (dom.searchBtn) {
-        // 确保事件监听器只绑定一次
-        if (!dom.searchBtn.hasAttribute('data-event-bound')) {
-            dom.searchBtn.addEventListener("click", (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                debugLog("搜索按钮被点击");
-                performSearch();
-            });
-            dom.searchBtn.setAttribute('data-event-bound', 'true');
-        }
-    }
+    dom.searchBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        debugLog("搜索按钮被点击");
+        performSearch();
+    });
 
-    if (dom.searchInput) {
-        // 确保事件监听器只绑定一次
-        if (!dom.searchInput.hasAttribute('data-event-bound')) {
-            dom.searchInput.addEventListener("focus", () => {
-                debugLog("搜索输入框获得焦点，尝试恢复上次搜索结果");
-                handleSearchInputFocus();
-            });
+    dom.searchInput.addEventListener("focus", () => {
+        debugLog("搜索输入框获得焦点，尝试恢复上次搜索结果");
+        handleSearchInputFocus();
+    });
 
-            dom.searchInput.addEventListener("keypress", (e) => {
-                if (e.key === "Enter") {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    debugLog("搜索输入框回车键被按下");
-                    performSearch();
-                }
-            });
-            dom.searchInput.setAttribute('data-event-bound', 'true');
+    dom.searchInput.addEventListener("keypress", (e) => {
+        if (e.key === "Enter") {
+            e.preventDefault();
+            e.stopPropagation();
+            debugLog("搜索输入框回车键被按下");
+            performSearch();
         }
-    }
-    
-    // 确保源选择功能正常工作
-    if (dom.sourceSelectButton && dom.sourceMenu) {
-        // 检查是否已经绑定了事件，如果没有则绑定
-        if (!dom.sourceSelectButton.hasAttribute('data-events-bound')) {
-            dom.sourceSelectButton.addEventListener("click", toggleSourceMenu);
-            dom.sourceMenu.addEventListener("click", handleSourceSelection);
-            dom.sourceSelectButton.setAttribute('data-events-bound', 'true');
-        }
-    }
-    
-    // 添加对搜索区域的调试
-    if (dom.searchResults) {
-        debugLog("找到搜索结果区域，添加点击事件监听器");
-        dom.searchResults.addEventListener("click", (e) => {
-            debugLog(`搜索结果区域点击事件触发: ${e.target.tagName} ${e.target.className} ${e.target.id}`);
-        });
-    } else {
-        debugLog("未找到搜索结果区域元素");
-    }
-    
+    });
+
     updateImportSelectedButton();
 
     // 修复：点击搜索区域外部时隐藏搜索结果
@@ -3647,22 +3540,17 @@ function updateCurrentSongInfo(song, options = {}) {
 
 // 搜索功能 - 修复搜索下拉框显示问题
 async function performSearch(isLiveSearch = false) {
-    debugLog(`开始执行搜索，isLiveSearch: ${isLiveSearch}`);
     const query = dom.searchInput.value.trim();
-    debugLog(`搜索关键词: "${query}"`);
-    
     if (!query) {
         showNotification("请输入搜索关键词", "error");
         return;
     }
 
     if (state.sourceMenuOpen) {
-        debugLog("关闭源选择菜单");
         closeSourceMenu();
     }
 
     const source = normalizeSource(state.searchSource);
-    debugLog(`当前搜索源: ${source}`);
     state.searchSource = source;
     safeSetLocalStorage("searchSource", source);
     updateSourceLabel();
@@ -3670,7 +3558,6 @@ async function performSearch(isLiveSearch = false) {
 
     // 重置搜索状态
     if (!isLiveSearch) {
-        debugLog("重置搜索状态");
         state.searchPage = 1;
         state.searchKeyword = query;
         state.searchSource = source;
@@ -3690,19 +3577,14 @@ async function performSearch(isLiveSearch = false) {
 
     try {
         // 禁用搜索按钮并显示加载状态
-        debugLog("禁用搜索按钮并显示加载状态");
-        if (dom.searchBtn) {
-            dom.searchBtn.disabled = true;
-            dom.searchBtn.innerHTML = '<span class="loader"></span><span>搜索中...</span>';
-        }
+        dom.searchBtn.disabled = true;
+        dom.searchBtn.innerHTML = '<span class="loader"></span><span>搜索中...</span>';
 
         // 立即显示搜索模式
-        debugLog("显示搜索结果区域");
         showSearchResults();
         debugLog("已切换到搜索模式");
 
         // 执行搜索
-        debugLog(`调用API.search，参数: keyword=${query}, source=${source}, count=20, page=${state.searchPage}`);
         const results = await API.search(query, source, 20, state.searchPage);
         debugLog(`API返回结果数量: ${results.length}`);
 
@@ -3715,7 +3597,6 @@ async function performSearch(isLiveSearch = false) {
         state.hasMoreResults = results.length === 20;
 
         // 显示搜索结果
-        debugLog("显示搜索结果");
         displaySearchResults(results, {
             reset: state.searchPage === 1,
             totalCount: state.searchResults.length,
@@ -3735,11 +3616,8 @@ async function performSearch(isLiveSearch = false) {
         debugLog(`搜索失败: ${error.message}`);
     } finally {
         // 恢复搜索按钮状态
-        debugLog("恢复搜索按钮状态");
-        if (dom.searchBtn) {
-            dom.searchBtn.disabled = false;
-            dom.searchBtn.innerHTML = '<i class="fas fa-search"></i><span>搜索</span>';
-        }
+        dom.searchBtn.disabled = false;
+        dom.searchBtn.innerHTML = '<i class="fas fa-search"></i><span>搜索</span>';
     }
 }
 
@@ -3823,15 +3701,8 @@ function createSearchResultItem(song, index) {
     const albumText = song.album ? ` - ${song.album}` : "";
     artist.textContent = `${artistName}${albumText}`;
 
-    // 添加音乐源标签
-    const sourceTag = document.createElement("div");
-    sourceTag.className = "search-result-source";
-    const sourceOption = SOURCE_OPTIONS.find(option => option.value === (song.source || "wy"));
-    sourceTag.textContent = sourceOption ? sourceOption.label : "未知音源";
-
     info.appendChild(title);
     info.appendChild(artist);
-    info.appendChild(sourceTag);
 
     const actions = document.createElement("div");
     actions.className = "search-result-actions";
@@ -4382,7 +4253,7 @@ function getSongKey(song) {
         ? song.source.trim().toLowerCase()
         : (typeof song.platform === "string" && song.platform.trim() !== ""
             ? song.platform.trim().toLowerCase()
-            : "wy");
+            : "netease");
     const id = resolveSongId(song);
     if (id) {
         return `${source}:${id}`;
@@ -5713,11 +5584,11 @@ function pickRandomExploreGenre() {
     return EXPLORE_RADAR_GENRES[index];
 }
 
-const EXPLORE_RADAR_SOURCES = ["wy", "kw", "tx", "mg"];
+const EXPLORE_RADAR_SOURCES = ["netease", "kuwo"];
 
 function pickRandomExploreSource() {
     if (!Array.isArray(EXPLORE_RADAR_SOURCES) || EXPLORE_RADAR_SOURCES.length === 0) {
-        return "wy";
+        return "netease";
     }
     const index = Math.floor(Math.random() * EXPLORE_RADAR_SOURCES.length);
     return EXPLORE_RADAR_SOURCES[index];
