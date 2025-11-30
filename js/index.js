@@ -770,40 +770,60 @@ const API = {
     },
 
     fetchJson: async (url) => {
+        debugLog(`API.fetchJson 被调用: ${url}`);
         try {
             const response = await fetch(url, {
                 headers: {
                     "Accept": "application/json",
                 },
             });
+            debugLog(`API响应状态: ${response.status} ${response.statusText}`);
 
             if (!response.ok) {
                 throw new Error(`Request failed with status ${response.status}`);
             }
 
             const text = await response.text();
+            debugLog(`API响应文本长度: ${text.length}`);
+            
             try {
-                return JSON.parse(text);
+                const data = JSON.parse(text);
+                debugLog(`成功解析JSON，数据类型: ${typeof data}`);
+                return data;
             } catch (parseError) {
+                debugLog(`JSON解析失败: ${parseError.message}`);
+                debugLog(`响应文本预览: ${text.substring(0, 100)}...`);
                 console.warn("JSON parse failed, returning raw text", parseError);
                 return text;
             }
         } catch (error) {
+            debugLog(`API请求错误: ${error.message}`);
             console.error("API request error:", error);
             throw error;
         }
     },
 
     search: async (keyword, source = "wy", count = 20, page = 1) => {
+        debugLog(`API.search 被调用: keyword=${keyword}, source=${source}, count=${count}, page=${page}`);
         const signature = API.generateSignature();
         const url = `${API.baseUrl}?types=search&source=${source}&name=${encodeURIComponent(keyword)}&count=${count}&pages=${page}&s=${signature}`;
+        debugLog(`构建的API URL: ${url}`);
 
         try {
             debugLog(`API请求: ${url}`);
             const data = await API.fetchJson(url);
             debugLog(`API响应: ${JSON.stringify(data).substring(0, 200)}...`);
+            
+            // 检查响应数据
+            if (!data) {
+                debugLog("API返回空数据");
+                throw new Error("API返回空数据");
+            }
 
-            if (!Array.isArray(data)) throw new Error("搜索结果格式错误");
+            if (!Array.isArray(data)) {
+                debugLog("搜索结果格式错误，不是数组");
+                throw new Error("搜索结果格式错误");
+            }
 
             return data.map(song => ({
                 id: song.id,
@@ -1977,6 +1997,7 @@ document.addEventListener("keydown", (e) => {
 
 // 新增：切换搜索模式
 function toggleSearchMode(enable) {
+    debugLog(`切换搜索模式: ${enable}`);
     state.isSearchMode = enable;
     if (enable) {
         dom.container.classList.add("search-mode");
@@ -1989,6 +2010,7 @@ function toggleSearchMode(enable) {
 
 // 新增：显示搜索结果
 function showSearchResults(options = {}) {
+    debugLog(`显示搜索结果，options: ${JSON.stringify(options)}`);
     const { restore = false } = options;
     toggleSearchMode(true);
     if (state.sourceMenuOpen) {
@@ -2000,10 +2022,12 @@ function showSearchResults(options = {}) {
     if (restore) {
         restoreSearchResultsList();
     }
+    debugLog("搜索结果已显示");
 }
 
 // 新增：隐藏搜索结果 - 优化立即收起
 function hideSearchResults() {
+    debugLog("隐藏搜索结果");
     toggleSearchMode(false);
     if (state.sourceMenuOpen) {
         scheduleSourceMenuPositionUpdate();
@@ -2019,6 +2043,7 @@ function hideSearchResults() {
     state.renderedSearchCount = 0;
     resetSelectedSearchResults();
     closeImportSelectedMenu();
+    debugLog("搜索结果已隐藏");
 }
 
 function createSearchStateSnapshot() {
@@ -2442,13 +2467,21 @@ function buildSourceMenu() {
 }
 
 function updateSourceLabel() {
+    debugLog("更新源标签");
     const option = SOURCE_OPTIONS.find(item => item.value === state.searchSource) || SOURCE_OPTIONS[0];
-    if (!option || !dom.sourceSelectLabel || !dom.sourceSelectButton) return;
+    if (!option || !dom.sourceSelectLabel || !dom.sourceSelectButton) {
+        debugLog("缺少必要的DOM元素或选项");
+        if (!option) debugLog("未找到选项");
+        if (!dom.sourceSelectLabel) debugLog("未找到 sourceSelectLabel");
+        if (!dom.sourceSelectButton) debugLog("未找到 sourceSelectButton");
+        return;
+    }
     dom.sourceSelectLabel.textContent = option.label;
     dom.sourceSelectButton.dataset.source = option.value;
     dom.sourceSelectButton.setAttribute("aria-expanded", state.sourceMenuOpen ? "true" : "false");
     dom.sourceSelectButton.setAttribute("aria-label", `当前音源：${option.label}，点击切换音源`);
     dom.sourceSelectButton.setAttribute("title", `音源：${option.label}`);
+    debugLog(`源标签已更新为: ${option.label}`);
 }
 
 function updateSourceMenuPosition() {
@@ -2497,7 +2530,12 @@ function resetSourceMenuPosition() {
 }
 
 function openSourceMenu() {
-    if (!dom.sourceMenu || !dom.sourceSelectButton) return;
+    debugLog("尝试打开源选择菜单");
+    if (!dom.sourceMenu || !dom.sourceSelectButton) {
+        debugLog("源菜单或源选择按钮不存在");
+        return;
+    }
+    debugLog("源菜单和按钮都存在");
     state.sourceMenuOpen = true;
     ensureFloatingMenuListeners();
     buildSourceMenu();
@@ -2506,25 +2544,36 @@ function openSourceMenu() {
     dom.sourceSelectButton.setAttribute("aria-expanded", "true");
     updateSourceMenuPosition();
     scheduleSourceMenuPositionUpdate();
+    debugLog("源选择菜单已打开");
 }
 
 function closeSourceMenu() {
-    if (!dom.sourceMenu) return;
+    debugLog("尝试关闭源选择菜单");
+    if (!dom.sourceMenu) {
+        debugLog("源菜单不存在");
+        return;
+    }
     dom.sourceMenu.classList.remove("show");
-    dom.sourceSelectButton.classList.remove("active");
-    dom.sourceSelectButton.setAttribute("aria-expanded", "false");
+    if (dom.sourceSelectButton) {
+        dom.sourceSelectButton.classList.remove("active");
+        dom.sourceSelectButton.setAttribute("aria-expanded", "false");
+    }
     state.sourceMenuOpen = false;
     cancelSourceMenuPositionUpdate();
     resetSourceMenuPosition();
     releaseFloatingMenuListenersIfIdle();
+    debugLog("源选择菜单已关闭");
 }
 
 function toggleSourceMenu(event) {
+    debugLog("切换源选择菜单");
     event.preventDefault();
     event.stopPropagation();
     if (state.sourceMenuOpen) {
+        debugLog("菜单当前是打开的，准备关闭");
         closeSourceMenu();
     } else {
+        debugLog("菜单当前是关闭的，准备打开");
         openSourceMenu();
     }
 }
@@ -2541,8 +2590,11 @@ function handleSourceSelection(event) {
 }
 
 function selectSearchSource(source) {
+    debugLog(`选择搜索源: ${source}`);
     const normalized = normalizeSource(source);
+    debugLog(`标准化后的搜索源: ${normalized}`);
     if (normalized === state.searchSource) {
+        debugLog("选择的源与当前源相同，关闭菜单");
         closeSourceMenu();
         return;
     }
@@ -2551,6 +2603,7 @@ function selectSearchSource(source) {
     updateSourceLabel();
     buildSourceMenu();
     closeSourceMenu();
+    debugLog("搜索源已更新");
 }
 
 function buildQualityMenu() {
@@ -3116,8 +3169,13 @@ function setupInteractions() {
     dom.volumeSlider.addEventListener("input", handleVolumeChange);
 
     if (dom.sourceSelectButton && dom.sourceMenu) {
+        debugLog("找到源选择按钮和菜单，添加点击事件监听器");
         dom.sourceSelectButton.addEventListener("click", toggleSourceMenu);
         dom.sourceMenu.addEventListener("click", handleSourceSelection);
+    } else {
+        debugLog("未找到源选择按钮或菜单元素");
+        if (!dom.sourceSelectButton) debugLog("未找到 sourceSelectButton");
+        if (!dom.sourceMenu) debugLog("未找到 sourceMenu");
     }
     
     if (dom.qualityToggle) {
@@ -3308,16 +3366,22 @@ function setupInteractions() {
     }
 
     // 搜索相关事件 - 修复搜索下拉框显示问题
+    debugLog("初始化搜索相关事件监听器");
+    
     if (dom.searchBtn) {
+        debugLog("找到搜索按钮，添加点击事件监听器");
         dom.searchBtn.addEventListener("click", (e) => {
             e.preventDefault();
             e.stopPropagation();
             debugLog("搜索按钮被点击");
             performSearch();
         });
+    } else {
+        debugLog("未找到搜索按钮元素");
     }
 
     if (dom.searchInput) {
+        debugLog("找到搜索输入框，添加事件监听器");
         dom.searchInput.addEventListener("focus", () => {
             debugLog("搜索输入框获得焦点，尝试恢复上次搜索结果");
             handleSearchInputFocus();
@@ -3331,8 +3395,20 @@ function setupInteractions() {
                 performSearch();
             }
         });
+    } else {
+        debugLog("未找到搜索输入框元素");
     }
-
+    
+    // 添加对搜索区域的调试
+    if (dom.searchResults) {
+        debugLog("找到搜索结果区域，添加点击事件监听器");
+        dom.searchResults.addEventListener("click", (e) => {
+            debugLog(`搜索结果区域点击事件触发: ${e.target.tagName} ${e.target.className} ${e.target.id}`);
+        });
+    } else {
+        debugLog("未找到搜索结果区域元素");
+    }
+    
     updateImportSelectedButton();
 
     // 修复：点击搜索区域外部时隐藏搜索结果
@@ -3553,17 +3629,22 @@ function updateCurrentSongInfo(song, options = {}) {
 
 // 搜索功能 - 修复搜索下拉框显示问题
 async function performSearch(isLiveSearch = false) {
+    debugLog(`开始执行搜索，isLiveSearch: ${isLiveSearch}`);
     const query = dom.searchInput.value.trim();
+    debugLog(`搜索关键词: "${query}"`);
+    
     if (!query) {
         showNotification("请输入搜索关键词", "error");
         return;
     }
 
     if (state.sourceMenuOpen) {
+        debugLog("关闭源选择菜单");
         closeSourceMenu();
     }
 
     const source = normalizeSource(state.searchSource);
+    debugLog(`当前搜索源: ${source}`);
     state.searchSource = source;
     safeSetLocalStorage("searchSource", source);
     updateSourceLabel();
@@ -3571,6 +3652,7 @@ async function performSearch(isLiveSearch = false) {
 
     // 重置搜索状态
     if (!isLiveSearch) {
+        debugLog("重置搜索状态");
         state.searchPage = 1;
         state.searchKeyword = query;
         state.searchSource = source;
@@ -3590,14 +3672,19 @@ async function performSearch(isLiveSearch = false) {
 
     try {
         // 禁用搜索按钮并显示加载状态
-        dom.searchBtn.disabled = true;
-        dom.searchBtn.innerHTML = '<span class="loader"></span><span>搜索中...</span>';
+        debugLog("禁用搜索按钮并显示加载状态");
+        if (dom.searchBtn) {
+            dom.searchBtn.disabled = true;
+            dom.searchBtn.innerHTML = '<span class="loader"></span><span>搜索中...</span>';
+        }
 
         // 立即显示搜索模式
+        debugLog("显示搜索结果区域");
         showSearchResults();
         debugLog("已切换到搜索模式");
 
         // 执行搜索
+        debugLog(`调用API.search，参数: keyword=${query}, source=${source}, count=20, page=${state.searchPage}`);
         const results = await API.search(query, source, 20, state.searchPage);
         debugLog(`API返回结果数量: ${results.length}`);
 
@@ -3610,6 +3697,7 @@ async function performSearch(isLiveSearch = false) {
         state.hasMoreResults = results.length === 20;
 
         // 显示搜索结果
+        debugLog("显示搜索结果");
         displaySearchResults(results, {
             reset: state.searchPage === 1,
             totalCount: state.searchResults.length,
@@ -3629,8 +3717,11 @@ async function performSearch(isLiveSearch = false) {
         debugLog(`搜索失败: ${error.message}`);
     } finally {
         // 恢复搜索按钮状态
-        dom.searchBtn.disabled = false;
-        dom.searchBtn.innerHTML = '<i class="fas fa-search"></i><span>搜索</span>';
+        debugLog("恢复搜索按钮状态");
+        if (dom.searchBtn) {
+            dom.searchBtn.disabled = false;
+            dom.searchBtn.innerHTML = '<i class="fas fa-search"></i><span>搜索</span>';
+        }
     }
 }
 
