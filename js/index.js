@@ -642,9 +642,7 @@ function buildAudioProxyUrl(url) {
 
 const SOURCE_OPTIONS = [
     { value: "wy", label: "网易云音乐" },
-    { value: "kw", label: "酷我音乐" },
-    { value: "tx", label: "QQ音乐" },
-    { value: "mg", label: "咪咕音乐" }
+    { value: "tx", label: "QQ音乐" }
 ];
 
 function normalizeSource(value) {
@@ -782,6 +780,12 @@ const API = {
             }
 
             const text = await response.text();
+            
+            // 检查响应是否为HTML页面
+            if (text.startsWith("<!doctype html>") || text.startsWith("<html>")) {
+                throw new Error(`API返回HTML页面，可能是API端点不存在或格式错误: ${url}`);
+            }
+            
             try {
                 return JSON.parse(text);
             } catch (parseError) {
@@ -803,14 +807,8 @@ const API = {
             case "wy":
                 types = "wySearchMusic";
                 break;
-            case "kw":
-                types = "fetchSearchMusic";
-                break;
             case "tx":
                 types = "txSearchMusic";
-                break;
-            case "mg":
-                types = "mgSearchMusic";
                 break;
             default:
                 types = "wySearchMusic";
@@ -823,7 +821,19 @@ const API = {
             const data = await API.fetchJson(url);
             debugLog(`API响应: ${JSON.stringify(data).substring(0, 200)}...`);
 
-            if (!Array.isArray(data)) throw new Error("搜索结果格式错误");
+            // 检查API响应格式
+            if (!Array.isArray(data)) {
+                // 如果响应不是数组，尝试从响应中提取结果数组
+                if (data && typeof data === "object" && Array.isArray(data.result)) {
+                    debugLog("API响应不是直接数组，从result字段提取结果");
+                    data = data.result;
+                } else if (data && typeof data === "object" && Array.isArray(data.data)) {
+                    debugLog("API响应不是直接数组，从data字段提取结果");
+                    data = data.data;
+                } else {
+                    throw new Error(`搜索结果格式错误，期望数组但得到: ${typeof data}`);
+                }
+            }
 
             return data.map(song => ({
                 id: song.id,
@@ -884,7 +894,7 @@ const API = {
                 id: track.id,
                 name: track.name,
                 artist: Array.isArray(track.ar) ? track.ar.map(artist => artist.name).join(" / ") : "",
-                source: "netease",
+                source: "wy", // 使用默认的音乐源
                 lyric_id: track.id,
                 pic_id: track.al?.pic_str || track.al?.pic || track.al?.picUrl || "",
             }));
@@ -896,75 +906,27 @@ const API = {
 
     getSongUrl: (song, quality = "exhigh") => {
         const signature = API.generateSignature();
-        let types = "url";
-        
-        // 根据不同的音乐源设置不同的API类型
-        switch (song.source) {
-            case "wy":
-                types = "wyMusicDetail";
-                break;
-            case "kw":
-                types = "fetchMusicDetail";
-                break;
-            case "tx":
-                types = "txMusicDetail";
-                break;
-            case "mg":
-                types = "mgMusicDetail";
-                break;
-            default:
-                types = "url";
-        }
+        // 直接使用"url"类型，不需要根据音乐源设置不同的API类型
+        // 因为proxy.ts会根据source参数和types参数来映射到新API的相应参数
+        const types = "url";
         
         return `${API.baseUrl}?types=${types}&id=${song.id}&source=${song.source || "wy"}&br=${quality}&s=${signature}`;
     },
 
     getLyric: (song) => {
         const signature = API.generateSignature();
-        let types = "lyric";
-        
-        // 根据不同的音乐源设置不同的API类型
-        switch (song.source) {
-            case "wy":
-                types = "wyMusicDetail";
-                break;
-            case "kw":
-                types = "fetchMusicDetail";
-                break;
-            case "tx":
-                types = "txMusicDetail";
-                break;
-            case "mg":
-                types = "mgMusicDetail";
-                break;
-            default:
-                types = "lyric";
-        }
+        // 直接使用"lyric"类型，不需要根据音乐源设置不同的API类型
+        // 因为proxy.ts会根据source参数和types参数来映射到新API的相应参数
+        const types = "lyric";
         
         return `${API.baseUrl}?types=${types}&id=${song.lyric_id || song.id}&source=${song.source || "wy"}&s=${signature}`;
     },
 
     getPicUrl: (song) => {
         const signature = API.generateSignature();
-        let types = "pic";
-        
-        // 根据不同的音乐源设置不同的API类型
-        switch (song.source) {
-            case "wy":
-                types = "wyMusicDetail";
-                break;
-            case "kw":
-                types = "fetchMusicDetail";
-                break;
-            case "tx":
-                types = "txMusicDetail";
-                break;
-            case "mg":
-                types = "mgMusicDetail";
-                break;
-            default:
-                types = "pic";
-        }
+        // 直接使用"pic"类型，不需要根据音乐源设置不同的API类型
+        // 因为proxy.ts会根据source参数和types参数来映射到新API的相应参数
+        const types = "pic";
         
         return `${API.baseUrl}?types=${types}&id=${song.pic_id}&source=${song.source || "wy"}&size=300&s=${signature}`;
     }
