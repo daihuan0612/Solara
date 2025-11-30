@@ -2919,6 +2919,14 @@ if (!("mediaSession" in navigator)) {
 }
 
 function setupInteractions() {
+    // 添加一个简单的检查来确认DOM元素是否存在
+    console.log("检查DOM元素:");
+    console.log("sourceSelectButton:", dom.sourceSelectButton);
+    console.log("sourceMenu:", dom.sourceMenu);
+    console.log("searchBtn:", dom.searchBtn);
+    console.log("searchInput:", dom.searchInput);
+    console.log("searchResults:", dom.searchResults);
+    
     function ensureQualityMenuPortal() {
         if (!dom.playerQualityMenu || !document.body || !isMobileView) {
             return;
@@ -3366,37 +3374,47 @@ function setupInteractions() {
     }
 
     // 搜索相关事件 - 修复搜索下拉框显示问题
-    debugLog("初始化搜索相关事件监听器");
-    
     if (dom.searchBtn) {
-        debugLog("找到搜索按钮，添加点击事件监听器");
-        dom.searchBtn.addEventListener("click", (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            debugLog("搜索按钮被点击");
-            performSearch();
-        });
-    } else {
-        debugLog("未找到搜索按钮元素");
+        // 确保事件监听器只绑定一次
+        if (!dom.searchBtn.hasAttribute('data-event-bound')) {
+            dom.searchBtn.addEventListener("click", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                debugLog("搜索按钮被点击");
+                performSearch();
+            });
+            dom.searchBtn.setAttribute('data-event-bound', 'true');
+        }
     }
 
     if (dom.searchInput) {
-        debugLog("找到搜索输入框，添加事件监听器");
-        dom.searchInput.addEventListener("focus", () => {
-            debugLog("搜索输入框获得焦点，尝试恢复上次搜索结果");
-            handleSearchInputFocus();
-        });
+        // 确保事件监听器只绑定一次
+        if (!dom.searchInput.hasAttribute('data-event-bound')) {
+            dom.searchInput.addEventListener("focus", () => {
+                debugLog("搜索输入框获得焦点，尝试恢复上次搜索结果");
+                handleSearchInputFocus();
+            });
 
-        dom.searchInput.addEventListener("keypress", (e) => {
-            if (e.key === "Enter") {
-                e.preventDefault();
-                e.stopPropagation();
-                debugLog("搜索输入框回车键被按下");
-                performSearch();
-            }
-        });
-    } else {
-        debugLog("未找到搜索输入框元素");
+            dom.searchInput.addEventListener("keypress", (e) => {
+                if (e.key === "Enter") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    debugLog("搜索输入框回车键被按下");
+                    performSearch();
+                }
+            });
+            dom.searchInput.setAttribute('data-event-bound', 'true');
+        }
+    }
+    
+    // 确保源选择功能正常工作
+    if (dom.sourceSelectButton && dom.sourceMenu) {
+        // 检查是否已经绑定了事件，如果没有则绑定
+        if (!dom.sourceSelectButton.hasAttribute('data-events-bound')) {
+            dom.sourceSelectButton.addEventListener("click", toggleSourceMenu);
+            dom.sourceMenu.addEventListener("click", handleSourceSelection);
+            dom.sourceSelectButton.setAttribute('data-events-bound', 'true');
+        }
     }
     
     // 添加对搜索区域的调试
