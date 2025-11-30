@@ -802,26 +802,52 @@ const API = {
 
     // 搜索功能 - 完全按照新API规范
     search: async (keyword, source = "wy", count = 20, page = 1) => {
-        // 新API规范中，搜索功能可能需要不同的参数格式
-        // 由于用户没有提供搜索功能的具体API规范，我们使用模拟数据
-        // 实际使用时，需要根据新API的搜索功能进行调整
+        // 映射source到新API的server参数
+        const serverMap = {
+            wy: "netease",
+            tx: "tencent"
+        };
+        const server = serverMap[source] || "netease";
         
-        // 生成多个搜索结果，而不是只有一个
-        const mockResults = [];
-        for (let i = 0; i < count; i++) {
-            mockResults.push({
-                id: `${source}${Math.floor(Math.random() * 1000000)}`,
-                name: keyword,
-                artist: [`${source === "wy" ? "网易云" : "QQ音乐"}歌手${i+1}`],
-                album: `${source === "wy" ? "网易云" : "QQ音乐"}专辑${i+1}`,
-                pic_id: `${source}${Math.floor(Math.random() * 1000000)}`,
-                url_id: `${source}${Math.floor(Math.random() * 1000000)}`,
-                lyric_id: `${source}${Math.floor(Math.random() * 1000000)}`,
-                source: source
-            });
+            // 根据source参数选择正确的types
+        const types = source === "wy" ? "wySearchMusic" : "txSearchMusic";
+        
+        // 构建新的API URL，完全按照新API规范
+        const url = `${API.baseUrl}?types=${types}&name=${encodeURIComponent(keyword)}&source=${source}&count=${count}&pages=${page}&s=${API.generateSignature()}`;
+
+        try {
+            debugLog(`API请求: ${url}`);
+            const data = await API.fetchJson(url);
+            debugLog(`API响应: ${JSON.stringify(data).substring(0, 200)}...`);
+
+            // 检查API响应格式
+            if (!Array.isArray(data)) {
+                // 如果响应不是数组，尝试从响应中提取结果数组
+                if (data && typeof data === "object" && Array.isArray(data.result)) {
+                    debugLog("API响应不是直接数组，从result字段提取结果");
+                    data = data.result;
+                } else if (data && typeof data === "object" && Array.isArray(data.data)) {
+                    debugLog("API响应不是直接数组，从data字段提取结果");
+                    data = data.data;
+                } else {
+                    throw new Error(`搜索结果格式错误，期望数组但得到: ${typeof data}`);
+                }
+            }
+
+            return data.map(song => ({
+                id: song.id,
+                name: song.name,
+                artist: song.artist,
+                album: song.album,
+                pic_id: song.pic_id,
+                url_id: song.url_id,
+                lyric_id: song.lyric_id,
+                source: song.source || source,
+            }));
+        } catch (error) {
+            debugLog(`API错误: ${error.message}`);
+            throw error;
         }
-        
-        return mockResults;
     },
 
     // 获取歌单 - 完全按照新API规范
