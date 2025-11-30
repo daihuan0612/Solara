@@ -641,9 +641,10 @@ function buildAudioProxyUrl(url) {
 }
 
 const SOURCE_OPTIONS = [
-    { value: "netease", label: "网易云音乐" },
-    { value: "kuwo", label: "酷我音乐" },
-    { value: "joox", label: "JOOX音乐" }
+    { value: "wy", label: "网易云音乐" },
+    { value: "kw", label: "酷我音乐" },
+    { value: "tx", label: "QQ音乐" },
+    { value: "mg", label: "咪咕音乐" }
 ];
 
 function normalizeSource(value) {
@@ -652,15 +653,15 @@ function normalizeSource(value) {
 }
 
 const QUALITY_OPTIONS = [
-    { value: "128", label: "标准音质", description: "128 kbps" },
-    { value: "192", label: "高品音质", description: "192 kbps" },
-    { value: "320", label: "极高音质", description: "320 kbps" },
-    { value: "999", label: "无损音质", description: "FLAC" }
+    { value: "standard", label: "标准音质", description: "128 kbps" },
+    { value: "exhigh", label: "高品音质", description: "192 kbps" },
+    { value: "lossless", label: "极高音质", description: "320 kbps" },
+    { value: "hires", label: "无损音质", description: "FLAC" }
 ];
 
 function normalizeQuality(value) {
     const match = QUALITY_OPTIONS.find(option => option.value === value);
-    return match ? match.value : "320";
+    return match ? match.value : "exhigh";
 }
 
 const savedPlaylistSongs = (() => {
@@ -793,9 +794,29 @@ const API = {
         }
     },
 
-    search: async (keyword, source = "netease", count = 20, page = 1) => {
+    search: async (keyword, source = "wy", count = 20, page = 1) => {
         const signature = API.generateSignature();
-        const url = `${API.baseUrl}?types=search&source=${source}&name=${encodeURIComponent(keyword)}&count=${count}&pages=${page}&s=${signature}`;
+        let types = "search";
+        
+        // 根据不同的音乐源设置不同的API类型
+        switch (source) {
+            case "wy":
+                types = "wySearchMusic";
+                break;
+            case "kw":
+                types = "fetchSearchMusic";
+                break;
+            case "tx":
+                types = "txSearchMusic";
+                break;
+            case "mg":
+                types = "mgSearchMusic";
+                break;
+            default:
+                types = "wySearchMusic";
+        }
+        
+        const url = `${API.baseUrl}?types=${types}&name=${encodeURIComponent(keyword)}&count=${count}&pages=${page}&s=${signature}`;
 
         try {
             debugLog(`API请求: ${url}`);
@@ -812,7 +833,7 @@ const API = {
                 pic_id: song.pic_id,
                 url_id: song.url_id,
                 lyric_id: song.lyric_id,
-                source: song.source,
+                source: song.source || source,
             }));
         } catch (error) {
             debugLog(`API错误: ${error.message}`);
@@ -873,19 +894,79 @@ const API = {
         }
     },
 
-    getSongUrl: (song, quality = "320") => {
+    getSongUrl: (song, quality = "exhigh") => {
         const signature = API.generateSignature();
-        return `${API.baseUrl}?types=url&id=${song.id}&source=${song.source || "netease"}&br=${quality}&s=${signature}`;
+        let types = "url";
+        
+        // 根据不同的音乐源设置不同的API类型
+        switch (song.source) {
+            case "wy":
+                types = "wyMusicDetail";
+                break;
+            case "kw":
+                types = "fetchMusicDetail";
+                break;
+            case "tx":
+                types = "txMusicDetail";
+                break;
+            case "mg":
+                types = "mgMusicDetail";
+                break;
+            default:
+                types = "url";
+        }
+        
+        return `${API.baseUrl}?types=${types}&id=${song.id}&source=${song.source || "wy"}&br=${quality}&s=${signature}`;
     },
 
     getLyric: (song) => {
         const signature = API.generateSignature();
-        return `${API.baseUrl}?types=lyric&id=${song.lyric_id || song.id}&source=${song.source || "netease"}&s=${signature}`;
+        let types = "lyric";
+        
+        // 根据不同的音乐源设置不同的API类型
+        switch (song.source) {
+            case "wy":
+                types = "wyMusicDetail";
+                break;
+            case "kw":
+                types = "fetchMusicDetail";
+                break;
+            case "tx":
+                types = "txMusicDetail";
+                break;
+            case "mg":
+                types = "mgMusicDetail";
+                break;
+            default:
+                types = "lyric";
+        }
+        
+        return `${API.baseUrl}?types=${types}&id=${song.lyric_id || song.id}&source=${song.source || "wy"}&s=${signature}`;
     },
 
     getPicUrl: (song) => {
         const signature = API.generateSignature();
-        return `${API.baseUrl}?types=pic&id=${song.pic_id}&source=${song.source || "netease"}&size=300&s=${signature}`;
+        let types = "pic";
+        
+        // 根据不同的音乐源设置不同的API类型
+        switch (song.source) {
+            case "wy":
+                types = "wyMusicDetail";
+                break;
+            case "kw":
+                types = "fetchMusicDetail";
+                break;
+            case "tx":
+                types = "txMusicDetail";
+                break;
+            case "mg":
+                types = "mgMusicDetail";
+                break;
+            default:
+                types = "pic";
+        }
+        
+        return `${API.baseUrl}?types=${types}&id=${song.pic_id}&source=${song.source || "wy"}&size=300&s=${signature}`;
     }
 };
 
@@ -3742,10 +3823,10 @@ function createSearchResultItem(song, index) {
     qualityMenu.className = "quality-menu";
 
     const qualityOptions = [
-        { label: "标准音质", suffix: " (128k)", quality: "128" },
-        { label: "高音质", suffix: " (192k)", quality: "192" },
-        { label: "超高音质", suffix: " (320k)", quality: "320" },
-        { label: "无损音质", suffix: "", quality: "999" },
+        { label: "标准音质", suffix: " (128k)", quality: "standard" },
+        { label: "高音质", suffix: " (192k)", quality: "exhigh" },
+        { label: "超高音质", suffix: " (320k)", quality: "lossless" },
+        { label: "无损音质", suffix: "", quality: "hires" },
     ];
 
     qualityOptions.forEach(option => {
@@ -4076,10 +4157,10 @@ function showQualityMenu(event, index, type) {
     const menu = document.createElement("div");
     menu.className = "dynamic-quality-menu";
     menu.innerHTML = `
-        <div class="quality-option" onclick="downloadWithQuality(event, ${index}, '${type}', '128')">标准音质 (128k)</div>
-        <div class="quality-option" onclick="downloadWithQuality(event, ${index}, '${type}', '192')">高音质 (192k)</div>
-        <div class="quality-option" onclick="downloadWithQuality(event, ${index}, '${type}', '320')">超高音质 (320k)</div>
-        <div class="quality-option" onclick="downloadWithQuality(event, ${index}, '${type}', '999')">无损音质</div>
+        <div class="quality-option" onclick="downloadWithQuality(event, ${index}, '${type}', 'standard')">标准音质 (128k)</div>
+        <div class="quality-option" onclick="downloadWithQuality(event, ${index}, '${type}', 'exhigh')">高音质 (192k)</div>
+        <div class="quality-option" onclick="downloadWithQuality(event, ${index}, '${type}', 'lossless')">超高音质 (320k)</div>
+        <div class="quality-option" onclick="downloadWithQuality(event, ${index}, '${type}', 'hires')">无损音质</div>
     `;
 
     // 设置菜单位置
@@ -4253,7 +4334,7 @@ function getSongKey(song) {
         ? song.source.trim().toLowerCase()
         : (typeof song.platform === "string" && song.platform.trim() !== ""
             ? song.platform.trim().toLowerCase()
-            : "netease");
+            : "wy");
     const id = resolveSongId(song);
     if (id) {
         return `${source}:${id}`;
@@ -5209,7 +5290,7 @@ async function playSong(song, options = {}) {
     try {
         updateCurrentSongInfo(song, { loadArtwork: false });
 
-        const quality = state.playbackQuality || '320';
+        const quality = state.playbackQuality || 'exhigh';
         const audioUrl = API.getSongUrl(song, quality);
         debugLog(`获取音频URL: ${audioUrl}`);
 
@@ -5874,7 +5955,7 @@ function scrollToCurrentLyric(element, containerOverride) {
 }
 
 // 修复：下载歌曲
-async function downloadSong(song, quality = "320") {
+async function downloadSong(song, quality = "exhigh") {
     try {
         showNotification("正在准备下载...");
 
@@ -5895,8 +5976,8 @@ async function downloadSong(song, quality = "320") {
 
             const link = document.createElement("a");
             link.href = downloadUrl;
-            const preferredExtension =
-                quality === "999" ? "flac" : quality === "740" ? "ape" : "mp3";
+            const preferredExtension = 
+                quality === "lossless" || quality === "hires" ? "flac" : "mp3";
             const fileExtension = (() => {
                 try {
                     const url = new URL(audioData.url);
