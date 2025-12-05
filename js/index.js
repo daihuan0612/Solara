@@ -5562,18 +5562,10 @@ function updateOnlineHighlight() {
 
 const EXPLORE_RADAR_GENRES = [
     "流行",
-    "摇滚",
-    "古典音乐",
+    "排行榜",
+    "每日排行榜",
+    "每日排行",
     "民谣",
-    "电子",
-    "爵士",
-    "说唱",
-    "乡村",
-    "蓝调",
-    "R&B",
-    "金属",
-    "嘻哈",
-    "轻音乐",
 ];
 
 function pickRandomExploreGenre() {
