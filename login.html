@@ -484,23 +484,21 @@
         </div>
         <div class="title-group">
           <h1 class="login-title">小苹果Music</h1>
-          <p class="login-desc">访问受到保护</p>
         </div>
       </header>
       <form class="login-form" id="login-form">
         <div class="field">
-          <label for="password" class="field-label">访问口令</label>
           <div class="input-wrapper">
             <i class="fa-solid fa-lock" aria-hidden="true"></i>
-            <input type="password" id="password" placeholder="请输入密码" autocomplete="current-password" required
+            <input type="password" id="password" placeholder="输入密码" autocomplete="current-password" required
               oninput="this.value = this.value.replace(/[^\x00-\x7F]/g, '')">
           </div>
         </div>
-        <p class="login-hint">只有输入了正确口令的成员才能继续访问内容。</p>
-        <button type="submit">进入 小苹果Music</button>
+        <p class="login-hint"></p>
+        <button type="submit">进入</button>
       </form>
       <footer class="login-footer" aria-live="polite">
-        <span class="status-message"><span class="status-dot" aria-hidden="true"></span>安全状态：受保护</span>
+        <span class="status-message"><span class="status-dot" aria-hidden="true"></span>受保护</span>
       </footer>
     </section>
   </main>
