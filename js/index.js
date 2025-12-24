@@ -645,7 +645,7 @@ function normalizeSource(value) {
 }
 
 const QUALITY_OPTIONS = [
-    { value: "mp3", label: "MP3音质", description: "自动选择最佳MP3质量" },
+    { value: "mp3", label: "MP3音质", description: "自动选择" },
     { value: "999", label: "无损音质", description: "FLAC" }
 ];
 
@@ -5624,7 +5624,7 @@ function pickRandomExploreGenre() {
     return EXPLORE_RADAR_GENRES[index];
 }
 
-const EXPLORE_RADAR_SOURCES = ["netease", "kuwo"];
+const EXPLORE_RADAR_SOURCES = ["netease"];
 
 function pickRandomExploreSource() {
     if (!Array.isArray(EXPLORE_RADAR_SOURCES) || EXPLORE_RADAR_SOURCES.length === 0) {
