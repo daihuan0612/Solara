@@ -2096,8 +2096,12 @@ input[type="range"]:active::-moz-range-thumb {
 }
 
 .theme-toggle-button .theme-icon--sun {
-    color: #f5a623;
+    color: var(--text-color);
     text-shadow: 0 0 10px rgba(245, 166, 35, 0.4);
+}
+
+.dark-mode .theme-toggle-button .theme-icon--sun {
+    color: var(--text-color);
 }
 
 .theme-toggle-button .theme-icon--moon {
