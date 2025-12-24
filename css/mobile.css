@@ -688,6 +688,7 @@ body.mobile-view .lyrics {
     max-height: none;
     flex: 1 1 auto;
     min-height: 0;
+    color: #ffffff;
 }
 
 body.mobile-view .playlist.active,
