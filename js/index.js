@@ -1766,7 +1766,7 @@ function scheduleDeferredPaletteUpdate(imageUrl, options = {}) {
 }
 
 function attemptPaletteApplication() {
-    if (!state.pendingPaletteReady || !state.audioReadyForPalette) {
+    if (!state.pendingPaletteReady) {
         return;
     }
 
@@ -1819,6 +1819,93 @@ function setAlbumCoverImage(url) {
 
 loadStoredPalettes();
 
+// 本地取色逻辑：使用 Canvas API 从图片中提取颜色
+function getLocalPalette(imageUrl) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => {
+            try {
+                const canvas = document.createElement("canvas");
+                const ctx = canvas.getContext("2d");
+                
+                // 调整画布大小，缩小图片以提高性能
+                const maxSize = 100;
+                let width = img.width;
+                let height = img.height;
+                
+                if (width > height && width > maxSize) {
+                    height = Math.round((height * maxSize) / width);
+                    width = maxSize;
+                } else if (height > maxSize) {
+                    width = Math.round((width * maxSize) / height);
+                    height = maxSize;
+                }
+                
+                canvas.width = width;
+                canvas.height = height;
+                ctx.drawImage(img, 0, 0, width, height);
+                
+                // 获取像素数据
+                const imageData = ctx.getImageData(0, 0, width, height);
+                const data = imageData.data;
+                
+                // 简单的颜色提取：计算平均颜色
+                let r = 0, g = 0, b = 0, count = 0;
+                for (let i = 0; i < data.length; i += 4) {
+                    const alpha = data[i + 3];
+                    if (alpha > 128) { // 只考虑不透明的像素
+                        r += data[i];
+                        g += data[i + 1];
+                        b += data[i + 2];
+                        count++;
+                    }
+                }
+                
+                if (count === 0) {
+                    resolve(null);
+                    return;
+                }
+                
+                r = Math.round(r / count);
+                g = Math.round(g / count);
+                b = Math.round(b / count);
+                
+                // 创建调色板数据
+                const hex = `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+                const palette = {
+                    gradients: {
+                        light: {
+                            gradient: `linear-gradient(135deg, ${hex} 0%, rgba(255,255,255,0.8) 100%)`
+                        },
+                        dark: {
+                            gradient: `linear-gradient(135deg, ${hex} 0%, rgba(0,0,0,0.8) 100%)`
+                        }
+                    },
+                    tokens: {
+                        light: {
+                            primaryColor: hex,
+                            primaryColorDark: hex
+                        },
+                        dark: {
+                            primaryColor: hex,
+                            primaryColorDark: hex
+                        }
+                    }
+                };
+                
+                resolve(palette);
+            } catch (error) {
+                reject(error);
+            }
+        };
+        img.onerror = () => {
+            resolve(null);
+        };
+        img.src = imageUrl;
+    });
+}
+
 async function fetchPaletteData(imageUrl, signal) {
     if (paletteCache.has(imageUrl)) {
         const cached = paletteCache.get(imageUrl);
@@ -1827,31 +1914,43 @@ async function fetchPaletteData(imageUrl, signal) {
         return cached;
     }
 
-    const response = await fetch(`/palette?image=${encodeURIComponent(imageUrl)}`, { signal });
-    const raw = await response.text();
-    let payload = null;
     try {
-        payload = raw ? JSON.parse(raw) : null;
-    } catch (parseError) {
-        console.warn("解析调色板响应失败:", parseError);
+        // 优先尝试本地取色
+        const localPalette = await getLocalPalette(imageUrl);
+        if (localPalette) {
+            paletteCache.set(imageUrl, localPalette);
+            persistPaletteCache();
+            return localPalette;
+        }
+    } catch (error) {
+        console.warn("本地取色失败:", error);
     }
 
-    if (!response.ok) {
-        const detail = payload && payload.error ? ` (${payload.error})` : "";
-        throw new Error(`Palette request failed: ${response.status}${detail}`);
-    }
-
-    if (payload === null) {
-        throw new Error("Palette response missing body");
-    }
-
-    const data = payload;
-    if (paletteCache.has(imageUrl)) {
-        paletteCache.delete(imageUrl);
-    }
-    paletteCache.set(imageUrl, data);
+    // 如果本地取色失败，返回默认调色板
+    const defaultPalette = {
+        gradients: {
+            light: {
+                gradient: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)"
+            },
+            dark: {
+                gradient: "linear-gradient(135deg, #2c3e50 0%, #34495e 100%)"
+            }
+        },
+        tokens: {
+            light: {
+                primaryColor: "#667eea",
+                primaryColorDark: "#764ba2"
+            },
+            dark: {
+                primaryColor: "#3498db",
+                primaryColorDark: "#2980b9"
+            }
+        }
+    };
+    
+    paletteCache.set(imageUrl, defaultPalette);
     persistPaletteCache();
-    return data;
+    return defaultPalette;
 }
 
 async function updateDynamicBackground(imageUrl) {
@@ -3505,9 +3604,8 @@ function updateCurrentSongInfo(song, options = {}) {
                 return;
             }
             setAlbumCoverImage(preferredImageUrl);
-            const shouldApplyImmediately = paletteCache.has(preferredImageUrl) ||
-                (state.currentPaletteImage === preferredImageUrl && state.dynamicPalette);
-            scheduleDeferredPaletteUpdate(preferredImageUrl, { immediate: shouldApplyImmediately });
+            // 优化：总是立即应用调色板，加快视觉效果
+            scheduleDeferredPaletteUpdate(preferredImageUrl, { immediate: true });
         };
         img.onerror = () => {
             if (state.currentSong !== song) {
