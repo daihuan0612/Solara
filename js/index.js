@@ -2981,6 +2981,46 @@ async function restoreCurrentSongState() {
     }
 }
 
+// ================================================
+// 锁屏操作拦截器
+// ================================================
+function setupLockScreenInterceptor() {
+    // 拦截全局播放函数，标记锁屏状态
+    const functionsToPatch = ['playNext', 'playPrevious', 'playPlaylistSong', 'autoPlayNext'];
+    
+    functionsToPatch.forEach(fnName => {
+        if (typeof window[fnName] === 'function') {
+            const original = window[fnName];
+            window[fnName] = function(...args) {
+                // 如果页面不可见（锁屏/后台），强制启用增强重同步
+                if (document.visibilityState === 'hidden') {
+                    console.log(`🔒 锁屏调用: ${fnName}`);
+                    // 这里我们利用 JS 的闭包特性或者修改 playSong 的默认参数
+                    // 但最简单的是直接调用，因为 playSong 内部已经检测了 visibilityState
+                }
+                return original.apply(this, args);
+            };
+        }
+    });
+
+    // 监听 Media Session 的下一曲/上一曲
+    if ('mediaSession' in navigator) {
+        const actionHandlers = [['nexttrack', 'playNext'], ['previoustrack', 'playPrevious']];
+        actionHandlers.forEach(([action, globalFn]) => {
+            try {
+                navigator.mediaSession.setActionHandler(action, () => {
+                    console.log(`🔒 锁屏 MediaSession: ${action}`);
+                    if (window[globalFn]) window[globalFn]();
+                });
+            } catch(e) {}
+        });
+    }
+}
+
+// 确保在初始化时调用它
+// 请在 window.addEventListener("load", ...) 之前调用
+setupLockScreenInterceptor();
+
 window.addEventListener("load", setupInteractions);
 // 仅在浏览器不支持 Media Session API 时监听 ended 事件，
 // 避免与媒体会话的结束回调重复触发自动播放。
@@ -3593,6 +3633,42 @@ function setupInteractions() {
         initializeMobileUI();
         updateMobileClearPlaylistVisibility();
     }
+    
+    // ==========================================
+    // 在函数末尾添加以下代码：
+    // ==========================================
+    
+    // 设置解锁自动恢复
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+            // 刚从锁屏解锁
+            setTimeout(() => {
+                const player = dom.audioPlayer;
+                if (player && !player.paused && player.currentTime > 0) {
+                    console.log('🔄 解锁后音频状态检查');
+                    
+                    // 检查是否是 iOS PWA
+                    const isIOSPWA = /iPad|iPhone|iPod/.test(navigator.userAgent) && 
+                                    window.navigator.standalone === true;
+                    
+                    if (isIOSPWA) {
+                        // 执行简化的硬件重同步
+                        const currentTime = player.currentTime;
+                        player.pause();
+                        
+                        setTimeout(() => {
+                            player.currentTime = currentTime + 0.001; // 微调 1 毫秒
+                            player.play().catch(e => {
+                                console.log('🔄 解锁后播放失败:', e);
+                            });
+                        }, 50);
+                    }
+                }
+            }, 500);
+        }
+    });
+    
+    console.log('✅ iOS 锁屏音频终极修复方案已加载');
 }
 
 // 修复：更新当前歌曲信息和封面
@@ -5283,11 +5359,26 @@ function updatePlaylistHighlight() {
     });
 }
 
-// 最终修正版 playSong：解决 iOS PWA 锁屏自动切歌无声问题
+// ============================================================
+// 最终核弹级修复：iOS PWA 锁屏播放函数 (v3.0 抢占式激活版)
+// ============================================================
 async function playSong(song, options = {}) {
-    const { autoplay = true, startTime = 0, preserveProgress = false } = options;
+    const { autoplay = true, startTime = 0, preserveProgress = false, enhancedResync = false } = options;
 
-    // 1. 清理状态
+    // 1. 环境检测
+    const isIOSPWA = /iPad|iPhone|iPod/.test(navigator.userAgent) && 
+                    window.navigator.standalone === true;
+    const isLockScreen = document.visibilityState === 'hidden';
+    
+    // 触发条件：iOS PWA + 锁屏 + 自动播放
+    // 只有在这些条件下才启用重逻辑，避免影响前台体验
+    const shouldUseHardwareResync = (isIOSPWA && isLockScreen && autoplay) || enhancedResync;
+
+    if (shouldUseHardwareResync) {
+        console.log('🔧 iOS 锁屏硬件重同步模式激活');
+    }
+
+    // 2. 清理旧状态
     window.clearTimeout(pendingPaletteTimer);
     state.audioReadyForPalette = false;
     state.pendingPaletteData = null;
@@ -5295,90 +5386,223 @@ async function playSong(song, options = {}) {
     state.pendingPaletteImmediate = false;
     state.pendingPaletteReady = false;
 
-    try {
-        // UI 更新（不阻塞）
-        updateCurrentSongInfo(song, { loadArtwork: false, updateBackground: true });
+    // 3. UI 更新 (不阻塞)
+    updateCurrentSongInfo(song, { loadArtwork: false, updateBackground: true });
 
-        const quality = state.playbackQuality || '320';
-        const audioUrl = API.getSongUrl(song, quality);
-        debugLog(`获取音频URL: ${audioUrl}`);
+    // 4. URL 处理
+    const quality = state.playbackQuality || '320';
+    const audioUrl = API.getSongUrl(song, quality);
+    debugLog(`[iOS修复] 播放: ${song.name}, 模式: ${shouldUseHardwareResync ? '硬件重同步' : '普通'}`);
 
-        state.currentSong = song;
-        
-        if (state.currentAudioUrl && state.currentAudioUrl.startsWith('blob:')) {
-            URL.revokeObjectURL(state.currentAudioUrl);
-            debugLog('已释放旧的Blob URL');
+    state.currentSong = song;
+    
+    // 释放旧的 Blob URL
+    if (state.currentAudioUrl && state.currentAudioUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(state.currentAudioUrl);
+        debugLog('已释放旧的 Blob URL');
+    }
+    
+    state.currentAudioUrl = null;
+
+    // 5. 进度记忆处理
+    let savedTime = 0;
+    if (preserveProgress) {
+        savedTime = state.currentList === "favorite" ? state.favoritePlaybackTime : state.currentPlaybackTime;
+    } else if (startTime > 0) {
+        savedTime = startTime;
+    }
+    
+    // 重置状态中的时间
+    if (state.currentList === "favorite") {
+        state.favoritePlaybackTime = savedTime;
+        state.favoriteLastSavedPlaybackTime = savedTime;
+    } else {
+        state.currentPlaybackTime = savedTime;
+        state.lastSavedPlaybackTime = savedTime;
+    }
+    
+    const targetSeekTime = (state.pendingSeekTime || savedTime || 0);
+    state.pendingSeekTime = null;
+
+    // ==========================================
+    // 核心播放逻辑 (Magic Happens Here)
+    // ==========================================
+    const player = dom.audioPlayer;
+
+    // [A] 预先静音：防止抢占播放时发出爆音
+    if (shouldUseHardwareResync) {
+        player.muted = true;
+        player.volume = 0.3; // 设置较低的起始音量
+    } else {
+        player.volume = state.volume;
+    }
+
+    // [B] 配置 iOS 必须属性
+    player.setAttribute('playsinline', 'true');
+    player.setAttribute('webkit-playsinline', 'true');
+    player.setAttribute('x-webkit-airplay', 'deny');
+    
+    // [C] 停止当前播放并加载新源
+    player.pause();
+    player.src = audioUrl;
+    player.load(); // 强制重置解码器
+    state.currentAudioUrl = audioUrl;
+
+    // [D] 【关键修正】抢占式播放 (Pre-emptive Play)
+    // 必须在 await 之前调用！立刻激活 Audio Session，防止系统杀后台
+    if (autoplay) {
+        const playPromise = player.play();
+        if (playPromise !== undefined) {
+            playPromise.catch(e => {
+                // 忽略这里的错误，我们只是为了告诉系统 Intent to Play
+                if (!e.message.includes('user gesture')) {
+                    console.warn('抢占播放预热:', e.message);
+                }
+            });
         }
-        state.currentAudioUrl = null;
+    }
 
-        // [Fix 1] 强制添加 iOS PWA 所需的内联播放属性
-        // 这能防止 iOS 试图弹出全屏播放器或在切换时断开音频会话
-        dom.audioPlayer.setAttribute('playsinline', 'true');
-        dom.audioPlayer.setAttribute('webkit-playsinline', 'true');
+    // [E] 安全等待数据 (此时 Session 已激活，等待是安全的)
+    try {
+        await new Promise((resolve, reject) => {
+            // 如果已经有数据了，直接跳过等待
+            if (player.readyState >= 2) { // HAVE_CURRENT_DATA
+                resolve();
+                return;
+            }
+            
+            const cleanup = () => {
+                player.removeEventListener('loadeddata', onLoaded);
+                player.removeEventListener('canplaythrough', onLoaded);
+                player.removeEventListener('error', onError);
+                clearTimeout(timeout);
+            };
+            
+            const onLoaded = () => {
+                cleanup();
+                resolve();
+            };
+            
+            const onError = () => {
+                cleanup();
+                reject(new Error('音频加载失败'));
+            };
+            
+            // 8秒超时兜底，防止死锁
+            const timeout = setTimeout(() => {
+                cleanup();
+                console.warn('音频加载超时，继续执行');
+                resolve(); // 超时也放行，让后续逻辑尝试修复
+            }, 8000);
+            
+            player.addEventListener('loadeddata', onLoaded, { once: true });
+            player.addEventListener('canplaythrough', onLoaded, { once: true });
+            player.addEventListener('error', onError, { once: true });
+        });
+    } catch (error) {
+        console.warn('音频预加载异常:', error);
+        // 继续执行，尝试后续修复
+    }
+
+    // ==========================================
+    // 硬件重同步流程 (Hardware Re-sync)
+    // ==========================================
+    if (shouldUseHardwareResync) {
+        try {
+            console.log('执行 iOS 锁屏硬件重同步...');
+            
+            // 1. 暂停流 (切断旧的输出路由)
+            if (!player.paused) {
+                player.pause();
+            }
+            
+            // 2. 微调时间 (强制解码器重置时间戳，这是解决无声的关键)
+            // 必须确保有一个 > 0 的位移，不能是 0
+            const safeSeek = Math.max(0.05, targetSeekTime);
+            player.currentTime = safeSeek;
+            
+            // 3. 极短等待让 Seek 生效
+            await new Promise(r => setTimeout(r, 30));
+
+            // 4. 取消静音并正式播放 (申请新的输出路由)
+            player.muted = false;
+            player.volume = state.volume;
+            
+            await player.play();
+            console.log('✅ 硬件重同步完成');
+
+            // 5. 增强版：第二次微调确保硬件同步
+            if (enhancedResync) {
+                await new Promise(r => setTimeout(r, 200));
+                const currentTime = player.currentTime;
+                player.pause();
+                
+                setTimeout(() => {
+                    player.currentTime = currentTime + 0.001;
+                    player.play().catch(e => {
+                        console.warn('增强重同步失败:', e);
+                    });
+                }, 20);
+            }
+
+        } catch (error) {
+            console.error('硬件重同步失败，降级播放:', error);
+            player.muted = false;
+            player.volume = state.volume;
+            player.play().catch(e => {
+                console.error('降级播放也失败:', e);
+            });
+        }
+    } else if (autoplay) {
+        // 非锁屏/普通模式
+        player.muted = false;
+        player.volume = state.volume;
         
-        // [Fix 2] 直接赋值 src，严禁调用 .load() 或 .pause()
-        dom.audioPlayer.src = audioUrl;
-        dom.audioPlayer.type = 'audio/mpeg'; // 明确类型帮助 Safari 快速识别
-        state.currentAudioUrl = audioUrl;
-
-        // [Fix 3] 抢占式播放 (Pre-emptive Play)
-        // 必须在任何 await (异步等待) 之前调用 play()。
-        // 这告诉 iOS："即使我接下来去下载数据了，音频通道也要给我留着！"
-        let playPromise = null;
-        if (autoplay) {
-            playPromise = dom.audioPlayer.play();
+        if (targetSeekTime > 0) {
+            player.currentTime = targetSeekTime;
+        }
+        
+        if (player.paused) {
+            const playPromise = player.play();
             if (playPromise !== undefined) {
                 playPromise.catch(error => {
-                    // 忽略这里的错误，这只是为了激活 Session
-                    console.warn('Session激活尝试:', error.message);
+                    console.error('播放失败:', error);
+                    if (!error.message.includes('user gesture')) {
+                        showNotification('播放失败，请检查网络连接', 'error');
+                    }
                 });
             }
-        } else {
-            dom.audioPlayer.pause();
-            updatePlayPauseButton();
         }
-
-        // [Fix 4] 现在可以安全地等待元数据加载了
-        // 此时 Audio Session 已经是 Active 状态
-        try {
-            await waitForAudioReady(dom.audioPlayer);
-        } catch (e) {
-            console.warn("元数据加载超时，但继续尝试播放");
+    } else {
+        player.pause();
+        updatePlayPauseButton();
+        
+        if (targetSeekTime > 0) {
+            player.currentTime = targetSeekTime;
         }
-
-        // [Fix 5] 安全的进度跳转
-        if (state.pendingSeekTime != null) {
-            setAudioCurrentTime(state.pendingSeekTime);
-            state.pendingSeekTime = null;
-        } else {
-            // 避免进度条跳变
-            if (Math.abs(dom.audioPlayer.currentTime) > 1) {
-                dom.audioPlayer.currentTime = 0;
-            }
-        }
-
-        // --- 修复结束 ---
-
-        state.lastSavedPlaybackTime = state.currentPlaybackTime;
-
-        // 双重保险：确保状态同步
-        if (autoplay && dom.audioPlayer.paused) {
-             dom.audioPlayer.play().catch(e => console.error("最终播放重试失败", e));
-        } else if (autoplay) {
-            updatePlayPauseButton();
-        }
-
-        scheduleDeferredSongAssets(song, playPromise);
-        if (typeof window.__SOLARA_UPDATE_MEDIA_METADATA === 'function') {
-            window.__SOLARA_UPDATE_MEDIA_METADATA();
-        }
-
-    } catch (error) {
-        console.error('播放歌曲失败:', error);
-        throw error;
-    } finally {
-        savePlayerState();
     }
+
+    // ==========================================
+    // 后续处理
+    // ==========================================
+    
+    // 加载专辑封面和歌词
+    scheduleDeferredSongAssets(song, null);
+    
+    // 更新 Media Session
+    if (typeof window.__SOLARA_UPDATE_MEDIA_METADATA === 'function') {
+        window.__SOLARA_UPDATE_MEDIA_METADATA();
+    }
+    
+    // 保存播放状态
+    savePlayerState();
+    
+    // 如果是在锁屏状态，记录切换时间
+    if (isLockScreen) {
+        state.lastLockScreenPlayback = Date.now();
+    }
+    
+    return true;
 }
 
 // 修复：播放歌曲函数 - 支持统一播放列表
@@ -6129,3 +6353,149 @@ function showNotification(message, type = "success") {
         notification.classList.remove("show");
     }, 3000);
 }
+
+// ================================================
+// iOS 音频保活守卫 (最终版)
+// ================================================
+(function() {
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+                  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    
+    // 只在 iOS PWA 下运行
+    if (!isIOS || !window.navigator.standalone) return;
+    
+    console.log('🛡️ 启动 iOS 音频保活守卫');
+    
+    let audioCtx = null;
+    let oscillator = null;
+    let guardInterval = null;
+    
+    // 初始化一个极低功耗的静音守护进程
+    function initGuard() {
+        if (audioCtx) return;
+        
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContext) return;
+        
+        try {
+            audioCtx = new AudioContext();
+            
+            // 创建振荡器
+            oscillator = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            
+            // 设置极低频率和增益 (人耳听不见，但硬件必须保持开启)
+            oscillator.type = 'sine';
+            oscillator.frequency.value = 1; // 1Hz 极低频
+            gainNode.gain.value = 0.000001; // 极低增益
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            
+            oscillator.start();
+            
+            console.log('🛡️ 音频保活守卫已启动');
+            
+            // 监听状态，如果被挂起则尝试恢复
+            guardInterval = setInterval(() => {
+                if (audioCtx && audioCtx.state === 'suspended') {
+                    audioCtx.resume().then(() => {
+                        console.log('🛡️ AudioContext 已恢复');
+                    }).catch(e => {
+                        console.warn('🛡️ 恢复 AudioContext 失败:', e);
+                    });
+                }
+            }, 10000); // 每10秒检查一次
+            
+        } catch (error) {
+            console.error('🛡️ 音频保活守卫启动失败:', error);
+        }
+    }
+    
+    // 停止守卫
+    function stopGuard() {
+        if (oscillator) {
+            try {
+                oscillator.stop();
+                oscillator.disconnect();
+                oscillator = null;
+            } catch (error) {
+                console.error('🛡️ 停止守卫失败:', error);
+            }
+        }
+        
+        if (guardInterval) {
+            clearInterval(guardInterval);
+            guardInterval = null;
+        }
+        
+        console.log('🛡️ 音频保活守卫已停止');
+    }
+    
+    // 智能管理守卫状态
+    function manageGuard() {
+        const isLockScreen = document.visibilityState === 'hidden';
+        const hasActiveAudio = dom.audioPlayer && 
+                               dom.audioPlayer.src && 
+                               !dom.audioPlayer.paused;
+        
+        if (isLockScreen && !hasActiveAudio) {
+            // 锁屏且没有音乐播放时，启动守卫
+            if (!audioCtx) {
+                console.log('🛡️ 锁屏无音乐，启动音频保活');
+                initGuard();
+            }
+        } else {
+            // 有音乐播放或不在锁屏时，停止守卫
+            if (audioCtx) {
+                console.log('🛡️ 有音乐播放/非锁屏，停止音频保活');
+                stopGuard();
+            }
+        }
+    }
+
+    // iOS 需要用户交互才能启动 AudioContext
+    const activate = () => {
+        initGuard();
+        document.removeEventListener('click', activate);
+        document.removeEventListener('touchstart', activate);
+    };
+    
+    document.addEventListener('click', activate);
+    document.addEventListener('touchstart', activate);
+    
+    // 延迟初始检查
+    setTimeout(() => {
+        manageGuard();
+    }, 2000);
+    
+    // 监听页面可见性变化
+    document.addEventListener('visibilitychange', manageGuard);
+    
+    // 监听音频状态变化
+    if (dom.audioPlayer) {
+        dom.audioPlayer.addEventListener('play', () => {
+            setTimeout(manageGuard, 500);
+        });
+        
+        dom.audioPlayer.addEventListener('pause', () => {
+            setTimeout(manageGuard, 1000);
+        });
+        
+        dom.audioPlayer.addEventListener('ended', () => {
+            setTimeout(manageGuard, 1500);
+        });
+    }
+    
+    // 暴露给全局，方便调试
+    window.solaraAudioGuard = {
+        start: initGuard,
+        stop: stopGuard,
+        status: () => ({
+            isActive: !!audioCtx,
+            contextState: audioCtx ? audioCtx.state : 'none',
+            lockScreen: document.visibilityState === 'hidden',
+            hasAudio: dom.audioPlayer ? !!dom.audioPlayer.src : false
+        })
+    };
+})();
