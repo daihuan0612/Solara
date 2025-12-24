@@ -2096,16 +2096,16 @@ input[type="range"]:active::-moz-range-thumb {
 }
 
 .theme-toggle-button .theme-icon--sun {
-    color: var(--text-color);
+    color: var(--primary-color);
     text-shadow: 0 0 10px rgba(245, 166, 35, 0.4);
 }
 
 .dark-mode .theme-toggle-button .theme-icon--sun {
-    color: var(--text-color);
+    color: var(--primary-color);
 }
 
 .theme-toggle-button .theme-icon--moon {
-    color: #a29bfe;
+    color: var(--primary-color);
     text-shadow: 0 0 10px rgba(162, 155, 254, 0.4);
     transform: scale(0.6) rotate(20deg);
 }
