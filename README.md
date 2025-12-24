@@ -55,7 +55,7 @@
 - 默认主题、播放模式等偏好可在 `state` 初始化逻辑中按需调整。
 
 ## ☁️ Cloudflare D1 绑定与建表
-###   不建议绑定D1，除非你自己一个人用，要不所有登录设备都会同步。2025.12.24
+####  不建议绑定D1，除非你自己一个人用，要不所有登录设备都会同步。2025.12.24
 1. 在 Cloudflare Dashboard 的 **Workers & Pages → D1 → Create** 中新建数据库，建议命名为 `solara-db`（名称可自定）。
 2. 打开 Pages 项目设置，依次进入 **Settings → Functions → Bindings → Add binding → D1 Database**：
    - **Binding name** 填写 `DB`（必须与 `functions/api/storage.ts` 中的环境变量一致）。
