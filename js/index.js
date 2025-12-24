@@ -3170,8 +3170,8 @@ function setupInteractions() {
 
     captureThemeDefaults();
     const savedTheme = safeGetLocalStorage("theme");
-    const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
-    const initialIsDark = savedTheme ? savedTheme === "dark" : prefersDark;
+    // 默认使用浅色主题，不再跟随系统偏好
+    const initialIsDark = savedTheme ? savedTheme === "dark" : false;
     applyTheme(initialIsDark);
 
     dom.themeToggleButton.addEventListener("click", () => {
@@ -3179,6 +3179,15 @@ function setupInteractions() {
         applyTheme(isDark);
         safeSetLocalStorage("theme", isDark ? "dark" : "light");
     });
+
+    // 为移动端标题添加主题切换功能
+    if (dom.mobileToolbarTitle) {
+        dom.mobileToolbarTitle.addEventListener("click", () => {
+            const isDark = document.body.classList.contains("dark-mode");
+            applyTheme(!isDark);
+            safeSetLocalStorage("theme", !isDark ? "dark" : "light");
+        });
+    }
 
     dom.audioPlayer.volume = state.volume;
     dom.volumeSlider.value = state.volume;
