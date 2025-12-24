@@ -719,6 +719,8 @@ body.mobile-view .playlist-items .playlist-item {
     line-height: 1.35;
     min-height: 0;
     margin-bottom: 4px;
+    font-size: 15px;
+    color: #ffffff;
 }
 
 body.mobile-view .playlist-items .playlist-item:focus-visible {
@@ -753,10 +755,11 @@ body.mobile-view .playlist-items .playlist-item .playlist-item-remove {
 body.mobile-view .playlist-items .playlist-item {
     border-radius: 12px;
     background: rgba(255, 255, 255, 0.05);
-    color: #f2f4f7;
+    color: #ffffff;
     touch-action: manipulation;
     cursor: pointer;
     pointer-events: auto;
+    transition: color 0.2s ease;
 }
 
 body.mobile-view .playlist-items .playlist-item:last-child {
@@ -767,6 +770,7 @@ body.mobile-view .playlist-items .playlist-item:hover,
 body.mobile-view .playlist-items .playlist-item.current {
     background: rgba(243, 162, 91, 0.25);
     color: #ffffff;
+    font-weight: 500;
 }
 
 body.mobile-view .favorites .favorite-item-action {
@@ -775,6 +779,34 @@ body.mobile-view .favorites .favorite-item-action {
 
 body.mobile-view .favorites .favorite-item-action:hover {
     transform: translateY(-50%);
+}
+
+body.mobile-view .favorites .playlist-items .playlist-item {
+    padding: 12px 108px 12px 18px;
+    white-space: normal;
+    line-height: 1.35;
+    min-height: 0;
+    margin-bottom: 4px;
+    font-size: 15px;
+    color: #ffffff;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.05);
+    touch-action: manipulation;
+    cursor: pointer;
+    pointer-events: auto;
+    transition: color 0.2s ease;
+}
+
+body.mobile-view .favorites .playlist-items .playlist-item:focus-visible {
+    outline: 2px solid rgba(243, 162, 91, 0.85);
+    outline-offset: 2px;
+}
+
+body.mobile-view .favorites .playlist-items .playlist-item:hover,
+body.mobile-view .favorites .playlist-items .playlist-item.current {
+    background: rgba(243, 162, 91, 0.25);
+    color: #ffffff;
+    font-weight: 500;
 }
 
 body.mobile-view .lyrics {
