@@ -549,7 +549,7 @@ body.mobile-view .mobile-overlay-scrim {
     display: block;
     position: fixed;
     inset: 0;
-    background: rgba(4, 6, 10, 0.55);
+    background: rgba(4, 6, 10, 0.35);
     opacity: 0;
     pointer-events: none;
     transition: opacity 0.35s ease;
@@ -567,8 +567,8 @@ body.mobile-view .mobile-panel {
     transform: translate(-50%, 110%);
     bottom: 0;
     width: min(100%, 420px);
-    background: rgba(13, 16, 24, 0.96);
-    backdrop-filter: blur(28px);
+    background: rgba(13, 16, 24, 0.98);
+    backdrop-filter: blur(20px);
     border-radius: 28px 28px 0 0;
     padding: 18px clamp(18px, 6vw, 28px) calc(env(safe-area-inset-bottom) + clamp(22px, 7vw, 32px));
     display: flex;
@@ -682,13 +682,29 @@ body.mobile-view .playlist,
 body.mobile-view .lyrics {
     display: none;
     flex-direction: column;
-    background: transparent;
-    border: none;
-    padding: 0;
-    max-height: none;
-    flex: 1 1 auto;
-    min-height: 0;
-    color: #ffffff;
+    background: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+    max-height: none !important;
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    color: #ffffff !important;
+    opacity: 1 !important;
+}
+
+body.mobile-view .playlist .playlist-items,
+body.mobile-view .favorites .playlist-items {
+    color: #ffffff !important;
+    background: transparent !important;
+    opacity: 1 !important;
+}
+
+body.mobile-view .playlist .playlist-items .playlist-item,
+body.mobile-view .favorites .playlist-items .playlist-item {
+    color: #ffffff !important;
+    font-size: 15px !important;
+    background: rgba(255, 255, 255, 0.05) !important;
+    opacity: 1 !important;
 }
 
 body.mobile-view .playlist.active,
@@ -739,18 +755,61 @@ body.mobile-view .playlist-items .playlist-item .playlist-item-remove {
     width: 28px;
     height: 28px;
     border-radius: 8px;
+    opacity: 1 !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid transparent;
+    padding: 0;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    z-index: 5;
 }
 
 body.mobile-view .playlist-items .playlist-item .playlist-item-favorite {
     right: 88px;
+    background: #ff4d67 !important;
+    color: #ffffff !important;
+    border-color: rgba(255, 77, 103, 0.6) !important;
+    box-shadow: 0 4px 12px rgba(255, 77, 103, 0.25) !important;
 }
 
 body.mobile-view .playlist-items .playlist-item .playlist-item-download {
     right: 48px;
+    background: var(--success-color) !important;
+    color: #ffffff !important;
+    border-color: rgba(46, 204, 113, 0.5) !important;
+    box-shadow: 0 4px 10px rgba(46, 204, 113, 0.2) !important;
 }
 
 body.mobile-view .playlist-items .playlist-item .playlist-item-remove {
     right: 12px;
+    background: rgba(255, 59, 48, 0.9) !important;
+    color: #ffffff !important;
+    border-color: rgba(231, 76, 60, 0.5) !important;
+    box-shadow: 0 4px 10px rgba(231, 76, 60, 0.22) !important;
+}
+
+body.mobile-view .playlist-items .playlist-item:hover .playlist-item-favorite,
+body.mobile-view .playlist-items .playlist-item:focus-within .playlist-item-favorite {
+    transform: translateY(-50%) scale(1.05) !important;
+    box-shadow: 0 8px 20px rgba(255, 77, 103, 0.35) !important;
+    filter: brightness(1.05) !important;
+}
+
+body.mobile-view .playlist-items .playlist-item:hover .playlist-item-download,
+body.mobile-view .playlist-items .playlist-item:focus-within .playlist-item-download {
+    transform: translateY(-50%) scale(1.05) !important;
+    box-shadow: 0 8px 18px rgba(46, 204, 113, 0.25) !important;
+    filter: brightness(1.05) !important;
+}
+
+body.mobile-view .playlist-items .playlist-item:hover .playlist-item-remove,
+body.mobile-view .playlist-items .playlist-item:focus-within .playlist-item-remove {
+    transform: translateY(-50%) scale(1.05) !important;
+    box-shadow: 0 8px 18px rgba(231, 76, 60, 0.28) !important;
+    filter: brightness(1.05) !important;
 }
 
 body.mobile-view .playlist-items .playlist-item {
@@ -775,11 +834,63 @@ body.mobile-view .playlist-items .playlist-item.current {
 }
 
 body.mobile-view .favorites .favorite-item-action {
-    opacity: 1;
+    opacity: 1 !important;
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid transparent;
+    padding: 0;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    z-index: 5;
+    top: 50%;
+    transform: translateY(-50%);
 }
 
-body.mobile-view .favorites .favorite-item-action:hover {
-    transform: translateY(-50%);
+body.mobile-view .favorites .favorite-item-action--add {
+    background: #ff4d67 !important;
+    color: #ffffff !important;
+    border-color: rgba(255, 77, 103, 0.6) !important;
+    box-shadow: 0 4px 12px rgba(255, 77, 103, 0.25) !important;
+}
+
+body.mobile-view .favorites .favorite-item-action--download {
+    background: var(--success-color) !important;
+    color: #ffffff !important;
+    border-color: rgba(46, 204, 113, 0.5) !important;
+    box-shadow: 0 4px 10px rgba(46, 204, 113, 0.2) !important;
+}
+
+body.mobile-view .favorites .favorite-item-action--remove {
+    background: rgba(255, 59, 48, 0.9) !important;
+    color: #ffffff !important;
+    border-color: rgba(231, 76, 60, 0.5) !important;
+    box-shadow: 0 4px 10px rgba(231, 76, 60, 0.22) !important;
+}
+
+body.mobile-view .favorites .favorite-item-action:hover,
+body.mobile-view .favorites .playlist-items .playlist-item:focus-within .favorite-item-action {
+    transform: translateY(-50%) scale(1.05) !important;
+    filter: brightness(1.05) !important;
+}
+
+body.mobile-view .favorites .favorite-item-action--add:hover,
+body.mobile-view .favorites .playlist-items .playlist-item:focus-within .favorite-item-action--add {
+    box-shadow: 0 8px 20px rgba(255, 77, 103, 0.35) !important;
+}
+
+body.mobile-view .favorites .favorite-item-action--download:hover,
+body.mobile-view .favorites .playlist-items .playlist-item:focus-within .favorite-item-action--download {
+    box-shadow: 0 8px 18px rgba(46, 204, 113, 0.25) !important;
+}
+
+body.mobile-view .favorites .favorite-item-action--remove:hover,
+body.mobile-view .favorites .playlist-items .playlist-item:focus-within .favorite-item-action--remove {
+    box-shadow: 0 8px 18px rgba(231, 76, 60, 0.28) !important;
 }
 
 body.mobile-view .favorites .playlist-items .playlist-item {
