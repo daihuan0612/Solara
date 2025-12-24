@@ -278,10 +278,9 @@
     }
 
     .logo-circle img {
-      width: 90%;
-      height: 90%;
-      object-fit: contain;
-      filter: brightness(0) invert(1) drop-shadow(0 0 10px rgba(146, 255, 236, 0.6));
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
     }
 
     .title-group {
@@ -437,6 +436,12 @@
         border-radius: 20px;
       }
 
+      .logo-circle img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
       .login-footer {
         flex-direction: column;
         align-items: center;
@@ -481,7 +486,7 @@
     <section class="login-container">
       <header class="login-header">
         <div class="logo-circle" aria-hidden="true">
-          <img src="/favicon.png" alt="">
+          <img src="/favicon1.png" alt="">
         </div>
         <div class="title-group">
           <h1 class="login-title">小苹果Music</h1>
