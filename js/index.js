@@ -956,6 +956,9 @@ if (!Array.isArray(state.favoriteSongs) || state.favoriteSongs.length === 0) {
 saveFavoriteState();
 
 async function bootstrapPersistentStorage() {
+    // 禁用远程存储同步，确保每个设备的播放列表独立
+    // 注释掉远程存储加载和同步启用代码
+    /*
     try {
         const remoteKeys = Array.from(STORAGE_KEYS_TO_SYNC);
         const snapshot = await persistentStorage.getItems(remoteKeys);
@@ -968,6 +971,8 @@ async function bootstrapPersistentStorage() {
     } finally {
         remoteSyncEnabled = true;
     }
+    */
+    remoteSyncEnabled = false;
 }
 
 function applyPersistentSnapshotFromRemote(data) {
