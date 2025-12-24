@@ -5283,6 +5283,104 @@ function updatePlaylistHighlight() {
     });
 }
 
+// 最终修正版 playSong：解决 iOS PWA 锁屏自动切歌无声问题
+async function playSong(song, options = {}) {
+    const { autoplay = true, startTime = 0, preserveProgress = false } = options;
+
+    // 1. 清理状态
+    window.clearTimeout(pendingPaletteTimer);
+    state.audioReadyForPalette = false;
+    state.pendingPaletteData = null;
+    state.pendingPaletteImage = null;
+    state.pendingPaletteImmediate = false;
+    state.pendingPaletteReady = false;
+
+    try {
+        // UI 更新（不阻塞）
+        updateCurrentSongInfo(song, { loadArtwork: false, updateBackground: true });
+
+        const quality = state.playbackQuality || '320';
+        const audioUrl = API.getSongUrl(song, quality);
+        debugLog(`获取音频URL: ${audioUrl}`);
+
+        state.currentSong = song;
+        
+        if (state.currentAudioUrl && state.currentAudioUrl.startsWith('blob:')) {
+            URL.revokeObjectURL(state.currentAudioUrl);
+            debugLog('已释放旧的Blob URL');
+        }
+        state.currentAudioUrl = null;
+
+        // [Fix 1] 强制添加 iOS PWA 所需的内联播放属性
+        // 这能防止 iOS 试图弹出全屏播放器或在切换时断开音频会话
+        dom.audioPlayer.setAttribute('playsinline', 'true');
+        dom.audioPlayer.setAttribute('webkit-playsinline', 'true');
+        
+        // [Fix 2] 直接赋值 src，严禁调用 .load() 或 .pause()
+        dom.audioPlayer.src = audioUrl;
+        dom.audioPlayer.type = 'audio/mpeg'; // 明确类型帮助 Safari 快速识别
+        state.currentAudioUrl = audioUrl;
+
+        // [Fix 3] 抢占式播放 (Pre-emptive Play)
+        // 必须在任何 await (异步等待) 之前调用 play()。
+        // 这告诉 iOS："即使我接下来去下载数据了，音频通道也要给我留着！"
+        let playPromise = null;
+        if (autoplay) {
+            playPromise = dom.audioPlayer.play();
+            if (playPromise !== undefined) {
+                playPromise.catch(error => {
+                    // 忽略这里的错误，这只是为了激活 Session
+                    console.warn('Session激活尝试:', error.message);
+                });
+            }
+        } else {
+            dom.audioPlayer.pause();
+            updatePlayPauseButton();
+        }
+
+        // [Fix 4] 现在可以安全地等待元数据加载了
+        // 此时 Audio Session 已经是 Active 状态
+        try {
+            await waitForAudioReady(dom.audioPlayer);
+        } catch (e) {
+            console.warn("元数据加载超时，但继续尝试播放");
+        }
+
+        // [Fix 5] 安全的进度跳转
+        if (state.pendingSeekTime != null) {
+            setAudioCurrentTime(state.pendingSeekTime);
+            state.pendingSeekTime = null;
+        } else {
+            // 避免进度条跳变
+            if (Math.abs(dom.audioPlayer.currentTime) > 1) {
+                dom.audioPlayer.currentTime = 0;
+            }
+        }
+
+        // --- 修复结束 ---
+
+        state.lastSavedPlaybackTime = state.currentPlaybackTime;
+
+        // 双重保险：确保状态同步
+        if (autoplay && dom.audioPlayer.paused) {
+             dom.audioPlayer.play().catch(e => console.error("最终播放重试失败", e));
+        } else if (autoplay) {
+            updatePlayPauseButton();
+        }
+
+        scheduleDeferredSongAssets(song, playPromise);
+        if (typeof window.__SOLARA_UPDATE_MEDIA_METADATA === 'function') {
+            window.__SOLARA_UPDATE_MEDIA_METADATA();
+        }
+
+    } catch (error) {
+        console.error('播放歌曲失败:', error);
+        throw error;
+    } finally {
+        savePlayerState();
+    }
+}
+
 // 修复：播放歌曲函数 - 支持统一播放列表
 function waitForAudioReady(player) {
     if (!player) return Promise.resolve();
@@ -5305,114 +5403,6 @@ function waitForAudioReady(player) {
         player.addEventListener('loadedmetadata', onLoaded, { once: true });
         player.addEventListener('error', onError, { once: true });
     });
-}
-
-async function playSong(song, options = {}) {
-    const { autoplay = true, startTime = 0, preserveProgress = false } = options;
-
-    window.clearTimeout(pendingPaletteTimer);
-    state.audioReadyForPalette = false;
-    state.pendingPaletteData = null;
-    state.pendingPaletteImage = null;
-    state.pendingPaletteImmediate = false;
-    state.pendingPaletteReady = false;
-
-    try {
-        updateCurrentSongInfo(song, { loadArtwork: false, updateBackground: true });
-
-        const quality = state.playbackQuality || '320';
-        const audioUrl = API.getSongUrl(song, quality);
-        debugLog(`获取音频URL: ${audioUrl}`);
-
-        state.currentSong = song;
-        
-        // 释放旧的Blob URL，避免内存泄漏
-        if (state.currentAudioUrl && state.currentAudioUrl.startsWith('blob:')) {
-            URL.revokeObjectURL(state.currentAudioUrl);
-            debugLog('已释放旧的Blob URL');
-        }
-        
-        state.currentAudioUrl = null;
-
-        dom.audioPlayer.pause();
-
-        if (state.currentList === "favorite") {
-            if (!preserveProgress) {
-                state.favoritePlaybackTime = 0;
-                state.favoriteLastSavedPlaybackTime = 0;
-                safeSetLocalStorage('favoritePlaybackTime', '0');
-            } else if (startTime > 0) {
-                state.favoritePlaybackTime = startTime;
-                state.favoriteLastSavedPlaybackTime = startTime;
-            }
-        } else {
-            if (!preserveProgress) {
-                state.currentPlaybackTime = 0;
-                state.lastSavedPlaybackTime = 0;
-                safeSetLocalStorage('currentPlaybackTime', '0');
-            } else if (startTime > 0) {
-                state.currentPlaybackTime = startTime;
-                state.lastSavedPlaybackTime = startTime;
-            }
-        }
-
-        state.pendingSeekTime = startTime > 0 ? startTime : null;
-
-        // 直接使用API URL作为音频源，不尝试获取Blob
-        const selectedAudioUrl = audioUrl;
-        debugLog(`使用音频URL: ${selectedAudioUrl}`);
-
-        // 设置音频源
-        dom.audioPlayer.src = selectedAudioUrl;
-        dom.audioPlayer.load();
-        
-        // 设置正确的音频类型
-        dom.audioPlayer.type = 'audio/mpeg';
-        
-        // 等待音频准备就绪
-        await waitForAudioReady(dom.audioPlayer);
-
-        state.currentAudioUrl = selectedAudioUrl;
-
-        if (state.pendingSeekTime != null) {
-            setAudioCurrentTime(state.pendingSeekTime);
-            state.pendingSeekTime = null;
-        } else {
-            setAudioCurrentTime(dom.audioPlayer.currentTime || 0);
-        }
-
-        state.lastSavedPlaybackTime = state.currentPlaybackTime;
-
-        let playPromise = null;
-
-        if (autoplay) {
-            playPromise = dom.audioPlayer.play();
-            if (playPromise !== undefined) {
-                playPromise.catch(error => {
-                    console.error('播放失败:', error);
-                    showNotification('播放失败，请检查网络连接', 'error');
-                });
-            } else {
-                playPromise = null;
-            }
-        } else {
-            dom.audioPlayer.pause();
-            updatePlayPauseButton();
-        }
-
-        scheduleDeferredSongAssets(song, playPromise);
-
-        debugLog(`开始播放: ${song.name} @${quality}`);
-
-        if (typeof window.__SOLARA_UPDATE_MEDIA_METADATA === 'function') {
-            window.__SOLARA_UPDATE_MEDIA_METADATA();
-        }
-    } catch (error) {
-        console.error('播放歌曲失败:', error);
-        throw error;
-    } finally {
-        savePlayerState();
-    }
 }
 
 function scheduleDeferredSongAssets(song, playPromise) {
