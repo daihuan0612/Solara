@@ -1120,7 +1120,7 @@ function applyPersistentSnapshotFromRemote(data) {
         if (restoredSong) {
             state.currentSong = restoredSong;
             updatePlaylistHighlight();
-            updateCurrentSongInfo(restoredSong).catch((error) => {
+            updateCurrentSongInfo(restoredSong, { updateBackground: true }).catch((error) => {
                 console.error("恢复远程歌曲信息失败:", error);
             });
         }
@@ -1876,10 +1876,12 @@ function getLocalPalette(imageUrl) {
                 const palette = {
                     gradients: {
                         light: {
-                            gradient: `linear-gradient(135deg, ${hex} 0%, rgba(255,255,255,0.8) 100%)`
+                            // 反转渐变方向：左上角浅到右下角深
+                            gradient: `linear-gradient(135deg, rgba(255,255,255,0.8) 0%, ${hex} 100%)`
                         },
                         dark: {
-                            gradient: `linear-gradient(135deg, ${hex} 0%, rgba(0,0,0,0.8) 100%)`
+                            // 反转渐变方向：左上角浅到右下角深
+                            gradient: `linear-gradient(135deg, rgba(0,0,0,0.8) 0%, ${hex} 100%)`
                         }
                     },
                     tokens: {
@@ -3533,7 +3535,7 @@ function setupInteractions() {
         if (restoredSong) {
             state.currentSong = restoredSong;
             updatePlaylistHighlight();
-            updateCurrentSongInfo(restoredSong).catch(error => {
+            updateCurrentSongInfo(restoredSong, { updateBackground: true }).catch(error => {
                 console.error("恢复歌曲信息失败:", error);
             });
         }
@@ -3559,22 +3561,27 @@ function setupInteractions() {
 
 // 修复：更新当前歌曲信息和封面
 function updateCurrentSongInfo(song, options = {}) {
-    const { loadArtwork = true } = options;
-    state.currentSong = song;
-    dom.currentSongTitle.textContent = song.name;
-    updateMobileToolbarTitle();
-    updateFavoriteIcons();
+    const { loadArtwork = true, updateBackground = true } = options;
+    // 只有在 updateBackground 为 true 时才更新当前歌曲状态
+    if (updateBackground) {
+        state.currentSong = song;
+        dom.currentSongTitle.textContent = song.name;
+        updateMobileToolbarTitle();
+        updateFavoriteIcons();
 
-    // 修复艺人名称显示问题 - 使用正确的字段名
-    const artistText = Array.isArray(song.artist) ? song.artist.join(', ') : (song.artist || '未知艺术家');
-    dom.currentSongArtist.textContent = artistText;
+        // 修复艺人名称显示问题 - 使用正确的字段名
+        const artistText = Array.isArray(song.artist) ? song.artist.join(', ') : (song.artist || '未知艺术家');
+        dom.currentSongArtist.textContent = artistText;
+    }
 
     cancelDeferredPaletteUpdate();
 
     if (!loadArtwork) {
-        dom.albumCover.classList.add("loading");
-        dom.albumCover.innerHTML = PLACEHOLDER_HTML;
-        state.currentArtworkUrl = null;
+        if (updateBackground) {
+            dom.albumCover.classList.add("loading");
+            dom.albumCover.innerHTML = PLACEHOLDER_HTML;
+            state.currentArtworkUrl = null;
+        }
         return Promise.resolve();
     }
 
@@ -3603,22 +3610,28 @@ function updateCurrentSongInfo(song, options = {}) {
             if (state.currentSong !== song) {
                 return;
             }
-            setAlbumCoverImage(preferredImageUrl);
-            // 优化：总是立即应用调色板，加快视觉效果
-            scheduleDeferredPaletteUpdate(preferredImageUrl, { immediate: true });
+            if (updateBackground) {
+                setAlbumCoverImage(preferredImageUrl);
+                // 优化：总是立即应用调色板，加快视觉效果
+                scheduleDeferredPaletteUpdate(preferredImageUrl, { immediate: true });
+            }
         };
         img.onerror = () => {
             if (state.currentSong !== song) {
                 return;
             }
-            cancelDeferredPaletteUpdate();
-            showAlbumCoverPlaceholder();
+            if (updateBackground) {
+                cancelDeferredPaletteUpdate();
+                showAlbumCoverPlaceholder();
+            }
         };
         
         img.src = preferredImageUrl;
     } else {
         cancelDeferredPaletteUpdate();
-        showAlbumCoverPlaceholder();
+        if (updateBackground) {
+            showAlbumCoverPlaceholder();
+        }
     }
 
     return Promise.resolve();
@@ -5269,7 +5282,7 @@ async function playSong(song, options = {}) {
     state.pendingPaletteReady = false;
 
     try {
-        updateCurrentSongInfo(song, { loadArtwork: false });
+        updateCurrentSongInfo(song, { loadArtwork: false, updateBackground: true });
 
         const quality = state.playbackQuality || '320';
         const audioUrl = API.getSongUrl(song, quality);
@@ -5372,7 +5385,7 @@ function scheduleDeferredSongAssets(song, playPromise) {
             return;
         }
 
-        updateCurrentSongInfo(song, { loadArtwork: true });
+        updateCurrentSongInfo(song, { loadArtwork: true, updateBackground: true });
         loadLyrics(song);
         state.audioReadyForPalette = true;
         attemptPaletteApplication();
