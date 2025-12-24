@@ -692,21 +692,6 @@ body.mobile-view .lyrics {
     opacity: 1 !important;
 }
 
-body.mobile-view .playlist .playlist-items,
-body.mobile-view .favorites .playlist-items {
-    color: #ffffff !important;
-    background: transparent !important;
-    opacity: 1 !important;
-}
-
-body.mobile-view .playlist .playlist-items .playlist-item,
-body.mobile-view .favorites .playlist-items .playlist-item {
-    color: #ffffff !important;
-    font-size: 15px !important;
-    background: rgba(255, 255, 255, 0.05) !important;
-    opacity: 1 !important;
-}
-
 body.mobile-view .playlist.active,
 body.mobile-view .lyrics.active {
     display: flex;
@@ -737,7 +722,13 @@ body.mobile-view .playlist-items .playlist-item {
     min-height: 0;
     margin-bottom: 4px;
     font-size: 15px;
+    font-weight: 600;
     color: #ffffff;
+    letter-spacing: 0.02em;
+    max-width: 100%;
+    box-sizing: border-box;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 body.mobile-view .playlist-items .playlist-item:focus-visible {
@@ -900,13 +891,19 @@ body.mobile-view .favorites .playlist-items .playlist-item {
     min-height: 0;
     margin-bottom: 4px;
     font-size: 15px;
+    font-weight: 600;
     color: #ffffff;
+    letter-spacing: 0.02em;
     border-radius: 12px;
     background: rgba(255, 255, 255, 0.05);
     touch-action: manipulation;
     cursor: pointer;
     pointer-events: auto;
     transition: color 0.2s ease;
+    max-width: 100%;
+    box-sizing: border-box;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 body.mobile-view .favorites .playlist-items .playlist-item:focus-visible {
