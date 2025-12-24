@@ -6186,132 +6186,41 @@ function scrollToCurrentLyric(element, containerOverride) {
 }
 
 // 修复：下载歌曲 - 使用Blob URL，确保触发下载而非新窗口播放
-async function downloadSong(song, quality = "mp3") {
+// ============================================================
+// 最终稳妥版下载函数：直链跳转 (放弃重命名，保证成功率)
+// ============================================================
+async function downloadSong(song) {
     try {
-        showNotification("正在准备下载...");
-        
-        // 确保歌曲名和艺人名正确获取
-        const songName = song.name || "未知歌曲";
-        const artistName = Array.isArray(song.artist) ? song.artist.join(", ") : (song.artist || "未知艺术家");
-        
-        // 确定要尝试的质量列表
-        let qualitiesToTry = [];
-        if (quality === "mp3") {
-            // MP3选项：尝试多种MP3质量，从高到低
-            qualitiesToTry = ["320", "192", "128"];
-        } else if (quality === "999") {
-            // 无损选项：只尝试无损，不降级
-            qualitiesToTry = ["999"];
-        } else {
-            // 特定MP3质量选项：先尝试指定质量，再尝试其他质量
-            qualitiesToTry = [quality, "320", "192", "128"];
+        const quality = state.playbackQuality || '320';
+        showNotification(`正在获取 ${song.name} 下载地址...`, 'info');
+
+        // 1. 获取链接
+        const downloadUrl = API.getSongUrl(song, quality);
+        if (!downloadUrl) {
+            throw new Error('无法获取链接');
         }
+
+        // 2. 简单的跳转下载
+        // 既然 JS 没法重命名，就不搞那些花里胡哨的 Blob 了，直接让浏览器打开
         
-        // 添加重试机制的fetch函数
-        const fetchWithRetry = async (url, options = {}, retries = 3, delay = 1000) => {
-            for (let i = 0; i < retries; i++) {
-                try {
-                    debugLog(`fetch请求 (尝试 ${i+1}/${retries}): ${url}`);
-                    const response = await fetch(url, options);
-                    if (response.ok) {
-                        return response;
-                    }
-                    debugLog(`fetch请求失败，状态码: ${response.status}`);
-                } catch (error) {
-                    debugLog(`fetch请求异常 (尝试 ${i+1}/${retries}): ${error.message}`);
-                }
-                if (i < retries - 1) {
-                    debugLog(`等待 ${delay}ms 后重试...`);
-                    await new Promise(resolve => setTimeout(resolve, delay));
-                }
-            }
-            throw new Error("所有fetch尝试都失败了");
-        };
+        // 创建一个临时链接
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.target = '_blank'; // 新窗口打开，这是最不容易被拦截的方式
         
-        // 尝试不同质量，直到找到可用的
-        for (const currentQuality of qualitiesToTry) {
-            try {
-                // 获取原始下载URL
-                const originalUrl = API.getSongUrl(song, currentQuality);
-                debugLog(`尝试下载URL (${currentQuality}): ${originalUrl}`);
-                showNotification(`正在尝试 ${currentQuality} 音质...`);
-                
-                // 使用带重试机制的fetch API获取音频数据
-                const response = await fetchWithRetry(originalUrl, {
-                    mode: 'cors',
-                    credentials: 'omit'
-                });
-                
-                // 获取音频Blob数据
-                const blob = await response.blob();
-                debugLog(`成功获取音频数据，大小: ${blob.size} 字节`);
-                
-                // 生成正确的文件名
-                const preferredExtension = currentQuality === "999" ? "flac" : "mp3";
-                const fileName = `${songName} - ${artistName}.${preferredExtension}`;
-                
-                // 确保Blob有正确的MIME类型
-                const mimeType = currentQuality === "999" ? "audio/flac" : "audio/mpeg";
-                const audioBlob = new Blob([blob], { type: mimeType });
-                
-                // 清理现有的下载链接，避免重复
-                const existingLinks = document.querySelectorAll('.temp-download-link');
-                existingLinks.forEach(link => link.remove());
-                
-                // 创建下载链接
-                const link = document.createElement("a");
-                link.className = 'temp-download-link';
-                link.href = URL.createObjectURL(audioBlob);
-                link.download = fileName;
-                link.style.display = 'block';
-                link.style.position = 'fixed';
-                link.style.top = '-100px';
-                link.style.left = '-100px';
-                link.style.opacity = '0';
-                link.style.pointerEvents = 'none';
-                link.target = "_self"; // 使用当前窗口下载，避免新窗口
-                
-                // 添加到DOM
-                document.body.appendChild(link);
-                
-                // 确保文件名被正确设置
-                link.setAttribute('download', fileName);
-                
-                // 使用多种方式触发下载，提高兼容性
-                debugLog(`准备触发下载: ${fileName}`);
-                
-                // 方式1: 直接调用click()方法，基础兼容性
-                link.click();
-                
-                // 方式2: dispatchEvent，增强兼容性
-                link.dispatchEvent(new MouseEvent('click', {
-                    bubbles: true,
-                    cancelable: true,
-                    view: window
-                }));
-                
-                // 清理资源
-                setTimeout(() => {
-                    URL.revokeObjectURL(link.href);
-                    document.body.removeChild(link);
-                    debugLog(`清理下载资源完成`);
-                }, 3000);
-                
-                // 显示成功通知
-                showNotification(`已开始下载: ${songName}`, "success");
-                return;
-            } catch (error) {
-                debugLog(`尝试音质 ${currentQuality} 失败: ${error.message}`);
-                showNotification(`尝试音质 ${currentQuality} 失败，尝试其他音质...`);
-                continue; // 尝试下一个质量
-            }
-        }
+        // 哪怕浏览器忽略，我们也试着写一下，万一有些旧浏览器支持呢
+        link.download = `${song.artist} - ${song.name}.mp3`;
         
-        // 如果所有质量都不可用
-        throw new Error("所有音质都不可用");
+        // 3. 触发
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        showNotification('已弹出下载窗口 (如果变成了播放，请按 Ctrl+S 保存)', 'success');
+
     } catch (error) {
-        console.error("下载失败:", error);
-        showNotification(`下载失败: ${error.message}`, "error");
+        console.error('下载出错:', error);
+        showNotification('获取下载地址失败', 'error');
     }
 }
 
