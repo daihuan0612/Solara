@@ -760,28 +760,42 @@ const savedCurrentPlaylist = (() => {
 const API = {
     baseUrl: "https://music-dl.sayqz.com",
 
-    fetchJson: async (url) => {
-        try {
-            const response = await fetch(url, {
-                headers: {
-                    "Accept": "application/json",
-                },
-            });
-
-            if (!response.ok) {
-                throw new Error(`Request failed with status ${response.status}`);
-            }
-
-            const text = await response.text();
+    fetchJson: async (url, options = {}) => {
+        const maxRetries = options.maxRetries || 3;
+        const retryDelay = options.retryDelay || 1000;
+        
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
             try {
-                return JSON.parse(text);
-            } catch (parseError) {
-                console.warn("JSON parse failed, returning raw text", parseError);
-                return text;
+                debugLog(`API请求 (尝试 ${attempt}/${maxRetries}): ${url}`);
+                const response = await fetch(url, {
+                    headers: {
+                        "Accept": "application/json",
+                        ...options.headers,
+                    },
+                    ...options,
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Request failed with status ${response.status}`);
+                }
+
+                const text = await response.text();
+                try {
+                    return JSON.parse(text);
+                } catch (parseError) {
+                    console.warn("JSON parse failed, returning raw text", parseError);
+                    return text;
+                }
+            } catch (error) {
+                debugLog(`API请求失败 (尝试 ${attempt}/${maxRetries}): ${error.message}`);
+                if (attempt < maxRetries) {
+                    debugLog(`等待 ${retryDelay}ms 后重试...`);
+                    await new Promise(resolve => setTimeout(resolve, retryDelay));
+                } else {
+                    console.error("API请求最终失败:", error);
+                    throw error;
+                }
             }
-        } catch (error) {
-            console.error("API request error:", error);
-            throw error;
         }
     },
 
@@ -5963,15 +5977,36 @@ async function downloadSong(song, quality = "mp3") {
         // 确定要尝试的质量列表
         let qualitiesToTry = [];
         if (quality === "mp3") {
-            // MP3选项：只尝试320k质量
-            qualitiesToTry = ["320"];
+            // MP3选项：尝试多种MP3质量，从高到低
+            qualitiesToTry = ["320", "192", "128"];
         } else if (quality === "999") {
-            // 无损选项：只尝试无损
+            // 无损选项：只尝试无损，不降级
             qualitiesToTry = ["999"];
         } else {
-            // 特定MP3质量选项：只尝试指定的质量
-            qualitiesToTry = [quality];
+            // 特定MP3质量选项：先尝试指定质量，再尝试其他质量
+            qualitiesToTry = [quality, "320", "192", "128"];
         }
+        
+        // 添加重试机制的fetch函数
+        const fetchWithRetry = async (url, options = {}, retries = 3, delay = 1000) => {
+            for (let i = 0; i < retries; i++) {
+                try {
+                    debugLog(`fetch请求 (尝试 ${i+1}/${retries}): ${url}`);
+                    const response = await fetch(url, options);
+                    if (response.ok) {
+                        return response;
+                    }
+                    debugLog(`fetch请求失败，状态码: ${response.status}`);
+                } catch (error) {
+                    debugLog(`fetch请求异常 (尝试 ${i+1}/${retries}): ${error.message}`);
+                }
+                if (i < retries - 1) {
+                    debugLog(`等待 ${delay}ms 后重试...`);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                }
+            }
+            throw new Error("所有fetch尝试都失败了");
+        };
         
         // 尝试不同质量，直到找到可用的
         for (const currentQuality of qualitiesToTry) {
@@ -5979,21 +6014,17 @@ async function downloadSong(song, quality = "mp3") {
                 // 获取原始下载URL
                 const originalUrl = API.getSongUrl(song, currentQuality);
                 debugLog(`尝试下载URL (${currentQuality}): ${originalUrl}`);
+                showNotification(`正在尝试 ${currentQuality} 音质...`);
                 
-                // 使用fetch API获取音频数据
-                const response = await fetch(originalUrl, {
+                // 使用带重试机制的fetch API获取音频数据
+                const response = await fetchWithRetry(originalUrl, {
                     mode: 'cors',
                     credentials: 'omit'
                 });
                 
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    debugLog(`音质 ${currentQuality} 不可用: ${response.status} - ${errorText}`);
-                    continue; // 尝试下一个质量
-                }
-                
                 // 获取音频Blob数据
                 const blob = await response.blob();
+                debugLog(`成功获取音频数据，大小: ${blob.size} 字节`);
                 
                 // 生成正确的文件名
                 const preferredExtension = currentQuality === "999" ? "flac" : "mp3";
@@ -6026,7 +6057,13 @@ async function downloadSong(song, quality = "mp3") {
                 // 确保文件名被正确设置
                 link.setAttribute('download', fileName);
                 
-                // 使用另一种方式触发下载，IDM更可能尊重这个方式
+                // 使用多种方式触发下载，提高兼容性
+                debugLog(`准备触发下载: ${fileName}`);
+                
+                // 方式1: 直接调用click()方法，基础兼容性
+                link.click();
+                
+                // 方式2: dispatchEvent，增强兼容性
                 link.dispatchEvent(new MouseEvent('click', {
                     bubbles: true,
                     cancelable: true,
@@ -6037,13 +6074,15 @@ async function downloadSong(song, quality = "mp3") {
                 setTimeout(() => {
                     URL.revokeObjectURL(link.href);
                     document.body.removeChild(link);
-                }, 1000);
+                    debugLog(`清理下载资源完成`);
+                }, 3000);
                 
                 // 显示成功通知
-                showNotification("下载已开始", "success");
+                showNotification(`已开始下载: ${songName}`, "success");
                 return;
             } catch (error) {
                 debugLog(`尝试音质 ${currentQuality} 失败: ${error.message}`);
+                showNotification(`尝试音质 ${currentQuality} 失败，尝试其他音质...`);
                 continue; // 尝试下一个质量
             }
         }
