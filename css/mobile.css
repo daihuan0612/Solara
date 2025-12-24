@@ -957,15 +957,7 @@ body.mobile-view .playlist-items .playlist-item:focus-within .playlist-item-remo
     filter: brightness(1.05) !important;
 }
 
-body.mobile-view .playlist-items .playlist-item {
-    border-radius: 12px;
-    background: rgba(255, 255, 255, 0.05);
-    color: #ffffff;
-    touch-action: manipulation;
-    cursor: pointer;
-    pointer-events: auto;
-    transition: color 0.2s ease;
-}
+/* 移除重复的样式定义，保留第一个正确的主题适配样式 */
 
 body.mobile-view .playlist-items .playlist-item:last-child {
     margin-bottom: 0;
@@ -980,6 +972,7 @@ body.mobile-view .playlist-items .playlist-item.current {
 
 body.mobile-view.dark-mode .playlist-items .playlist-item:hover,
 body.mobile-view.dark-mode .playlist-items .playlist-item.current {
+    background: rgba(243, 162, 91, 0.25);
     color: #ffffff;
 }
 
