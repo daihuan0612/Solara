@@ -1294,24 +1294,32 @@ bootstrapPersistentStorage();
 
         // 播放/暂停交给 <audio> 默认行为即可
         try {
-            navigator.mediaSession.setActionHandler('previoustrack', () => {
+            navigator.mediaSession.setActionHandler('previoustrack', async () => {
                 // 直接复用你已有的全局函数（HTML 里也在用）:contentReference[oaicite:9]{index=9}
                 if (typeof window.playPrevious === 'function') {
-                    const result = window.playPrevious();
-                    if (result && typeof result.then === 'function') {
-                        result.finally(triggerMediaSessionMetadataRefresh);
-                    } else {
+                    try {
+                        // 调用playPrevious并等待可能的异步操作完成
+                        const result = window.playPrevious();
+                        if (result && typeof result.then === 'function') {
+                            await result;
+                        }
                         triggerMediaSessionMetadataRefresh();
+                    } catch (error) {
+                        console.error('上一曲播放失败:', error);
                     }
                 }
             });
-            navigator.mediaSession.setActionHandler('nexttrack', () => {
+            navigator.mediaSession.setActionHandler('nexttrack', async () => {
                 if (typeof window.playNext === 'function') {
-                    const result = window.playNext();
-                    if (result && typeof result.then === 'function') {
-                        result.finally(triggerMediaSessionMetadataRefresh);
-                    } else {
+                    try {
+                        // 调用playNext并等待可能的异步操作完成
+                        const result = window.playNext();
+                        if (result && typeof result.then === 'function') {
+                            await result;
+                        }
                         triggerMediaSessionMetadataRefresh();
+                    } catch (error) {
+                        console.error('下一曲播放失败:', error);
                     }
                 }
             });
@@ -5472,7 +5480,7 @@ function autoPlayNext() {
 }
 
 // 修复：播放下一首 - 支持播放模式和统一播放列表
-function playNext() {
+async function playNext() {
     if (state.currentList === "favorite") {
         const favorites = ensureFavoriteSongsArray();
         if (favorites.length === 0) {
@@ -5489,8 +5497,7 @@ function playNext() {
         if (mode !== "single") {
             state.currentFavoriteIndex = nextIndex;
         }
-        playFavoriteSong(state.currentFavoriteIndex);
-        return;
+        return playFavoriteSong(state.currentFavoriteIndex);
     }
 
     let nextIndex = -1;
@@ -5527,16 +5534,16 @@ function playNext() {
     const targetIndex = mode === "single" ? state.currentTrackIndex : nextIndex;
 
     if (state.currentPlaylist === "playlist") {
-        playPlaylistSong(targetIndex);
+        return playPlaylistSong(targetIndex);
     } else if (state.currentPlaylist === "online") {
-        playOnlineSong(targetIndex);
+        return playOnlineSong(targetIndex);
     } else if (state.currentPlaylist === "search") {
-        playSearchResult(targetIndex);
+        return playSearchResult(targetIndex);
     }
 }
 
 // 修复：播放上一首 - 支持播放模式和统一播放列表
-function playPrevious() {
+async function playPrevious() {
     if (state.currentList === "favorite") {
         const favorites = ensureFavoriteSongsArray();
         if (favorites.length === 0) {
@@ -5555,8 +5562,7 @@ function playPrevious() {
         if (mode !== "single") {
             state.currentFavoriteIndex = prevIndex;
         }
-        playFavoriteSong(state.currentFavoriteIndex);
-        return;
+        return playFavoriteSong(state.currentFavoriteIndex);
     }
 
     let prevIndex = -1;
@@ -5591,11 +5597,11 @@ function playPrevious() {
     const targetIndex = mode === "single" ? state.currentTrackIndex : prevIndex;
 
     if (state.currentPlaylist === "playlist") {
-        playPlaylistSong(targetIndex);
+        return playPlaylistSong(targetIndex);
     } else if (state.currentPlaylist === "online") {
-        playOnlineSong(targetIndex);
+        return playOnlineSong(targetIndex);
     } else if (state.currentPlaylist === "search") {
-        playSearchResult(targetIndex);
+        return playSearchResult(targetIndex);
     }
 }
 
