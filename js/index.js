@@ -1659,10 +1659,7 @@ if (state.currentGradient) {
 }
 
 function captureThemeDefaults() {
-    if (state.themeDefaultsCaptured) {
-        return;
-    }
-
+    // 总是更新主题默认值，确保CSS修改后能及时反映
     const initialIsDark = document.body.classList.contains("dark-mode");
     document.body.classList.remove("dark-mode");
     const lightStyles = getComputedStyle(document.body);
@@ -1748,9 +1745,8 @@ function setDocumentGradient(gradient, { immediate = false } = {}) {
 }
 
 function applyDynamicGradient(options = {}) {
-    if (!state.themeDefaultsCaptured) {
-        captureThemeDefaults();
-    }
+    // 每次调用都更新主题默认值，确保CSS修改后能及时反映
+    captureThemeDefaults();
     const isDark = document.body.classList.contains("dark-mode");
     const mode = isDark ? "dark" : "light";
     const defaults = themeDefaults[mode];
@@ -6545,9 +6541,11 @@ function syncLyrics() {
 
     const currentTime = dom.audioPlayer.currentTime;
     let currentIndex = -1;
+    // 歌词提前0.5秒聚焦
+    const提前时间 = 0.5;
 
     for (let i = 0; i < state.lyricsData.length; i++) {
-        if (currentTime >= state.lyricsData[i].time) {
+        if (currentTime + 提前时间 >= state.lyricsData[i].time) {
             currentIndex = i;
         } else {
             break;
