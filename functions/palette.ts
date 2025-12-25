@@ -218,10 +218,11 @@ function analyzeImageColors(image: DecodedImage): AnalyzedColors {
 }
 
 function buildGradientStops(accent: HslColor): { light: PaletteStop; dark: PaletteStop } {
+  // 调整浅色模式渐变，减少亮度偏移，让左上角颜色不要太浅
   const lightColors = [
-    hslToHex({ h: accent.h, s: adjustSaturation(accent.s, 0.4, 0.08), l: adjustLightness(accent.l, 0.42, 0.52) }),
-    hslToHex({ h: accent.h, s: adjustSaturation(accent.s, 0.52, 0.05), l: adjustLightness(accent.l, 0.26, 0.62) }),
-    hslToHex({ h: accent.h, s: adjustSaturation(accent.s, 0.65), l: adjustLightness(accent.l, 0.12, 0.72) }),
+    hslToHex({ h: accent.h, s: adjustSaturation(accent.s, 0.6, 0.04), l: adjustLightness(accent.l, 0.15, 0.65) }),
+    hslToHex({ h: accent.h, s: adjustSaturation(accent.s, 0.65, 0.02), l: adjustLightness(accent.l, 0.1, 0.7) }),
+    hslToHex({ h: accent.h, s: adjustSaturation(accent.s, 0.75), l: adjustLightness(accent.l, 0.05, 0.75) }),
   ];
 
   const darkColors = [
@@ -233,7 +234,8 @@ function buildGradientStops(accent: HslColor): { light: PaletteStop; dark: Palet
   return {
     light: {
       colors: lightColors,
-      gradient: `linear-gradient(140deg, ${lightColors[0]} 0%, ${lightColors[1]} 45%, ${lightColors[2]} 100%)`,
+      // 调整渐变角度和分布，减少颜色变化幅度
+      gradient: `linear-gradient(135deg, ${lightColors[0]} 0%, ${lightColors[1]} 60%, ${lightColors[2]} 100%)`,
     },
     dark: {
       colors: darkColors,
