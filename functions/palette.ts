@@ -218,28 +218,33 @@ function analyzeImageColors(image: DecodedImage): AnalyzedColors {
 }
 
 function buildGradientStops(accent: HslColor): { light: PaletteStop; dark: PaletteStop } {
-  // 调整浅色模式渐变，减少亮度偏移，让左上角颜色不要太浅
+  // 进一步减少渐变变化幅度，只有轻微效果
   const lightColors = [
-    hslToHex({ h: accent.h, s: adjustSaturation(accent.s, 0.6, 0.04), l: adjustLightness(accent.l, 0.15, 0.65) }),
-    hslToHex({ h: accent.h, s: adjustSaturation(accent.s, 0.65, 0.02), l: adjustLightness(accent.l, 0.1, 0.7) }),
-    hslToHex({ h: accent.h, s: adjustSaturation(accent.s, 0.75), l: adjustLightness(accent.l, 0.05, 0.75) }),
+    // 几乎保持原始颜色，只做轻微调整
+    hslToHex({ h: accent.h, s: adjustSaturation(accent.s, 0.85, 0.02), l: adjustLightness(accent.l, 0.05, 0.7) }),
+    // 中间色只做非常小的变化
+    hslToHex({ h: accent.h, s: adjustSaturation(accent.s, 0.9, 0.01), l: adjustLightness(accent.l, 0.03, 0.72) }),
+    // 结束色变化也很小
+    hslToHex({ h: accent.h, s: adjustSaturation(accent.s, 0.95, 0), l: adjustLightness(accent.l, 0.01, 0.73) }),
   ];
 
   const darkColors = [
-    hslToHex({ h: accent.h, s: adjustSaturation(accent.s, 0.55, 0.04), l: adjustLightness(accent.l, 0.14, 0.38) }),
-    hslToHex({ h: accent.h, s: adjustSaturation(accent.s, 0.62, 0.02), l: adjustLightness(accent.l, 0.04, 0.3) }),
-    hslToHex({ h: accent.h, s: adjustSaturation(accent.s, 0.72), l: adjustLightness(accent.l, -0.04, 0.22) }),
+    // 深色模式也减少变化幅度
+    hslToHex({ h: accent.h, s: adjustSaturation(accent.s, 0.75, 0.02), l: adjustLightness(accent.l, 0.08, 0.4) }),
+    hslToHex({ h: accent.h, s: adjustSaturation(accent.s, 0.8, 0.01), l: adjustLightness(accent.l, 0.03, 0.35) }),
+    hslToHex({ h: accent.h, s: adjustSaturation(accent.s, 0.85, 0), l: adjustLightness(accent.l, -0.02, 0.3) }),
   ];
 
   return {
     light: {
       colors: lightColors,
-      // 调整渐变角度和分布，减少颜色变化幅度
-      gradient: `linear-gradient(135deg, ${lightColors[0]} 0%, ${lightColors[1]} 60%, ${lightColors[2]} 100%)`,
+      // 调整渐变角度和分布，让变化更加平缓
+      gradient: `linear-gradient(120deg, ${lightColors[0]} 0%, ${lightColors[1]} 70%, ${lightColors[2]} 100%)`,
     },
     dark: {
       colors: darkColors,
-      gradient: `linear-gradient(135deg, ${darkColors[0]} 0%, ${darkColors[1]} 55%, ${darkColors[2]} 100%)`,
+      // 深色模式也使用更平缓的渐变
+      gradient: `linear-gradient(120deg, ${darkColors[0]} 0%, ${darkColors[1]} 65%, ${darkColors[2]} 100%)`,
     },
   };
 }
