@@ -980,6 +980,7 @@ const state = {
     playMode: savedPlayMode, // 新增：播放模式 'list', 'single', 'random'
     playlistLastNonRandomMode: savedPlayMode === "random" ? "list" : savedPlayMode,
     favoriteSongs: savedFavoriteSongs,
+    isPlaying: false, // 新增：播放状态标志
     currentFavoriteIndex: savedCurrentFavoriteIndex,
     currentList: savedCurrentList,
     favoritePlayMode: savedFavoritePlayMode,
@@ -2617,16 +2618,20 @@ async function togglePlayPause() {
     }
 
     if (dom.audioPlayer.paused) {
+        state.isPlaying = true;
         const playPromise = dom.audioPlayer.play();
         if (playPromise !== undefined) {
             playPromise.catch(error => {
                 console.error("播放失败:", error);
                 showNotification("播放失败，请检查网络连接", "error");
+                state.isPlaying = false;
             });
         }
     } else {
+        state.isPlaying = false;
         dom.audioPlayer.pause();
     }
+    updatePlayPauseButton();
 }
 
 function buildSourceMenu() {
@@ -3751,13 +3756,22 @@ function setupInteractions() {
             // 闪电侠模式：解锁后瞬间完成所有延迟的UI更新
             if (state.needUpdateOnUnlock && state.currentSong) {
                 console.log('🦸 闪电侠模式：解锁后瞬间更新UI');
-                setTimeout(() => {
-                    updateCurrentSongInfo(state.currentSong, {
-                        loadArtwork: true,
-                        updateBackground: true
-                    });
-                    state.needUpdateOnUnlock = false;
-                }, 300);
+                // 使用 requestAnimationFrame 确保渲染帧就绪
+                requestAnimationFrame(() => {
+                    if (state.currentSong) {
+                        // 补全之前跳过的 UI 更新
+                        updateCurrentSongInfo(state.currentSong, {
+                            loadArtwork: true,
+                            updateBackground: true
+                        });
+                        
+                        // 补全歌词滚动位置
+                        loadLyrics(state.currentSong);
+                        
+                        // 重置标记
+                        state.needUpdateOnUnlock = false;
+                    }
+                });
             }
         }
     });
@@ -5709,7 +5723,8 @@ async function playSong(song, options = {}) {
     const { autoplay = true, startTime = 0, preserveProgress = false } = options;
     
     // === 策略判断 ===
-    const isStealthMode = shouldUseStealthMode();
+    // 如果是 iOS PWA 且处于锁屏/后台状态，进入"隐身模式"
+    const isStealthMode = isIOSPWA() && isLockScreen();
     
     console.log(`🎵 播放模式: ${isStealthMode ? '🔒 隐身模式 (Stealth)' : '🌐 正常模式 (Normal)'}`, {
         song: song.name,
@@ -5717,15 +5732,7 @@ async function playSong(song, options = {}) {
     });
 
     try {
-        // 清理旧状态
-        window.clearTimeout(pendingPaletteTimer);
-        state.audioReadyForPalette = false;
-        state.pendingPaletteData = null;
-        state.pendingPaletteImage = null;
-        state.pendingPaletteImmediate = false;
-        state.pendingPaletteReady = false;
-
-        // 更新全局歌曲状态
+        // 更新全局状态
         state.currentSong = song;
         
         // 处理播放进度
@@ -5747,7 +5754,7 @@ async function playSong(song, options = {}) {
         if (isStealthMode) {
             console.log('🔒 隐身模式：跳过UI更新，只处理音频和锁屏信息');
             
-            // 1. 标记位：告诉系统解锁后需要补画UI
+            // 1. 标记位：告诉系统解锁后需要补画 UI
             state.needUpdateOnUnlock = true;
             
             // 2. 保存延迟更新的信息
@@ -5759,13 +5766,29 @@ async function playSong(song, options = {}) {
                 shouldLoadLyrics: true
             };
             
-            // 3. 关键：更新锁屏媒体中心
-            updateMediaMetadataForStealthMode(song);
-            
+            // 3. 关键：更新锁屏媒体中心 (这是锁屏时唯一允许的 UI 操作)
+            if ('mediaSession' in navigator) {
+                try {
+                    navigator.mediaSession.metadata = new MediaMetadata({
+                        title: song.name,
+                        artist: song.artist || 'Unknown',
+                        artwork: [{ src: song.coverUrl || './default.png', sizes: '512x512', type: 'image/png' }]
+                    });
+                    console.log('✅ 媒体会话元数据更新成功');
+                } catch (error) {
+                    console.error('🔒 更新媒体会话失败:', error);
+                    // 降级处理：只更新标题和艺术家
+                    try {
+                        navigator.mediaSession.metadata = new MediaMetadata({
+                            title: song.name,
+                            artist: song.artist || 'Unknown'
+                        });
+                    } catch (_) {}
+                }
+            }
+
             // 4. 音频处理 (最小化资源占用)
             const player = dom.audioPlayer;
-            
-            // 停止当前播放
             player.pause();
             
             // 获取音频URL
@@ -5776,44 +5799,21 @@ async function playSong(song, options = {}) {
             player.setAttribute('playsinline', 'true');
             player.setAttribute('webkit-playsinline', 'true');
             
-            // 设置音频源
             player.src = audioUrl;
-            
-            // 检查是否为PWA环境，但保持隐身模式核心逻辑不变
-            const isPWA = isIOSPWA();
-            if (isPWA) {
-                console.log('🔒 隐身模式 + PWA环境：保留原有逻辑，使用load()');
-            }
-            
-            // 隐身模式保持原有load()逻辑，因为它有自己的静音握手技巧
-            player.load();
             state.currentAudioUrl = audioUrl;
-            
-            // 等待音频加载（超时较短）
-            await new Promise(resolve => {
-                if (player.readyState >= 1) {
-                    resolve();
-                    return;
-                }
-                const timeout = setTimeout(resolve, 1500);
-                player.addEventListener('loadeddata', () => {
-                    clearTimeout(timeout);
-                    resolve();
-                }, { once: true });
-            });
             
             // 设置播放位置
             if (startTime > 0) {
                 player.currentTime = startTime;
             }
             
-            // 5. 音频播放（静音握手技巧）
             if (autoplay) {
+                // 初始化播放状态
+                state.isPlaying = true;
+                
                 try {
-                    // 技巧：静音握手 (Mute Handshake)
+                    // 技巧：静音握手 (Mute Handshake) 防止被系统杀后台
                     player.muted = true;
-                    player.volume = 0.3; // 较低音量启动
-                    
                     await player.play();
                     console.log('✅ 静音播放成功');
                     
@@ -5822,23 +5822,26 @@ async function playSong(song, options = {}) {
                         player.muted = false;
                         player.volume = state.volume;
                         console.log('🔊 取消静音，音频通道应已打通');
-                    }, 300);
+                    }, 200);
                     
                 } catch (error) {
                     console.error('🔒 隐身模式播放失败:', error);
                     player.muted = false;
                     player.volume = state.volume;
+                    state.isPlaying = false;
                     
                     // 回退尝试
                     player.play().catch(e => {
                         console.warn('回退播放失败:', e);
+                        state.isPlaying = false;
                     });
                 }
             } else {
                 player.pause();
+                state.isPlaying = false;
             }
             
-            // 6. 保存状态（但不触发UI更新）
+            // 保存状态（但不触发UI更新）
             savePlayerState();
             
             // 如果是在锁屏状态，记录切换时间
@@ -5894,13 +5897,6 @@ async function playSong(song, options = {}) {
         
         state.currentAudioUrl = audioUrl;
         
-        if (autoplay) {
-            // 在用户手势直接调用链中立即调用play()，确保手势不丢失
-            player.volume = 0.1; // 使用低音量启动，避免突然爆音
-            console.log('🎵 在用户手势链中调用play()，当前音量:', player.volume);
-            playPromise = player.play();
-        }
-        
         // 4. 等待音频加载
         await new Promise((resolve, reject) => {
             if (player.readyState >= 1) {
@@ -5949,152 +5945,72 @@ async function playSong(song, options = {}) {
         
         // 6. 处理playPromise并设置正常音量
         if (autoplay) {
-            // 确保音量设置正确，避免PWA下音量被重置为0
-            player.volume = state.volume || 0.8; // 添加默认音量，防止音量为0
+            // 初始化播放状态
+            state.isPlaying = true;
             
-            // 播放成功标志
-            let isPlaybackSuccessful = false;
-            
-            if (playPromise !== undefined) {
-                try {
-                    await playPromise;
-                    console.log('✅ playPromise调用成功，当前音量:', player.volume);
-                    
-                    // 验证实际播放状态
-                    isPlaybackSuccessful = !player.paused;
-                    console.log('🎵 playPromise后，实际播放状态:', isPlaybackSuccessful);
-                    
-                } catch (error) {
-                    console.error('playPromise调用失败:', error);
-                    if (!error.message.includes('user gesture')) {
-                        showNotification('播放失败: ' + error.message, 'error');
-                    }
-                }
-            }
-            
-            // PWA环境下：添加严格的播放状态验证和重试机制
-            if (isPWA) {
-                console.log('📱 PWA模式：执行严格的播放状态验证');
+            try {
+                // 在用户手势链中调用play()
+                await player.play();
+                console.log('✅ 正常播放成功');
                 
-                // 等待一小段时间，让音频有机会开始播放
-                await new Promise(resolve => setTimeout(resolve, 500));
+                // 更新播放状态
+                state.isPlaying = !player.paused;
                 
-                // 检查实际播放状态
-                if (player.paused) {
-                    console.warn('⚠️ PWA模式：音频仍处于暂停状态，尝试手动播放');
-                    
+            } catch (error) {
+                console.error('🌐 正常模式播放失败:', error);
+                state.isPlaying = false;
+                
+                // PWA环境下的重试机制
+                if (isPWA) {
+                    console.warn('⚠️ 正常模式播放失败，尝试PWA重试机制');
                     try {
-                        // 尝试再次播放
+                        // 尝试静音握手技巧
+                        player.muted = true;
                         await player.play();
-                        isPlaybackSuccessful = !player.paused;
-                        console.log('📱 PWA模式：再次播放尝试后，paused状态:', player.paused);
-                    } catch (error) {
-                        console.error('📱 PWA模式：再次播放尝试失败:', error);
-                    }
-                }
-                
-                // 添加播放状态监控
-                if (isPlaybackSuccessful) {
-                    console.log('📱 PWA模式：播放成功，启动播放状态监控');
-                    
-                    // 监控播放状态，确保音频持续播放
-                    const monitorPlayback = () => {
-                        // 如果当前歌曲已经改变，停止监控
-                        if (state.currentSong !== song) {
-                            return;
-                        }
                         
-                        // 如果音频应该在播放但实际暂停了，尝试恢复
-                        if (!player.paused && player.currentTime === 0 && isIOSPWA()) {
-                            console.warn('📱 PWA模式：检测到播放停滞，尝试恢复播放');
-                            player.play().catch(e => {
-                                console.error('📱 PWA模式：恢复播放失败:', e);
-                            });
-                        }
-                    };
-                    
-                    // 启动监控，每2秒检查一次
-                    setTimeout(monitorPlayback, 2000);
-                    setTimeout(monitorPlayback, 5000);
-                }
-            }
-            
-            // 更新最终播放状态：采用更可靠的延迟验证方式
-            // 等待1秒后再验证，确保音频有足够时间开始播放
-            setTimeout(() => {
-                isPlaybackSuccessful = !player.paused;
-                
-                if (isPlaybackSuccessful) {
-                    console.log('✅ 最终播放状态：音频成功开始播放');
+                        setTimeout(() => {
+                            player.muted = false;
+                            player.volume = state.volume;
+                        }, 200);
+                        
+                        console.log('✅ PWA重试播放成功');
+                        state.isPlaying = true;
+                    } catch (retryError) {
+                        console.error('❌ PWA重试播放失败:', retryError);
+                        state.isPlaying = false;
+                        showNotification('播放失败: ' + retryError.message, 'error');
+                    }
                 } else {
-                    console.error('❌ 最终播放状态：音频仍处于暂停状态');
-                    // 检查是否真的在播放（通过currentTime判断）
-                    if (player.currentTime > 0) {
-                        console.log('🎵 特殊情况：currentTime > 0，判定为播放成功');
-                        isPlaybackSuccessful = true;
-                    } else {
-                        // 显示错误信息，允许用户重试
-                        showNotification('播放失败：音频无法开始播放，请重试', 'error');
-                    }
+                    showNotification('播放失败: ' + error.message, 'error');
                 }
-            }, 1000);
-            
-            // PWA环境下：确保timeupdate事件能正常触发
-            // 无论当前验证结果如何，都强制刷新一次，后续1秒后会再次验证
-            console.log('📱 PWA模式：强制刷新播放状态和进度条');
-            handleTimeUpdate();
-            updatePlayPauseButton();
-            
-            // 启动一个额外的进度条监控，确保在PWA下进度条能正常更新
-            if (isPWA) {
-                let lastCurrentTime = -1;
-                const monitorProgress = () => {
-                    if (state.currentSong !== song) {
-                        return;
-                    }
-                    
-                    handleTimeUpdate();
-                    
-                    // 如果检测到进度停滞，强制更新
-                    if (player.currentTime === lastCurrentTime) {
-                        console.warn('📱 PWA模式：检测到进度条停滞，强制更新');
-                        handleTimeUpdate();
-                    }
-                    lastCurrentTime = player.currentTime;
-                    
-                    // 持续监控30秒
-                    if (state.currentSong === song && player.currentTime < player.duration - 1) {
-                        setTimeout(monitorProgress, 2000);
-                    }
-                };
-                setTimeout(monitorProgress, 2000);
-                setTimeout(monitorProgress, 5000);
-                setTimeout(monitorProgress, 10000);
             }
         } else {
             player.pause();
-            updatePlayPauseButton();
+            state.isPlaying = false;
         }
         
-        // 4. 更新Media Session
+        // 7. 更新Media Session
         if (typeof window.__SOLARA_UPDATE_MEDIA_METADATA === 'function') {
             window.__SOLARA_UPDATE_MEDIA_METADATA();
         }
         
-        // 5. 保存状态
+        // 8. 保存状态
         savePlayerState();
         
-        // 6. 更新播放状态
+        // 9. 更新播放状态
         updatePlayPauseButton();
         
-        // 7. 加载专辑封面（如果需要）
+        // 10. 加载专辑封面和背景
         state.audioReadyForPalette = true;
         attemptPaletteApplication();
         
-        // 8. 延迟加载歌词，减少并发请求，优先保证音频播放
+        // 11. 延迟加载歌词，减少并发请求，优先保证音频播放
         setTimeout(() => {
             loadLyrics(song);
         }, 1000);
+        
+        // 12. 强制刷新播放状态和进度条
+        handleTimeUpdate();
         
         // 如果是在锁屏状态，记录切换时间
         if (isLockScreen()) {
@@ -6105,14 +6021,10 @@ async function playSong(song, options = {}) {
         return true;
 
     } catch (error) {
-        console.error('🎵 播放失败:', error);
-        
-        // 显示友好的错误信息
-        if (!error.message.includes('user gesture')) {
-            showNotification('播放失败: ' + error.message, 'error');
-        }
-        
-        throw error;
+        console.error("播放失败:", error);
+        showNotification("播放失败，请稍后重试", "error");
+        state.isPlaying = false;
+        return false;
     }
 }
 
