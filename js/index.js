@@ -5844,11 +5844,6 @@ async function playSong(song, options = {}) {
         const quality = state.playbackQuality || '320';
         const audioUrl = API.getSongUrl(song, quality);
         
-        // 设置音频源
-        player.src = audioUrl;
-        player.load();
-        state.currentAudioUrl = audioUrl;
-        
         // iOS必要属性
         player.setAttribute('playsinline', 'true');
         player.setAttribute('webkit-playsinline', 'true');
@@ -5856,9 +5851,28 @@ async function playSong(song, options = {}) {
         // 3. 关键修正：在用户手势上下文中立即激活音频会话
         // 这是解决PWA模式下点击播放无反应的关键！
         let playPromise;
+        
+        // PWA环境下的特殊处理：更保守的音频加载方式
+        const isPWA = isIOSPWA();
+        console.log('🎵 播放环境:', isPWA ? '📱 PWA模式' : '🌐 浏览器模式');
+        
+        // 设置音频源
+        player.src = audioUrl;
+        
+        // PWA环境下：不使用player.load()，让浏览器自然加载，避免触发PWA下的abort错误
+        if (isPWA) {
+            console.log('📱 PWA模式：不使用load()，让浏览器自然加载');
+        } else {
+            // 浏览器模式下正常使用load()
+            player.load();
+        }
+        
+        state.currentAudioUrl = audioUrl;
+        
         if (autoplay) {
             // 在用户手势直接调用链中立即调用play()，确保手势不丢失
             player.volume = 0.1; // 使用低音量启动，避免突然爆音
+            console.log('🎵 在用户手势链中调用play()，当前音量:', player.volume);
             playPromise = player.play();
         }
         
