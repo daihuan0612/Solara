@@ -1983,15 +1983,17 @@ function getLocalPalette(imageUrl) {
                 
                 // 创建调色板数据
                 const hex = `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+                // 创建非常微妙的渐变，变化幅度很小
+                // 最浅的地方只比主色调浅60%，几乎看不出明显变化
                 const palette = {
                     gradients: {
                         light: {
-                            // 反转渐变方向：左上角浅到右下角深
-                            gradient: `linear-gradient(135deg, rgba(255,255,255,0.8) 0%, ${hex} 100%)`
+                            // 超微渐变：变化幅度极小，最浅处仅比主色调浅60%
+                            gradient: `linear-gradient(90deg, ${hex}99 0%, ${hex}cc 50%, ${hex} 100%)`
                         },
                         dark: {
-                            // 反转渐变方向：左上角浅到右下角深
-                            gradient: `linear-gradient(135deg, rgba(0,0,0,0.8) 0%, ${hex} 100%)`
+                            // 超微渐变：变化幅度极小，最浅处仅比主色调浅60%
+                            gradient: `linear-gradient(90deg, ${hex}88 0%, ${hex}aa 50%, ${hex} 100%)`
                         }
                     },
                     tokens: {
