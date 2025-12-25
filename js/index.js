@@ -5963,11 +5963,17 @@ async function playSong(song, options = {}) {
         
         // 6. 处理playPromise并设置正常音量
         if (autoplay) {
+            // 设置正常音量，确保用户能听到声音
+            player.volume = state.volume;
+            
             if (playPromise !== undefined) {
                 try {
                     await playPromise;
-                    // 播放成功，恢复正常音量
-                    player.volume = state.volume;
+                    // 确保音频真正在播放
+                    if (player.paused) {
+                        console.warn('⚠️ play()调用成功，但音频仍处于暂停状态，尝试手动播放');
+                        await player.play();
+                    }
                     console.log('✅ 正常播放成功');
                 } catch (error) {
                     console.error('播放失败:', error);
@@ -5975,25 +5981,32 @@ async function playSong(song, options = {}) {
                         showNotification('播放失败: ' + error.message, 'error');
                     }
                     // 尝试再次播放，确保音频会话被激活
-                    player.volume = state.volume;
                     await player.play().catch(e => {
                         console.warn('再次播放尝试失败:', e);
                     });
                 }
             } else {
                 // 降级方案：直接播放
-                player.volume = state.volume;
-                await player.play().catch(error => {
+                try {
+                    await player.play();
+                    // 确保音频真正在播放
+                    if (player.paused) {
+                        console.warn('⚠️ 直接播放调用成功，但音频仍处于暂停状态');
+                    }
+                } catch (error) {
                     console.error('播放失败:', error);
                     if (!error.message.includes('user gesture')) {
                         showNotification('播放失败: ' + error.message, 'error');
                     }
-                });
+                }
             }
         } else {
             player.pause();
             updatePlayPauseButton();
         }
+        
+        // 强制更新播放状态，确保UI与实际播放状态一致
+        updatePlayPauseButton();
         
         // 4. 更新Media Session
         if (typeof window.__SOLARA_UPDATE_MEDIA_METADATA === 'function') {
