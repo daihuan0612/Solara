@@ -5747,14 +5747,22 @@ async function playSong(song, options = {}) {
             const quality = state.playbackQuality || '320';
             const audioUrl = API.getSongUrl(song, quality);
             
-            // 设置音频源
-            player.src = audioUrl;
-            player.load();
-            state.currentAudioUrl = audioUrl;
-            
             // iOS必要属性
             player.setAttribute('playsinline', 'true');
             player.setAttribute('webkit-playsinline', 'true');
+            
+            // 设置音频源
+            player.src = audioUrl;
+            
+            // 检查是否为PWA环境，但保持隐身模式核心逻辑不变
+            const isPWA = isIOSPWA();
+            if (isPWA) {
+                console.log('🔒 隐身模式 + PWA环境：保留原有逻辑，使用load()');
+            }
+            
+            // 隐身模式保持原有load()逻辑，因为它有自己的静音握手技巧
+            player.load();
+            state.currentAudioUrl = audioUrl;
             
             // 等待音频加载（超时较短）
             await new Promise(resolve => {
@@ -5902,55 +5910,37 @@ async function playSong(song, options = {}) {
         
         // 6. 处理playPromise并设置正常音量
         if (autoplay) {
-            // 确保音量设置正确
-            player.volume = state.volume;
-            
             if (playPromise !== undefined) {
                 try {
                     await playPromise;
-                    console.log('✅ playPromise调用完成');
-                    
-                    // 验证实际播放状态
-                    if (player.paused) {
-                        console.warn('⚠️ playPromise完成，但音频仍处于暂停状态，尝试再次播放');
-                        await player.play();
-                    }
-                    
-                    console.log('✅ 正常播放成功，实际播放状态:', !player.paused);
+                    // 播放成功，恢复正常音量
+                    player.volume = state.volume;
+                    console.log('✅ 正常播放成功');
                 } catch (error) {
                     console.error('播放失败:', error);
                     if (!error.message.includes('user gesture')) {
                         showNotification('播放失败: ' + error.message, 'error');
                     }
                     // 尝试再次播放，确保音频会话被激活
+                    player.volume = state.volume;
                     await player.play().catch(e => {
                         console.warn('再次播放尝试失败:', e);
                     });
                 }
             } else {
                 // 降级方案：直接播放
-                try {
-                    await player.play();
-                    console.log('✅ 直接播放调用完成，实际播放状态:', !player.paused);
-                    
-                    // 验证实际播放状态
-                    if (player.paused) {
-                        console.warn('⚠️ 直接播放调用完成，但音频仍处于暂停状态');
-                    }
-                } catch (error) {
+                player.volume = state.volume;
+                await player.play().catch(error => {
                     console.error('播放失败:', error);
                     if (!error.message.includes('user gesture')) {
                         showNotification('播放失败: ' + error.message, 'error');
                     }
-                }
+                });
             }
         } else {
             player.pause();
+            updatePlayPauseButton();
         }
-        
-        // 强制根据实际播放状态更新UI，确保UI与实际状态一致
-        console.log('🔄 更新播放按钮状态，当前paused状态:', player.paused);
-        updatePlayPauseButton();
         
         // 4. 更新Media Session
         if (typeof window.__SOLARA_UPDATE_MEDIA_METADATA === 'function') {
