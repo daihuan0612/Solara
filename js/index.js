@@ -6260,11 +6260,12 @@ function updateOnlineHighlight() {
 }
 
 const EXPLORE_RADAR_GENRES = [
-    "流行",
-    "排行榜",
-    "每日排行榜",
-    "每日排行",
-    "民谣",
+    "热歌榜",
+    "飙升榜",
+    "潮流风向榜",
+    "新歌榜",
+    "网易云民谣榜",
+    "实时热度榜",
 ];
 
 function pickRandomExploreGenre() {
