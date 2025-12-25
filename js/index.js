@@ -2622,9 +2622,17 @@ async function togglePlayPause() {
         const playPromise = dom.audioPlayer.play();
         if (playPromise !== undefined) {
             playPromise.catch(error => {
-                console.error("播放失败:", error);
-                showNotification("播放失败，请检查网络连接", "error");
-                state.isPlaying = false;
+                console.error("play() Promise被拒绝:", error);
+                
+                // 关键修复：检查实际播放状态，而不仅仅依赖Promise结果
+                if (!dom.audioPlayer.paused) {
+                    console.log("✅ 虽然play() Promise被拒绝，但音频实际播放成功");
+                    state.isPlaying = true;
+                } else {
+                    console.error("播放确实失败:", error);
+                    showNotification("播放失败，请检查网络连接", "error");
+                    state.isPlaying = false;
+                }
             });
         }
     } else {
@@ -5825,16 +5833,29 @@ async function playSong(song, options = {}) {
                     }, 200);
                     
                 } catch (error) {
-                    console.error('🔒 隐身模式播放失败:', error);
+                    console.error('🔒 隐身模式play() Promise被拒绝:', error);
                     player.muted = false;
                     player.volume = state.volume;
-                    state.isPlaying = false;
                     
-                    // 回退尝试
-                    player.play().catch(e => {
-                        console.warn('回退播放失败:', e);
+                    // 关键修复：检查实际播放状态，而不仅仅依赖Promise结果
+                    if (!player.paused) {
+                        console.log('✅ 虽然play() Promise被拒绝，但音频实际播放成功');
+                        state.isPlaying = true;
+                    } else {
                         state.isPlaying = false;
-                    });
+                        
+                        // 回退尝试
+                        player.play().catch(e => {
+                            console.warn('回退播放失败:', e);
+                            // 再次检查实际播放状态
+                            if (!player.paused) {
+                                console.log('✅ 虽然回退play() Promise被拒绝，但音频实际播放成功');
+                                state.isPlaying = true;
+                            } else {
+                                state.isPlaying = false;
+                            }
+                        });
+                    }
                 }
             } else {
                 player.pause();
@@ -5957,31 +5978,52 @@ async function playSong(song, options = {}) {
                 state.isPlaying = !player.paused;
                 
             } catch (error) {
-                console.error('🌐 正常模式播放失败:', error);
-                state.isPlaying = false;
+                console.error('🌐 正常模式play() Promise被拒绝:', error);
                 
-                // PWA环境下的重试机制
-                if (isPWA) {
-                    console.warn('⚠️ 正常模式播放失败，尝试PWA重试机制');
-                    try {
-                        // 尝试静音握手技巧
-                        player.muted = true;
-                        await player.play();
-                        
-                        setTimeout(() => {
-                            player.muted = false;
-                            player.volume = state.volume;
-                        }, 200);
-                        
-                        console.log('✅ PWA重试播放成功');
-                        state.isPlaying = true;
-                    } catch (retryError) {
-                        console.error('❌ PWA重试播放失败:', retryError);
-                        state.isPlaying = false;
-                        showNotification('播放失败: ' + retryError.message, 'error');
-                    }
+                // 关键修复：检查实际播放状态，而不仅仅依赖Promise结果
+                // 浏览器可能会拒绝play() Promise，但音频实际已经播放
+                if (!player.paused) {
+                    console.log('✅ 虽然play() Promise被拒绝，但音频实际播放成功');
+                    state.isPlaying = true;
                 } else {
-                    showNotification('播放失败: ' + error.message, 'error');
+                    state.isPlaying = false;
+                    
+                    // PWA环境下的重试机制
+                    if (isPWA) {
+                        console.warn('⚠️ 正常模式播放失败，尝试PWA重试机制');
+                        try {
+                            // 尝试静音握手技巧
+                            player.muted = true;
+                            await player.play();
+                            
+                            setTimeout(() => {
+                                player.muted = false;
+                                player.volume = state.volume;
+                            }, 200);
+                            
+                            console.log('✅ PWA重试播放成功');
+                            state.isPlaying = true;
+                        } catch (retryError) {
+                            console.error('❌ PWA重试播放失败:', retryError);
+                            
+                            // 再次检查实际播放状态
+                            if (player.paused) {
+                                state.isPlaying = false;
+                                showNotification('播放失败: ' + retryError.message, 'error');
+                            } else {
+                                console.log('✅ 虽然重试Promise被拒绝，但音频实际播放成功');
+                                state.isPlaying = true;
+                            }
+                        }
+                    } else {
+                        // 再次检查实际播放状态
+                        if (player.paused) {
+                            showNotification('播放失败: ' + error.message, 'error');
+                        } else {
+                            console.log('✅ 虽然play() Promise被拒绝，但音频实际播放成功');
+                            state.isPlaying = true;
+                        }
+                    }
                 }
             }
         } else {
