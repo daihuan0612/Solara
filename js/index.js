@@ -5910,32 +5910,54 @@ async function playSong(song, options = {}) {
         
         // 6. 处理playPromise并设置正常音量
         if (autoplay) {
+            // 确保音量设置正确，避免PWA下音量被重置为0
+            player.volume = state.volume || 0.8; // 添加默认音量，防止音量为0
+            
             if (playPromise !== undefined) {
                 try {
                     await playPromise;
-                    // 播放成功，恢复正常音量
-                    player.volume = state.volume;
-                    console.log('✅ 正常播放成功');
+                    console.log('✅ 正常播放成功，当前音量:', player.volume);
+                    
+                    // PWA环境下的特殊处理：确保音频真正在播放
+                    if (isIOSPWA()) {
+                        console.log('📱 PWA模式：验证播放状态，当前paused:', player.paused);
+                        // 如果音频仍处于暂停状态，尝试再次播放
+                        if (player.paused) {
+                            console.warn('⚠️ playPromise完成，但音频仍处于暂停状态，尝试再次播放');
+                            await player.play();
+                            console.log('📱 PWA模式：再次播放尝试后，paused状态:', player.paused);
+                        }
+                    }
+                    
                 } catch (error) {
                     console.error('播放失败:', error);
                     if (!error.message.includes('user gesture')) {
                         showNotification('播放失败: ' + error.message, 'error');
                     }
                     // 尝试再次播放，确保音频会话被激活
-                    player.volume = state.volume;
+                    player.volume = state.volume || 0.8;
                     await player.play().catch(e => {
                         console.warn('再次播放尝试失败:', e);
                     });
                 }
             } else {
                 // 降级方案：直接播放
-                player.volume = state.volume;
+                player.volume = state.volume || 0.8;
                 await player.play().catch(error => {
                     console.error('播放失败:', error);
                     if (!error.message.includes('user gesture')) {
                         showNotification('播放失败: ' + error.message, 'error');
                     }
                 });
+            }
+            
+            // PWA环境下：确保timeupdate事件能正常触发
+            if (isIOSPWA()) {
+                console.log('📱 PWA模式：强制刷新播放状态和进度条');
+                // 强制触发一次timeupdate处理，确保进度条开始更新
+                handleTimeUpdate();
+                // 强制更新播放按钮状态
+                updatePlayPauseButton();
             }
         } else {
             player.pause();
