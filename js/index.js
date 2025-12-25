@@ -1448,7 +1448,7 @@ bootstrapPersistentStorage();
     audio.addEventListener('seeked', updatePositionState);
 
     audio.addEventListener('ended', () => {
-        navigator.mediaSession.playbackState = 'paused';
+        // 不要立即设置为paused，先尝试自动播放下一首
         updatePositionState();
         const refresh = () => {
             triggerMediaSessionMetadataRefresh();
@@ -1457,30 +1457,55 @@ bootstrapPersistentStorage();
         if (typeof autoPlayNext === 'function') {
             try {
                 audio[MEDIA_SESSION_ENDED_FLAG] = 'handling';
-                autoPlayNext();
-                audio[MEDIA_SESSION_ENDED_FLAG] = 'skip';
-                Promise.resolve().then(refresh);
+                // 使用异步方式处理，确保媒体会话保持活跃
+                (async () => {
+                    await autoPlayNext();
+                    // 播放成功后更新媒体会话状态
+                    if (navigator.mediaSession && !audio.paused) {
+                        navigator.mediaSession.playbackState = 'playing';
+                    }
+                    audio[MEDIA_SESSION_ENDED_FLAG] = 'skip';
+                    refresh();
+                })();
                 return;
             } catch (error) {
                 console.warn('自动播放下一首失败:', error);
+                // 只有在失败时才设置为paused
+                if (navigator.mediaSession) {
+                    navigator.mediaSession.playbackState = 'paused';
+                }
             }
         }
         audio[MEDIA_SESSION_ENDED_FLAG] = 'skip';
         if (typeof window.playNext === 'function') {
             try {
-                const result = window.playNext();
-                if (typeof updatePlayPauseButton === 'function') {
-                    updatePlayPauseButton();
-                }
-                if (result && typeof result.then === 'function') {
-                    result.finally(refresh);
-                } else {
-                    Promise.resolve().then(refresh);
-                }
+                // 使用异步方式处理
+                (async () => {
+                    const result = window.playNext();
+                    if (typeof updatePlayPauseButton === 'function') {
+                        updatePlayPauseButton();
+                    }
+                    if (result && typeof result.then === 'function') {
+                        await result;
+                    }
+                    // 播放成功后更新媒体会话状态
+                    if (navigator.mediaSession && !audio.paused) {
+                        navigator.mediaSession.playbackState = 'playing';
+                    }
+                    refresh();
+                })();
                 return;
             } catch (error) {
                 console.warn('自动播放下一首失败:', error);
+                // 只有在失败时才设置为paused
+                if (navigator.mediaSession) {
+                    navigator.mediaSession.playbackState = 'paused';
+                }
             }
+        }
+        // 只有在没有下一首可播放时才设置为paused
+        if (navigator.mediaSession) {
+            navigator.mediaSession.playbackState = 'paused';
         }
         refresh();
     });
@@ -5994,24 +6019,57 @@ async function playSong(song, options = {}) {
                 }
             }
             
-            // 如果播放仍未成功，显示错误
-            if (player.paused) {
-                console.error('❌ 最终播放状态：音频仍处于暂停状态');
-                // 显示错误信息，允许用户重试
-                if (!isPlaybackSuccessful && !error?.message.includes('user gesture')) {
-                    showNotification('播放失败：音频无法开始播放，请重试', 'error');
+            // 更新最终播放状态：采用更可靠的延迟验证方式
+            // 等待1秒后再验证，确保音频有足够时间开始播放
+            setTimeout(() => {
+                isPlaybackSuccessful = !player.paused;
+                
+                if (isPlaybackSuccessful) {
+                    console.log('✅ 最终播放状态：音频成功开始播放');
+                } else {
+                    console.error('❌ 最终播放状态：音频仍处于暂停状态');
+                    // 检查是否真的在播放（通过currentTime判断）
+                    if (player.currentTime > 0) {
+                        console.log('🎵 特殊情况：currentTime > 0，判定为播放成功');
+                        isPlaybackSuccessful = true;
+                    } else {
+                        // 显示错误信息，允许用户重试
+                        showNotification('播放失败：音频无法开始播放，请重试', 'error');
+                    }
                 }
-            } else {
-                isPlaybackSuccessful = true;
-            }
+            }, 1000);
             
             // PWA环境下：确保timeupdate事件能正常触发
-            if (isPWA && isPlaybackSuccessful) {
-                console.log('📱 PWA模式：强制刷新播放状态和进度条');
-                // 强制触发一次timeupdate处理，确保进度条开始更新
-                handleTimeUpdate();
-                // 强制更新播放按钮状态
-                updatePlayPauseButton();
+            // 无论当前验证结果如何，都强制刷新一次，后续1秒后会再次验证
+            console.log('📱 PWA模式：强制刷新播放状态和进度条');
+            handleTimeUpdate();
+            updatePlayPauseButton();
+            
+            // 启动一个额外的进度条监控，确保在PWA下进度条能正常更新
+            if (isPWA) {
+                let lastCurrentTime = -1;
+                const monitorProgress = () => {
+                    if (state.currentSong !== song) {
+                        return;
+                    }
+                    
+                    handleTimeUpdate();
+                    
+                    // 如果检测到进度停滞，强制更新
+                    if (player.currentTime === lastCurrentTime) {
+                        console.warn('📱 PWA模式：检测到进度条停滞，强制更新');
+                        handleTimeUpdate();
+                    }
+                    lastCurrentTime = player.currentTime;
+                    
+                    // 持续监控30秒
+                    if (state.currentSong === song && player.currentTime < player.duration - 1) {
+                        setTimeout(monitorProgress, 2000);
+                    }
+                };
+                setTimeout(monitorProgress, 2000);
+                setTimeout(monitorProgress, 5000);
+                setTimeout(monitorProgress, 10000);
             }
         } else {
             player.pause();
