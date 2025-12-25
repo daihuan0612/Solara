@@ -5876,14 +5876,17 @@ async function playSong(song, options = {}) {
         const quality = state.playbackQuality || '320';
         const audioUrl = API.getSongUrl(song, quality);
         
-        // 设置音频源
-        player.src = audioUrl;
-        player.load();
-        state.currentAudioUrl = audioUrl;
-        
         // iOS必要属性
         player.setAttribute('playsinline', 'true');
         player.setAttribute('webkit-playsinline', 'true');
+        
+        // 优化：只有当音频URL改变时才重新设置src和load，避免不必要的请求
+        if (player.src !== audioUrl) {
+            player.src = audioUrl;
+            // 移除load()调用，让浏览器自然加载，避免触发abort错误
+            // player.load(); // 移除这行，使用浏览器的自然加载机制
+        }
+        state.currentAudioUrl = audioUrl;
         
         // 3. 关键修正：在用户手势上下文中立即激活音频会话
         // 这是解决PWA模式下点击播放无反应的关键！
@@ -6315,7 +6318,7 @@ async function exploreOnlineMusic() {
 
         const randomGenre = pickRandomExploreGenre();
         const source = pickRandomExploreSource();
-        const results = await API.search(randomGenre, source, 30, 1);
+        const results = await API.search(randomGenre, source, 10, 1);
 
         if (!Array.isArray(results) || results.length === 0) {
             showNotification("探索雷达：未找到歌曲", "error");
@@ -6386,24 +6389,7 @@ async function exploreOnlineMusic() {
             // 优化2：预加载第一首歌的音频，减少播放延迟
             const firstSong = state.playlistSongs[0];
             if (firstSong) {
-                // 预加载音频URL，但不播放
-                const audioUrl = API.getSongUrl(firstSong);
-                const player = dom.audioPlayer;
-                player.src = audioUrl;
-                player.load();
-                
-                // 等待音频元数据加载完成，然后暂停
-                await new Promise((resolve) => {
-                    const onLoaded = () => {
-                        player.pause();
-                        resolve();
-                    };
-                    player.addEventListener('loadedmetadata', onLoaded, { once: true });
-                    // 设置超时，避免无限等待
-                    setTimeout(resolve, 1000);
-                });
-                
-                // 现在播放
+                // 直接播放，不再预加载，避免可能的abort错误
                 await playPlaylistSong(0);
             }
         } else {
