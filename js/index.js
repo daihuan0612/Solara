@@ -759,8 +759,34 @@ const savedCurrentPlaylist = (() => {
 // API配置 - 符合TuneHub API规范
 const API = {
     baseUrl: "https://music-dl.sayqz.com",
-
-    fetchJson: async (url, options = {}) => {
+    
+    // 请求队列管理
+    _requestQueue: [],
+    _activeRequests: 0,
+    _maxConcurrentRequests: 2,
+    
+    // 处理请求队列
+    _processQueue: async () => {
+        // 如果队列中有请求且当前活跃请求数小于最大值，则处理下一个请求
+        while (API._requestQueue.length > 0 && API._activeRequests < API._maxConcurrentRequests) {
+            const { url, options, resolve, reject } = API._requestQueue.shift();
+            API._activeRequests++;
+            
+            try {
+                const result = await API._fetchWithRetry(url, options);
+                resolve(result);
+            } catch (error) {
+                reject(error);
+            } finally {
+                API._activeRequests--;
+                // 递归处理下一个请求
+                API._processQueue();
+            }
+        }
+    },
+    
+    // 带重试的实际请求函数
+    _fetchWithRetry: async (url, options = {}) => {
         const maxRetries = options.maxRetries || 3;
         const retryDelay = options.retryDelay || 1000;
         
@@ -797,6 +823,16 @@ const API = {
                 }
             }
         }
+    },
+    
+    // 对外暴露的fetchJson方法，使用请求队列
+    fetchJson: async (url, options = {}) => {
+        return new Promise((resolve, reject) => {
+            // 将请求添加到队列
+            API._requestQueue.push({ url, options, resolve, reject });
+            // 开始处理队列
+            API._processQueue();
+        });
     },
 
     search: async (keyword, source = "netease", count = 20, page = 1) => {
@@ -937,7 +973,19 @@ const shouldUseStealthMode = () => isIOSPWA() && isLockScreen();
 
 // 获取封面图片列表（用于锁屏控制台）
 function getArtworkListForLockScreen(song) {
-    const artworkUrl = state.currentArtworkUrl || '/favicon.png';
+    // 确保使用有效的封面URL，优先顺序：
+    // 1. 当前已加载的封面
+    // 2. 从歌曲信息获取的封面
+    // 3. 应用图标（确保使用绝对路径，避免404）
+    let artworkUrl = state.currentArtworkUrl;
+    if (!artworkUrl && song.pic_id) {
+        artworkUrl = API.getPicUrl(song);
+    }
+    // 使用一个可靠的默认图标，确保它存在
+    if (!artworkUrl) {
+        // 尝试使用favicon，确保使用绝对路径
+        artworkUrl = window.location.origin + '/favicon.png';
+    }
     
     return [
         { src: artworkUrl, sizes: '512x512', type: 'image/png' },
@@ -3791,13 +3839,7 @@ function updateMediaMetadataForStealthMode(song) {
     if (!('mediaSession' in navigator)) return;
     
     try {
-        // 获取封面URL（如果还没有，使用默认）
-        let artworkUrl = state.currentArtworkUrl;
-        if (!artworkUrl && song.pic_id) {
-            // 尝试获取封面，但不等待结果
-            artworkUrl = API.getPicUrl(song);
-        }
-        
+        // 直接获取封面列表，getArtworkListForLockScreen会处理默认值
         const artworkList = getArtworkListForLockScreen(song);
         
         // 更新锁屏媒体信息
@@ -3809,7 +3851,7 @@ function updateMediaMetadataForStealthMode(song) {
             artwork: artworkList
         });
         
-        console.log('📱 锁屏媒体信息已更新');
+        console.log('📱 锁屏媒体信息已更新', { artworkUrl: artworkList[0].src });
         
     } catch (error) {
         console.warn('更新锁屏信息失败:', error);
@@ -5932,23 +5974,25 @@ async function playSong(song, options = {}) {
             updatePlayPauseButton();
         }
         
-        // 4. 加载歌词
-        loadLyrics(song);
-        
-        // 5. 更新Media Session
+        // 4. 更新Media Session
         if (typeof window.__SOLARA_UPDATE_MEDIA_METADATA === 'function') {
             window.__SOLARA_UPDATE_MEDIA_METADATA();
         }
         
-        // 6. 保存状态
+        // 5. 保存状态
         savePlayerState();
         
-        // 7. 更新播放状态
+        // 6. 更新播放状态
         updatePlayPauseButton();
         
-        // 8. 加载专辑封面（如果需要）
+        // 7. 加载专辑封面（如果需要）
         state.audioReadyForPalette = true;
         attemptPaletteApplication();
+        
+        // 8. 延迟加载歌词，减少并发请求，优先保证音频播放
+        setTimeout(() => {
+            loadLyrics(song);
+        }, 1000);
         
         // 如果是在锁屏状态，记录切换时间
         if (isLockScreen()) {
@@ -6313,20 +6357,55 @@ async function exploreOnlineMusic() {
             return;
         }
 
-        state.playlistSongs = existingSongs.concat(appendedSongs);
-        state.onlineSongs = state.playlistSongs.slice();
-        state.currentPlaylist = "playlist";
-        state.currentList = "playlist";
-
-        renderPlaylist();
-        updatePlaylistHighlight();
+        // 优化1：分批添加歌曲，减少UI阻塞
+        const batchSize = 10;
+        const totalAppended = appendedSongs.length;
+        
+        for (let i = 0; i < totalAppended; i += batchSize) {
+            const batch = appendedSongs.slice(i, i + batchSize);
+            state.playlistSongs = [...existingSongs, ...appendedSongs.slice(0, i + batchSize)];
+            state.onlineSongs = state.playlistSongs.slice();
+            state.currentPlaylist = "playlist";
+            state.currentList = "playlist";
+            
+            // 渲染当前批次
+            renderPlaylist();
+            updatePlaylistHighlight();
+            
+            // 等待一小段时间，让UI有时间更新
+            if (i + batchSize < totalAppended) {
+                await new Promise(resolve => setTimeout(resolve, 50));
+            }
+        }
 
         showNotification(`探索雷达：新增${appendedSongs.length}首 ${randomGenre} 歌曲`);
         debugLog(`探索雷达加载成功，关键词：${randomGenre}，音源：${source}，新增歌曲数：${appendedSongs.length}`);
 
         const shouldAutoplay = existingSongs.length === 0 && state.playlistSongs.length > 0;
         if (shouldAutoplay) {
-            await playPlaylistSong(0);
+            // 优化2：预加载第一首歌的音频，减少播放延迟
+            const firstSong = state.playlistSongs[0];
+            if (firstSong) {
+                // 预加载音频URL，但不播放
+                const audioUrl = API.getSongUrl(firstSong);
+                const player = dom.audioPlayer;
+                player.src = audioUrl;
+                player.load();
+                
+                // 等待音频元数据加载完成，然后暂停
+                await new Promise((resolve) => {
+                    const onLoaded = () => {
+                        player.pause();
+                        resolve();
+                    };
+                    player.addEventListener('loadedmetadata', onLoaded, { once: true });
+                    // 设置超时，避免无限等待
+                    setTimeout(resolve, 1000);
+                });
+                
+                // 现在播放
+                await playPlaylistSong(0);
+            }
         } else {
             savePlayerState();
         }
