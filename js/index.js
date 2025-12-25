@@ -2613,7 +2613,11 @@ async function togglePlayPause() {
         return;
     }
 
-    if (!dom.audioPlayer.src) {
+    // 如果音频播放器没有src，或者当前播放的不是当前歌曲的音频，重新加载
+    const quality = state.playbackQuality || '320';
+    const expectedAudioUrl = API.getSongUrl(state.currentSong, quality);
+    
+    if (!dom.audioPlayer.src || dom.audioPlayer.src !== expectedAudioUrl) {
         try {
             await playSong(state.currentSong, {
                 autoplay: true,
@@ -2627,13 +2631,27 @@ async function togglePlayPause() {
         return;
     }
 
+    // 直接播放/暂停
     if (dom.audioPlayer.paused) {
-        const playPromise = dom.audioPlayer.play();
-        if (playPromise !== undefined) {
-            playPromise.catch(error => {
-                console.error("播放失败:", error);
+        try {
+            // 直接调用play()，确保在用户手势链中执行
+            const playPromise = dom.audioPlayer.play();
+            if (playPromise !== undefined) {
+                await playPromise;
+            }
+        } catch (error) {
+            console.error("直接播放失败，尝试重新加载:", error);
+            // 如果直接播放失败，尝试重新加载音频
+            try {
+                await playSong(state.currentSong, {
+                    autoplay: true,
+                    startTime: state.currentPlaybackTime,
+                    preserveProgress: true,
+                });
+            } catch (reloadError) {
+                console.error("重新加载播放失败:", reloadError);
                 showNotification("播放失败，请检查网络连接", "error");
-            });
+            }
         }
     } else {
         dom.audioPlayer.pause();
@@ -5876,11 +5894,15 @@ async function playSong(song, options = {}) {
         player.setAttribute('playsinline', 'true');
         player.setAttribute('webkit-playsinline', 'true');
         
-        // 优化：只有当音频URL改变时才重新设置src和load，避免不必要的请求
+        // 确保音频源被正确设置和加载
         if (player.src !== audioUrl) {
             player.src = audioUrl;
-            // 移除load()调用，让浏览器自然加载，避免触发abort错误
-            // player.load(); // 移除这行，使用浏览器的自然加载机制
+            // 恢复load()调用，但添加错误处理，确保PWA下播放正常
+            try {
+                player.load();
+            } catch (error) {
+                console.warn('player.load()调用出错，浏览器会自然加载:', error);
+            }
         }
         state.currentAudioUrl = audioUrl;
         
@@ -6260,12 +6282,11 @@ function updateOnlineHighlight() {
 }
 
 const EXPLORE_RADAR_GENRES = [
-    "热歌榜",
-    "飙升榜",
-    "潮流风向榜",
-    "新歌榜",
-    "网易云民谣榜",
-    "实时热度榜",
+    "流行",
+    "排行榜",
+    "每日排行榜",
+    "每日排行",
+    "民谣",
 ];
 
 function pickRandomExploreGenre() {
