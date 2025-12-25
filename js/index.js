@@ -759,34 +759,8 @@ const savedCurrentPlaylist = (() => {
 // API配置 - 符合TuneHub API规范
 const API = {
     baseUrl: "https://music-dl.sayqz.com",
-    
-    // 请求队列管理
-    _requestQueue: [],
-    _activeRequests: 0,
-    _maxConcurrentRequests: 2,
-    
-    // 处理请求队列
-    _processQueue: async () => {
-        // 如果队列中有请求且当前活跃请求数小于最大值，则处理下一个请求
-        while (API._requestQueue.length > 0 && API._activeRequests < API._maxConcurrentRequests) {
-            const { url, options, resolve, reject } = API._requestQueue.shift();
-            API._activeRequests++;
-            
-            try {
-                const result = await API._fetchWithRetry(url, options);
-                resolve(result);
-            } catch (error) {
-                reject(error);
-            } finally {
-                API._activeRequests--;
-                // 递归处理下一个请求
-                API._processQueue();
-            }
-        }
-    },
-    
-    // 带重试的实际请求函数
-    _fetchWithRetry: async (url, options = {}) => {
+
+    fetchJson: async (url, options = {}) => {
         const maxRetries = options.maxRetries || 3;
         const retryDelay = options.retryDelay || 1000;
         
@@ -823,16 +797,6 @@ const API = {
                 }
             }
         }
-    },
-    
-    // 对外暴露的fetchJson方法，使用请求队列
-    fetchJson: async (url, options = {}) => {
-        return new Promise((resolve, reject) => {
-            // 将请求添加到队列
-            API._requestQueue.push({ url, options, resolve, reject });
-            // 开始处理队列
-            API._processQueue();
-        });
     },
 
     search: async (keyword, source = "netease", count = 20, page = 1) => {
@@ -2613,11 +2577,7 @@ async function togglePlayPause() {
         return;
     }
 
-    // 如果音频播放器没有src，或者当前播放的不是当前歌曲的音频，重新加载
-    const quality = state.playbackQuality || '320';
-    const expectedAudioUrl = API.getSongUrl(state.currentSong, quality);
-    
-    if (!dom.audioPlayer.src || dom.audioPlayer.src !== expectedAudioUrl) {
+    if (!dom.audioPlayer.src) {
         try {
             await playSong(state.currentSong, {
                 autoplay: true,
@@ -2631,27 +2591,13 @@ async function togglePlayPause() {
         return;
     }
 
-    // 直接播放/暂停
     if (dom.audioPlayer.paused) {
-        try {
-            // 直接调用play()，确保在用户手势链中执行
-            const playPromise = dom.audioPlayer.play();
-            if (playPromise !== undefined) {
-                await playPromise;
-            }
-        } catch (error) {
-            console.error("直接播放失败，尝试重新加载:", error);
-            // 如果直接播放失败，尝试重新加载音频
-            try {
-                await playSong(state.currentSong, {
-                    autoplay: true,
-                    startTime: state.currentPlaybackTime,
-                    preserveProgress: true,
-                });
-            } catch (reloadError) {
-                console.error("重新加载播放失败:", reloadError);
+        const playPromise = dom.audioPlayer.play();
+        if (playPromise !== undefined) {
+            playPromise.catch(error => {
+                console.error("播放失败:", error);
                 showNotification("播放失败，请检查网络连接", "error");
-            }
+            });
         }
     } else {
         dom.audioPlayer.pause();
@@ -5890,21 +5836,14 @@ async function playSong(song, options = {}) {
         const quality = state.playbackQuality || '320';
         const audioUrl = API.getSongUrl(song, quality);
         
+        // 设置音频源
+        player.src = audioUrl;
+        player.load();
+        state.currentAudioUrl = audioUrl;
+        
         // iOS必要属性
         player.setAttribute('playsinline', 'true');
         player.setAttribute('webkit-playsinline', 'true');
-        
-        // 确保音频源被正确设置和加载
-        if (player.src !== audioUrl) {
-            player.src = audioUrl;
-            // 恢复load()调用，但添加错误处理，确保PWA下播放正常
-            try {
-                player.load();
-            } catch (error) {
-                console.warn('player.load()调用出错，浏览器会自然加载:', error);
-            }
-        }
-        state.currentAudioUrl = audioUrl;
         
         // 3. 关键修正：在用户手势上下文中立即激活音频会话
         // 这是解决PWA模式下点击播放无反应的关键！
@@ -5963,17 +5902,11 @@ async function playSong(song, options = {}) {
         
         // 6. 处理playPromise并设置正常音量
         if (autoplay) {
-            // 设置正常音量，确保用户能听到声音
-            player.volume = state.volume;
-            
             if (playPromise !== undefined) {
                 try {
                     await playPromise;
-                    // 确保音频真正在播放
-                    if (player.paused) {
-                        console.warn('⚠️ play()调用成功，但音频仍处于暂停状态，尝试手动播放');
-                        await player.play();
-                    }
+                    // 播放成功，恢复正常音量
+                    player.volume = state.volume;
                     console.log('✅ 正常播放成功');
                 } catch (error) {
                     console.error('播放失败:', error);
@@ -5981,32 +5914,25 @@ async function playSong(song, options = {}) {
                         showNotification('播放失败: ' + error.message, 'error');
                     }
                     // 尝试再次播放，确保音频会话被激活
+                    player.volume = state.volume;
                     await player.play().catch(e => {
                         console.warn('再次播放尝试失败:', e);
                     });
                 }
             } else {
                 // 降级方案：直接播放
-                try {
-                    await player.play();
-                    // 确保音频真正在播放
-                    if (player.paused) {
-                        console.warn('⚠️ 直接播放调用成功，但音频仍处于暂停状态');
-                    }
-                } catch (error) {
+                player.volume = state.volume;
+                await player.play().catch(error => {
                     console.error('播放失败:', error);
                     if (!error.message.includes('user gesture')) {
                         showNotification('播放失败: ' + error.message, 'error');
                     }
-                }
+                });
             }
         } else {
             player.pause();
             updatePlayPauseButton();
         }
-        
-        // 强制更新播放状态，确保UI与实际播放状态一致
-        updatePlayPauseButton();
         
         // 4. 更新Media Session
         if (typeof window.__SOLARA_UPDATE_MEDIA_METADATA === 'function') {
@@ -6349,7 +6275,7 @@ async function exploreOnlineMusic() {
 
         const randomGenre = pickRandomExploreGenre();
         const source = pickRandomExploreSource();
-        const results = await API.search(randomGenre, source, 10, 1);
+        const results = await API.search(randomGenre, source, 30, 1);
 
         if (!Array.isArray(results) || results.length === 0) {
             showNotification("探索雷达：未找到歌曲", "error");
