@@ -5843,7 +5843,16 @@ async function playSong(song, options = {}) {
         player.setAttribute('playsinline', 'true');
         player.setAttribute('webkit-playsinline', 'true');
         
-        // 等待音频加载
+        // 3. 关键修正：在用户手势上下文中立即激活音频会话
+        // 这是解决PWA模式下点击播放无反应的关键！
+        let playPromise;
+        if (autoplay) {
+            // 在用户手势直接调用链中立即调用play()，确保手势不丢失
+            player.volume = 0.1; // 使用低音量启动，避免突然爆音
+            playPromise = player.play();
+        }
+        
+        // 4. 等待音频加载
         await new Promise((resolve, reject) => {
             if (player.readyState >= 1) {
                 resolve();
@@ -5878,7 +5887,7 @@ async function playSong(song, options = {}) {
             player.addEventListener('error', onError);
         });
         
-        // 设置播放位置
+        // 5. 设置播放位置
         let targetTime = startTime;
         if (preserveProgress) {
             targetTime = state.currentList === "favorite" ?
@@ -5889,11 +5898,35 @@ async function playSong(song, options = {}) {
             player.currentTime = targetTime;
         }
         
-        // 3. 播放音频
+        // 6. 处理playPromise并设置正常音量
         if (autoplay) {
-            player.volume = state.volume;
-            await player.play();
-            console.log('✅ 正常播放成功');
+            if (playPromise !== undefined) {
+                try {
+                    await playPromise;
+                    // 播放成功，恢复正常音量
+                    player.volume = state.volume;
+                    console.log('✅ 正常播放成功');
+                } catch (error) {
+                    console.error('播放失败:', error);
+                    if (!error.message.includes('user gesture')) {
+                        showNotification('播放失败: ' + error.message, 'error');
+                    }
+                    // 尝试再次播放，确保音频会话被激活
+                    player.volume = state.volume;
+                    await player.play().catch(e => {
+                        console.warn('再次播放尝试失败:', e);
+                    });
+                }
+            } else {
+                // 降级方案：直接播放
+                player.volume = state.volume;
+                await player.play().catch(error => {
+                    console.error('播放失败:', error);
+                    if (!error.message.includes('user gesture')) {
+                        showNotification('播放失败: ' + error.message, 'error');
+                    }
+                });
+            }
         } else {
             player.pause();
             updatePlayPauseButton();
