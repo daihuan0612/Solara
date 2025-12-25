@@ -6599,10 +6599,10 @@ function syncLyrics() {
     const currentTime = dom.audioPlayer.currentTime;
     let currentIndex = -1;
     // 歌词提前0.5秒聚焦
-    const提前时间 = 0.5;
+    const advanceTime = 0.5;
 
     for (let i = 0; i < state.lyricsData.length; i++) {
-        if (currentTime + 提前时间 >= state.lyricsData[i].time) {
+        if (currentTime + advanceTime >= state.lyricsData[i].time) {
             currentIndex = i;
         } else {
             break;
