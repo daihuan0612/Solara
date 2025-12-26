@@ -1934,15 +1934,15 @@ function attemptPaletteApplication() {
 
 function showAlbumCoverPlaceholder() {
     const placeholderDiv = document.createElement('div');
-    placeholderDiv.innerHTML = '♪';
+    placeholderDiv.innerHTML = '♫';
     placeholderDiv.style.display = 'flex';
     placeholderDiv.style.alignItems = 'center';
     placeholderDiv.style.justifyContent = 'center';
     placeholderDiv.style.width = '100%';
     placeholderDiv.style.height = '100%';
     placeholderDiv.style.fontSize = '48px';
-    placeholderDiv.style.color = '#888';
-    placeholderDiv.style.backgroundColor = '#f0f0f0';
+    placeholderDiv.style.color = '#ffffff';
+    placeholderDiv.style.backgroundColor = 'transparent';
     placeholderDiv.style.borderRadius = '12px';
     dom.albumCover.innerHTML = '';
     dom.albumCover.appendChild(placeholderDiv);
@@ -4117,15 +4117,15 @@ function updateCurrentSongInfo(song, options = {}) {
         if (updateBackground) {
             dom.albumCover.classList.add("loading");
             const placeholderDiv = document.createElement('div');
-            placeholderDiv.innerHTML = '♪';
+            placeholderDiv.innerHTML = '♫';
             placeholderDiv.style.display = 'flex';
             placeholderDiv.style.alignItems = 'center';
             placeholderDiv.style.justifyContent = 'center';
             placeholderDiv.style.width = '100%';
             placeholderDiv.style.height = '100%';
             placeholderDiv.style.fontSize = '48px';
-            placeholderDiv.style.color = '#888';
-            placeholderDiv.style.backgroundColor = '#f0f0f0';
+            placeholderDiv.style.color = '#ffffff';
+            placeholderDiv.style.backgroundColor = 'transparent';
             placeholderDiv.style.borderRadius = '12px';
             dom.albumCover.innerHTML = '';
             dom.albumCover.appendChild(placeholderDiv);
@@ -6123,6 +6123,7 @@ async function playSong(song, options = {}) {
                     player.muted = true;
                     await player.play();
                     player.muted = false;
+                    return true; // 如果兜底成功，返回true
                 } catch (e) {
                     state.isPlaying = false;
                     updatePlayPauseButton();
@@ -6130,6 +6131,7 @@ async function playSong(song, options = {}) {
                     if (isIOSPWA && window.solaraAudioGuard) {
                         setTimeout(() => window.solaraAudioGuard.stop(), 2000);
                     }
+                    return false; // 播放失败，返回false
                 }
             }
         } else {
@@ -7192,17 +7194,23 @@ function showNotification(message, type = "success") {
 async function exterminateServiceWorkers() {
     if (!('serviceWorker' in navigator)) return;
     try {
-        const regs = await navigator.serviceWorker.getRegistrations();
-        if (regs.length > 0) {
-            console.warn(`⚠️ 清除 ${regs.length} 个僵尸SW`);
-            await Promise.all(regs.map(r => r.unregister()));
-        }
-        if ('caches' in window) {
-            const keys = await caches.keys();
-            // 清理所有包含 sw 或 workbox 的缓存
-            for (const k of keys) {
-                if (k.includes('sw') || k.includes('workbox') || k.includes('precache')) await caches.delete(k);
+        // 使用异步清理，避免阻塞主线程
+        navigator.serviceWorker.getRegistrations().then(regs => {
+            if (regs.length > 0) {
+                console.warn(`⚠️ 清除 ${regs.length} 个僵尸SW`);
+                regs.forEach(r => r.unregister());
             }
+        });
+        
+        if ('caches' in window) {
+            caches.keys().then(keys => {
+                // 清理所有包含 sw 或 workbox 的缓存
+                keys.forEach(k => {
+                    if (k.includes('sw') || k.includes('workbox') || k.includes('precache')) {
+                        caches.delete(k);
+                    }
+                });
+            });
         }
     } catch (e) { console.error('清理失败:', e); }
 }
@@ -7223,14 +7231,14 @@ function removeLoadingMask() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    // 1. 立即清理僵尸进程
-    exterminateServiceWorkers();
+    // 1. 立即清理僵尸进程（异步执行，不阻塞页面加载）
+    setTimeout(() => exterminateServiceWorkers(), 10);
     
     // 2. 初始化播放器
     const player = dom.audioPlayer;
     if (player) {
         player.removeAttribute('crossOrigin');
-        player.preload = "metadata"; // 预加载元数据，更快获取时长等信息
+        player.preload = "none"; // 优化加载速度，只在需要时加载
         player.setAttribute('playsinline', '');
         player.setAttribute('webkit-playsinline', '');
         
@@ -7245,26 +7253,24 @@ document.addEventListener('DOMContentLoaded', () => {
         player.addEventListener('volumechange', () => {
              if(player.muted || player.volume === 0) console.warn('⚠️ 播放器变为静音状态');
         });
-        
-        player.addEventListener('canplaythrough', () => { player.preload = "auto"; }, { once: true });
     }
     
     // 3. 🚀 关键：JS加载完毕立即移除遮罩
     // 减少延迟，更快移除遮罩
-    setTimeout(removeLoadingMask, 50);
+    setTimeout(removeLoadingMask, 10); // 更快移除遮罩
     
     // 4. 优化iOS音频兼容性
     if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
-        setTimeout(optimizeIOSAudio, 100);
+        setTimeout(optimizeIOSAudio, 50); // 更快执行
     }
 });
 
 // 作为兜底，如果 load 事件触发（所有资源加载完），也尝试移除
 window.addEventListener('load', () => {
-    setTimeout(removeLoadingMask, 200);
+    setTimeout(removeLoadingMask, 50); // 更快移除遮罩
     
     // 在load事件后再次检查iOS音频兼容性
     if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
-        setTimeout(optimizeIOSAudio, 300);
+        setTimeout(optimizeIOSAudio, 100); // 更快执行
     }
 });
