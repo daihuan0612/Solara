@@ -704,8 +704,8 @@ body.mobile-view .mobile-panel {
     pointer-events: auto;
     box-shadow: 0 -28px 60px rgba(0, 0, 0, 0.15);
     transition: transform 0.45s cubic-bezier(0.33, 1, 0.68, 1);
-    height: calc(100dvh - clamp(120px, 34vw, 200px));
-    max-height: calc(100dvh - clamp(120px, 34vw, 200px));
+    height: calc(100dvh - 180px);
+    max-height: calc(100dvh - 100px);
     overflow: hidden;
     overscroll-behavior: contain;
     touch-action: pan-y;
@@ -718,6 +718,13 @@ body.mobile-view.dark-mode .mobile-panel {
 
 body.mobile-view.mobile-panel-open .mobile-panel {
     transform: translate(-50%, 0);
+}
+
+/* 调整移动面板在有内容时的高度，避免遮挡上方控件 */
+body.mobile-view.mobile-panel-open .mobile-panel {
+    height: auto;
+    max-height: calc(100dvh - 150px);
+    min-height: 30vh;
 }
 
 body.mobile-view .mobile-panel-header {
