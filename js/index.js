@@ -5729,23 +5729,68 @@ function updatePlaylistHighlight() {
 // ================================================ 
 
 // 1. 锁屏元数据更新 
-function updateMediaMetadataForLockScreen(song) { 
-    if (!('mediaSession' in navigator)) return; 
-    try { 
-        let coverUrl = ''; 
-        if (song.pic_id || song.id) { 
-            coverUrl = API.getPicUrl(song); 
-            if (coverUrl.startsWith('http://')) coverUrl = coverUrl.replace('http://', 'https://'); 
-        } 
-        if (!coverUrl) coverUrl = window.location.origin + '/favicon.png'; 
-        
-        navigator.mediaSession.metadata = new MediaMetadata({ 
-            title: song.name || '未知歌曲', 
-            artist: Array.isArray(song.artist) ? song.artist.join(', ') : (song.artist || '未知艺术家'), 
-            album: song.album || '', 
-            artwork: [{ src: coverUrl, sizes: '512x512', type: 'image/png' }] 
-        }); 
-    } catch (e) { console.warn('锁屏更新微小错误:', e); } 
+// ================================================
+ // 🛡️ 锁屏元数据更新 (V8.1 增强版 - 感谢同事的建议)
+ // ================================================
+ function updateMediaMetadataForLockScreen(song) {
+     if (!('mediaSession' in navigator)) return;
+     
+     try {
+         let coverUrl = '';
+         if (song.pic_id || song.id) {
+             coverUrl = API.getPicUrl(song);
+             // 1. 强制 HTTPS (iOS 强要求)
+             if (coverUrl.startsWith('http://')) {
+                 coverUrl = coverUrl.replace('http://', 'https://');
+             }
+         }
+         
+         // 兜底图标
+         if (!coverUrl) {
+             coverUrl = window.location.origin + '/favicon.png';
+         }
+         
+         // 2. 确保是绝对路径 (关键修复)
+         if (!coverUrl.startsWith('http')) {
+             coverUrl = new URL(coverUrl, window.location.origin).href;
+         }
+         
+         const artistName = Array.isArray(song.artist) ? song.artist.join(', ') : (song.artist || '未知艺术家');
+         
+         const metadata = {
+             title: song.name || '未知歌曲',
+             artist: artistName,
+             album: song.album || '',
+             artwork: [
+                 { src: coverUrl, sizes: '512x512', type: 'image/png' },
+                 { src: coverUrl, sizes: '384x384', type: 'image/png' },
+                 { src: coverUrl, sizes: '256x256', type: 'image/png' },
+                 { src: coverUrl, sizes: '128x128', type: 'image/png' }
+             ]
+         };
+         
+         // 3. 执行更新
+         navigator.mediaSession.metadata = new MediaMetadata(metadata);
+         
+         // 4. 双重保险：100ms后再次确认 (防止被系统覆盖)
+         setTimeout(() => {
+             if (state.currentSong === song && 'mediaSession' in navigator) {
+                 try {
+                     navigator.mediaSession.metadata = new MediaMetadata(metadata);
+                 } catch(e) {}
+             }
+         }, 100);
+
+     } catch (e) {
+         console.warn('锁屏更新轻微错误:', e);
+         // 降级尝试
+         try {
+             navigator.mediaSession.metadata = new MediaMetadata({
+                 title: song.name || '未知歌曲',
+                 artist: '小苹果Music'
+             });
+         } catch (_) {}
+     }
 } 
 
 // 2. 音频守护进程 (AudioGuard) 
@@ -5787,18 +5832,15 @@ function updateMediaMetadataForLockScreen(song) {
 })();
 
 // ================================================
- // iOS PWA 终极版 playSong (v7.9 Kickstart)
- // 修复：自动切歌“有进度无声音” & 锁屏控件死死
- // 策略：在守护退场瞬间，执行“暂停-播放”起搏，强制激活硬件
+ // iOS PWA 终极融合版 playSong (v8.1 Fusion)
+ // 特性：Heartbeat起搏器(保声音) + 增强元数据同步(保控件)
  // ================================================
 async function playSong(song, options = {}) {
      const { autoplay = true, startTime = 0, preserveProgress = false } = options;
      
-     // 环境检测
      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
      const isPWA = window.matchMedia('(display-mode: standalone)').matches || (window.navigator.standalone === true);
      const isIOSPWA = isIOS && isPWA;
-     const isLockScreen = document.visibilityState === 'hidden';
      
      console.log(`🎵 准备播放: ${song.name}`);
 
@@ -5808,12 +5850,12 @@ async function playSong(song, options = {}) {
          state.currentSong = song;
          const player = dom.audioPlayer;
 
-         // 1. 启动守护 (必须启动，撑过加载期)
+         // 1. 启动守护 (AudioGuard)
          if (isIOSPWA && window.solaraAudioGuard) {
              window.solaraAudioGuard.start();
          }
 
-         // 2. 更新锁屏
+         // 2. 抢占式更新元数据 (同事建议)
          updateMediaMetadataForLockScreen(song);
 
          // 3. 暂停旧音频
@@ -5842,6 +5884,11 @@ async function playSong(song, options = {}) {
          player.volume = safeVolume;
          player.preload = 'auto';
          player.load();
+         
+         // [新增] 监听元数据加载，再次刷新锁屏 (同事建议)
+         player.addEventListener('loadedmetadata', () => {
+              if(state.currentSong === song) updateMediaMetadataForLockScreen(song);
+         }, { once: true });
 
          // 6. 等待加载
          await new Promise((resolve) => {
@@ -5859,8 +5906,8 @@ async function playSong(song, options = {}) {
          }
          if (targetTime > 0) player.currentTime = targetTime;
 
-         // 8. UI 更新 (v7.8 无缝逻辑已集成在 updateCurrentSongInfo)
-         if (isIOSPWA && isLockScreen) {
+         // 8. UI 更新
+         if (isIOSPWA && document.visibilityState === 'hidden') {
              state.needUpdateOnUnlock = true;
          } else {
              if (dom.albumCover) dom.albumCover.classList.add('loading');
@@ -5882,29 +5929,34 @@ async function playSong(song, options = {}) {
                  await player.play();
                  console.log('✅ 播放指令成功');
 
-                 // ⚡️⚡️ [核心修复 v7.9] 起搏器机制 ⚡️⚡️
+                 // ⚡️⚡️ [核心机制] 起搏器 + 强力元数据 ⚡️⚡️
                  if (isIOSPWA && window.solaraAudioGuard) {
                      
                      const handoffGuard = () => {
+                         // 动态获取当前是否锁屏
+                         const isLockedNow = document.visibilityState === 'hidden';
+
                          // 只有真的走动了 0.2 秒，才执行交接
                          if (player.currentTime > 0.2 && !player.paused) {
                              console.log(`🔊 [起搏器] 触发交接 (time=${player.currentTime.toFixed(2)})`);
                              
-                             // 1. 关闭守护 (此时音频可能会掉线)
+                             // 1. 关闭守护
                              window.solaraAudioGuard.stop();
                              
-                             // 2. ⚡️⚡️ 关键动作：快速重启 ⚡️⚡️
-                             // 这会强制 iOS 重新分配硬件通道，修复“幽灵播放”
-                             if (isLockScreen) {
-                                 console.log('⚡️ 执行硬件重连...');
+                             // 2. 强制执行“暂停-重启” (保声音)
+                             if (isLockedNow) {
+                                 console.log('⚡️ 锁屏自动切歌：执行硬件重连 (Kickstart)...');
                                  player.pause();
                                  setTimeout(() => {
                                      player.play().catch(e => console.warn('起搏重播失败', e));
                                      
-                                     // 3. 再次刷新锁屏控件 (防止按钮死死)
+                                     // 3. [融合点] 再次刷新锁屏控件 (保控件 - 感谢同事建议)
                                      updateMediaMetadataForLockScreen(song);
                                      if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
-                                 }, 50); // 50ms 间隙，人耳几乎听不出，但对系统足够了
+                                 }, 100);
+                             } else {
+                                 // 即使不锁屏，也刷新一下元数据保险
+                                 updateMediaMetadataForLockScreen(song);
                              }
 
                              // 移除监听
