@@ -5730,108 +5730,243 @@ function updatePlaylistHighlight() {
 // iOS PWA 兼容版 playSong 函数
 // ================================================
 // ================================================
-// iOS PWA 极速直连版 playSong (v4.0 Final)
+// iOS PWA 极速直连版 playSong (v6.0 Ultimate)
+// 包含：防缓存、防竞争、事件清理、元数据等待
 // ================================================
 async function playSong(song, options = {}) {
     const { autoplay = true, startTime = 0, preserveProgress = false } = options;
     
     // 1. 环境检测
-    const isIOSPWA = /iPad|iPhone|iPod/.test(navigator.userAgent) && window.navigator.standalone === true;
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    const isPWA = window.matchMedia('(display-mode: standalone)').matches || 
+                  (window.navigator.standalone === true);
+    const isIOSPWA = isIOS && isPWA;
     const isLockScreen = document.visibilityState === 'hidden';
     
-    console.log(`🎵 准备播放: ${song.name} | 环境: ${isIOSPWA ? 'iOS PWA' : 'Web'}`);
+    console.log(`🎵 准备播放: ${song.name} | 环境: ${isIOSPWA ? 'iOS PWA' : isIOS ? 'iOS浏览器' : 'Web'}`);
 
     try {
+        // 标记播放中状态，防止重复点击
+        if (state._isPlayingSong) {
+            console.warn('⚠️ 已有歌曲正在播放中，忽略此次请求');
+            return false;
+        }
+        state._isPlayingSong = true;
+        
+        // 保存当前歌曲
         state.currentSong = song;
 
-        // 2. UI 更新 (同步执行，不再等待 Promise)
+        // 2. 播放器状态管理
+        const player = dom.audioPlayer;
+        
+        // 如果正在播放，先停止
+        if (!player.paused) {
+            player.pause();
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+
+        // 3. 音频 URL 构建 - 智能防缓存
+        const quality = state.playbackQuality || '320';
+        let rawUrl = API.getSongUrl(song, quality);
+        
+        // 确保是绝对URL
+        if (!rawUrl.startsWith('http')) {
+            rawUrl = new URL(rawUrl, window.location.origin).href;
+        }
+        
+        // ⚡️ 智能缓存破坏策略 - 确保每次都是新请求
+        const separator = rawUrl.includes('?') ? '&' : '?';
+        const timestamp = Date.now() + Math.random(); // 添加随机数
+        const streamUrl = `${rawUrl}${separator}_t=${timestamp}`;
+        
+        console.log('🚀 音频源:', streamUrl);
+
+        // 4. 播放器重置 - 彻底清理（关键步骤）
+        player.pause();
+        
+        // 保存当前播放状态
+        const currentVolume = player.volume;
+        
+        // 重要：完全重置音频元素
+        player.removeAttribute('src');
+        player.removeAttribute('crossOrigin');
+        
+        // 清空src并等待
+        player.src = '';
+        player.load(); // 强制重置
+        
+        // 等待一帧确保解码器重置
+        await new Promise(resolve => requestAnimationFrame(resolve));
+        
+        // 重新设置必要属性
+        player.setAttribute('playsinline', '');
+        player.setAttribute('webkit-playsinline', '');
+        player.volume = currentVolume;
+
+        // 5. 设置新源并等待元数据
+        player.src = streamUrl;
+        state.currentAudioUrl = streamUrl;
+        
+        // 等待音频元数据加载完成（重要！）
+        const metadataLoaded = await new Promise((resolve) => {
+            let resolved = false;
+            const timeoutId = setTimeout(() => {
+                if (resolved) return;
+                resolved = true;
+                console.warn('⏰ 音频元数据加载超时，继续尝试播放');
+                resolve(true); // 超时也继续
+            }, 5000);
+            
+            const onLoadedMetadata = () => {
+                if (resolved) return;
+                resolved = true;
+                clearTimeout(timeoutId);
+                player.removeEventListener('loadedmetadata', onLoadedMetadata);
+                player.removeEventListener('error', onError);
+                console.log('✅ 音频元数据加载完成');
+                resolve(true);
+            };
+            
+            const onError = (e) => {
+                if (resolved) return;
+                resolved = true;
+                clearTimeout(timeoutId);
+                player.removeEventListener('loadedmetadata', onLoadedMetadata);
+                player.removeEventListener('error', onError);
+                console.warn('⚠️ 音频加载出错，继续尝试');
+                resolve(true); // 即使出错也尝试播放
+            };
+            
+            player.addEventListener('loadedmetadata', onLoadedMetadata);
+            player.addEventListener('error', onError);
+            
+            // 开始加载
+            player.load();
+        });
+
+        if (!metadataLoaded) {
+            throw new Error('音频元数据加载失败');
+        }
+
+        // 6. UI更新 - 区分场景
         if (isIOSPWA && isLockScreen) {
+            // 锁屏模式：最小化UI更新
             state.needUpdateOnUnlock = true;
-            // 锁屏时仅尝试更新元数据
+            // 辅助函数：更新锁屏元数据
             if ('mediaSession' in navigator) {
                 try {
                     navigator.mediaSession.metadata = new MediaMetadata({
-                        title: song.name,
-                        artist: song.artist || 'Unknown',
-                        artwork: [{ src: song.coverUrl || './default.png', sizes: '512x512', type: 'image/png' }]
+                        title: song.name || '未知歌曲',
+                        artist: Array.isArray(song.artist) ? song.artist.join(', ') : (song.artist || '未知艺术家'),
+                        album: song.album || '',
+                        artwork: getArtworkListForLockScreen(song)
                     });
                 } catch(e) {}
             }
         } else {
-            // 正常模式更新所有 UI
-            updateCurrentSongInfo(song, { loadArtwork: true, updateBackground: true });
+            // 正常模式：完整UI更新（异步执行，不阻塞播放）
+            setTimeout(() => {
+                updateCurrentSongInfo(song, {
+                    loadArtwork: true,
+                    updateBackground: true
+                });
+            }, 100);
         }
 
-        // 3. 音频 URL 构建 (核心：添加防缓存时间戳)
-        const quality = state.playbackQuality || '320';
-        let rawUrl = API.getSongUrl(song, quality);
-        
-        // ⚡️⚡️ 强制浏览器认为是新资源，绕过 iOS 媒体缓存死锁 ⚡️⚡️
-        const separator = rawUrl.includes('?') ? '&' : '?';
-        const streamUrl = `${rawUrl}${separator}_bust=${Date.now()}`;
-        
-        console.log('🚀 直连请求:', streamUrl);
-
-        // 4. 播放器硬重置 (防止解码器卡死)
-        const player = dom.audioPlayer;
-        player.pause();
-        
-        player.removeAttribute('src'); // 释放旧资源
-        player.removeAttribute('crossOrigin'); // ❌ 严禁开启 CORS (防止 OPTIONS 请求超时)
-        player.load(); // 强制重置
-        
-        // 5. 设置新源
-        player.src = streamUrl;
-        state.currentAudioUrl = streamUrl;
-        
-        // 6. 恢复进度
+        // 7. 恢复播放进度
         let targetTime = startTime;
         if (preserveProgress) {
-            targetTime = state.currentList === "favorite" ? state.favoritePlaybackTime : state.currentPlaybackTime;
+            targetTime = state.currentList === "favorite" ? 
+                state.favoritePlaybackTime : state.currentPlaybackTime;
         }
-        if (targetTime > 0) player.currentTime = targetTime;
+        if (targetTime > 0 && player.duration > 0) {
+            player.currentTime = Math.min(targetTime, player.duration - 1);
+        }
 
-        // 7. 播放逻辑
+        // 8. 播放逻辑（核心修复）
         if (autoplay) {
             state.isPlaying = true;
+            updatePlayPauseButton();
             
-            // iOS PWA 锁屏特殊处理：静音握手
-            if (isIOSPWA && isLockScreen) {
-                console.log('🔒 锁屏隐身播放');
-                player.muted = true;
-                await player.play();
-                setTimeout(() => {
-                    player.muted = false;
-                    player.volume = state.volume;
-                }, 200);
-            } else {
-                // 正常播放
+            // 给硬件一点准备时间
+            await new Promise(resolve => setTimeout(resolve, 100));
+            
+            try {
+                // 主要播放尝试
                 const playPromise = player.play();
+                
                 if (playPromise !== undefined) {
-                    playPromise.catch(error => {
-                        console.warn('播放被拦截，尝试静音恢复:', error);
-                        player.muted = true;
-                        player.play().then(() => {
-                            setTimeout(() => player.muted = false, 500);
-                        });
+                    playPromise.then(() => {
+                        console.log('✅ 播放启动成功');
+                    }).catch(async (error) => {
+                        console.warn('⚠️ 主播放失败，尝试修复:', error.message);
+                        
+                        // 修复策略1: 等待后重试
+                        await new Promise(resolve => setTimeout(resolve, 300));
+                        
+                        try {
+                            await player.play();
+                            console.log('✅ 重试播放成功');
+                        } catch (retryError) {
+                            console.error('❌ 重试失败，尝试静音握手:', retryError);
+                            
+                            // 修复策略2: 静音握手
+                            try {
+                                player.muted = true;
+                                await player.play();
+                                setTimeout(() => {
+                                    player.muted = false;
+                                    player.volume = state.volume;
+                                    console.log('🔊 静音握手成功');
+                                }, 300);
+                            } catch (muteError) {
+                                console.error('❌ 所有修复策略失败:', muteError);
+                                state.isPlaying = false;
+                                updatePlayPauseButton();
+                                showNotification('播放失败，请检查网络', 'error');
+                            }
+                        }
                     });
                 }
+            } catch (error) {
+                console.error('播放异常:', error);
+                state.isPlaying = false;
+                updatePlayPauseButton();
             }
+        } else {
+            player.pause();
+            state.isPlaying = false;
+            updatePlayPauseButton();
         }
 
-        // 8. 收尾
-        updatePlayPauseButton();
+        // 9. 保存状态
         savePlayerState();
         
-        // 延迟加载非关键资源 (歌词)
-        setTimeout(() => loadLyrics(song), 500);
+        // 10. 延迟加载非关键资源
+        setTimeout(() => {
+            // 加载歌词
+            loadLyrics(song);
+            
+            // 如果不在锁屏模式，更新封面（可能在更新背景时已加载）
+            if (!isLockScreen) {
+                updateCurrentSongInfo(song, {
+                    loadArtwork: false, // 避免重复加载
+                    updateBackground: false
+                });
+            }
+        }, 1500);
 
         return true;
 
     } catch (error) {
-        console.error("播放初始化失败:", error);
-        showNotification("播放失败", "error");
+        console.error("播放失败:", error);
+        showNotification("播放失败，请重试", "error");
+        state.isPlaying = false;
+        updatePlayPauseButton();
         return false;
+    } finally {
+        // 清除播放中标记
+        state._isPlayingSong = false;
     }
 }
 
@@ -6667,24 +6802,110 @@ function showNotification(message, type = "success") {
 
 // ==========================================
 // 💀 强力驱魔：在 App 启动时强制杀掉所有残留 Service Worker
-// 这解决了 "文件不存在" 和 "启动卡顿 2 分钟" 的问题
+// 包含：卸载 SW、删除 Cache Storage、重置控制器
 // ==========================================
-if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.getRegistrations().then(registrations => {
+async function exterminateServiceWorkers() {
+    if (!('serviceWorker' in navigator)) {
+        console.log('✅ 浏览器不支持 Service Worker');
+        return;
+    }
+    
+    try {
+        console.log('🔍 开始清理 Service Worker...');
+        
+        // 1. 获取所有注册
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        
         if (registrations.length > 0) {
-            console.warn(`⚠️ 发现 ${registrations.length} 个残留的僵尸 SW，正在强制清除...`);
+            console.warn(`⚠️ 发现 ${registrations.length} 个残留的 Service Worker，正在清除...`);
+            
+            // 2. 逐个卸载
+            for (const registration of registrations) {
+                try {
+                    const success = await registration.unregister();
+                    console.log(`💀 SW ${registration.scope} 已${success ? '成功' : '失败'}卸载`);
+                    
+                    // 如果有活动的 SW，尝试停止它
+                    if (registration.active) {
+                        registration.active.postMessage({ type: 'TERMINATE' });
+                    }
+                } catch (error) {
+                    console.error(`❌ 卸载 ${registration.scope} 失败:`, error);
+                }
+            }
+            console.log('✅ SW 清理完成');
         }
-        for(let registration of registrations) {
-            registration.unregister().then(success => {
-                console.log(`💀 僵尸 SW 已移除: ${success ? '成功' : '失败'}`);
-            });
+        
+        // 3. 清除相关缓存
+        if ('caches' in window) {
+            try {
+                const cacheNames = await caches.keys();
+                const swRelatedCaches = cacheNames.filter(name =>
+                    name.includes('sw') || 
+                    name.includes('workbox') || 
+                    name.includes('precache') ||
+                    name.includes('service-worker')
+                );
+                
+                if (swRelatedCaches.length > 0) {
+                    console.warn(`⚠️ 发现 ${swRelatedCaches.length} 个相关缓存，正在清理...`);
+                    for (const cacheName of swRelatedCaches) {
+                        await caches.delete(cacheName);
+                        console.log(`🗑️ 已删除缓存: ${cacheName}`);
+                    }
+                }
+            } catch (cacheError) {
+                console.warn('清理缓存时出错:', cacheError);
+            }
         }
-    });
+        
+        // 4. 强制更新 Service Worker 控制器状态
+        if (navigator.serviceWorker.controller) {
+            try {
+                navigator.serviceWorker.controller.postMessage('FORCE_TERMINATE');
+            } catch (e) {}
+        }
+        
+    } catch (error) {
+        console.error('Service Worker 清理过程中出错:', error);
+    }
 }
 
-// 确保音频元素干净 (防止预加载卡死)
-const player = dom.audioPlayer;
-if (player) {
-    player.removeAttribute('crossOrigin');
-    player.preload = "auto";
-}
+// 在应用启动时执行
+document.addEventListener('DOMContentLoaded', () => {
+    console.log('🚀 应用启动中...');
+    
+    // 立即执行清理（不等待）
+    exterminateServiceWorkers();
+    
+    // 初始化播放器
+    const player = dom.audioPlayer;
+    if (player) {
+        // 确保音频元素干净
+        player.removeAttribute('crossOrigin');
+        player.preload = "none"; // 初始不加载
+        
+        // 设置 iOS 必需属性
+        player.setAttribute('playsinline', '');
+        player.setAttribute('webkit-playsinline', '');
+        player.volume = state.volume || 0.8;
+        
+        // 监听就绪事件
+        player.addEventListener('canplaythrough', () => {
+            console.log('🎵 音频元素已就绪');
+            player.preload = "auto"; // 就绪后允许自动预加载
+        }, { once: true });
+        
+        // 监听错误事件
+        player.addEventListener('error', (e) => {
+            console.error('音频元素错误:', e);
+            console.error('错误代码:', player.error?.code);
+            console.error('错误消息:', player.error?.message);
+        });
+    }
+    
+    // 显示就绪提示
+    setTimeout(() => {
+        showNotification('播放器已就绪', 'success');
+    }, 2000);
+});
