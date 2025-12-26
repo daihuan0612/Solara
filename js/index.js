@@ -4674,44 +4674,39 @@ async function downloadWithQuality(event, index, type, quality) {
 }
 
 // 修复：播放搜索结果 - 添加到播放列表而不是清空
-// 修复：播放搜索结果 - 保持在"搜索"模式下播放，不强制切回播放列表
+// 修复：播放搜索结果 - 强力锁定搜索上下文
 async function playSearchResult(index) {
-    // 确保索引有效
-    if (index < 0 || index >= state.searchResults.length) return;
-
     const song = state.searchResults[index];
     if (!song) return;
 
     try {
-        console.log(`🔍 播放搜索结果: ${song.name} (索引: ${index})`);
-
-        // 1. 关键修复：明确告知播放器我们现在在"搜索"列表里
+        // 1. 强制设定当前播放列表为 'search'
         state.currentPlaylist = "search"; 
-        state.currentList = "playlist"; // 这是一个 UI 状态，保持 playlist 即可
-        state.currentTrackIndex = index; // 更新当前索引为搜索结果的索引
+        state.currentList = "playlist"; // 保持 UI 列表状态
+        state.currentTrackIndex = index; // 更新索引
 
-        // 2. 隐藏搜索面板，显示播放器
-        hideSearchResults(); // 注意：这个函数会把 isSearchMode 设为 false，这没问题
+        console.log(`🔍 锁定搜索模式: 播放第 ${index} 首 - ${song.name}`);
+
+        // 2. 隐藏搜索面板（但不清除数据）
+        hideSearchResults(); 
         
-        // 3. 移动端特殊处理
-        if (dom.searchInput) dom.searchInput.value = "";
-        if (isMobileView) {
-            closeMobileSearch();
-        }
+        // 3. 移动端收起键盘
+        if (dom.searchInput) dom.searchInput.blur();
+        if (isMobileView) closeMobileSearch();
 
-        // 4. 更新高亮 (需要新建一个针对搜索列表的高亮函数，或者复用逻辑)
-        updateSearchHighlight(index);
+        // 4. 立即更新高亮（视觉反馈）
+        updateSearchResultSelectionUI(index);
 
-        // 5. 播放歌曲 (强制重新加载)
+        // 5. 启动播放 (关键：传入 autoplay)
         await playSong(song, { autoplay: true });
         
-        // 6. 更新 UI 状态
+        // 6. 更新底部栏状态
         updatePlayModeUI();
-        showNotification(`正在播放: ${song.name}`);
+        updatePlayPauseButton();
 
     } catch (error) {
         console.error("播放搜索结果失败:", error);
-        showNotification("播放失败，请稍后重试", "error");
+        showNotification("播放失败，请重试", "error");
     }
 }
 
@@ -5864,82 +5859,91 @@ function scheduleDeferredSongAssets(song, playPromise) {
 
 
 // 修复：播放下一首 - 支持播放模式和统一播放列表
-// 修复：播放下一首 - 完美支持搜索列表
+// 修复：下一曲 - 严格区分 搜索结果 vs 收藏 vs 播放列表
 async function playNext() {
-    let playlist = [];
-    
-    // 1. 确定当前使用的是哪个列表
-    if (state.currentList === "favorite") {
-        playlist = ensureFavoriteSongsArray();
-    } else if (state.currentPlaylist === "search") {
-        // 🔥 关键：如果是搜索模式，使用搜索结果作为播放列表
-        playlist = state.searchResults;
-    } else if (state.currentPlaylist === "online") {
-        playlist = state.onlineSongs;
+    let targetList = [];
+    let currentMode = state.currentPlaylist; // 获取当前是在哪个列表
+
+    // 1. 确定数据源
+    if (currentMode === "search") {
+        targetList = state.searchResults;
+        console.log("⏭️ 模式：搜索结果切歌");
+    } else if (currentMode === "favorites" || state.currentList === "favorite") {
+        targetList = ensureFavoriteSongsArray();
+        currentMode = "favorites";
+    } else if (currentMode === "online") {
+        targetList = state.onlineSongs;
     } else {
-        // 默认为主播放列表
-        playlist = state.playlistSongs;
+        targetList = state.playlistSongs;
+        currentMode = "playlist"; // 默认为主列表
     }
 
-    if (!playlist || playlist.length === 0) return;
-
-    // 2. 计算下一首的索引
-    const mode = (state.currentList === "favorite") ? state.favoritePlayMode : state.playMode;
-    let nextIndex = state.currentTrackIndex; // 默认为当前
-
-    if (mode === "random") {
-        nextIndex = Math.floor(Math.random() * playlist.length);
-    } else if (mode === "list") {
-        nextIndex = (state.currentTrackIndex + 1) % playlist.length;
-    } else if (mode === "single") {
-        // 单曲循环逻辑：如果是手动点击下一首，通常还是切到下一首，或者重播当前
-        // 这里设定为切到下一首，只有自动结束时才循环
-        nextIndex = (state.currentTrackIndex + 1) % playlist.length;
+    // 2. 列表为空检查
+    if (!targetList || targetList.length === 0) {
+        console.warn("当前列表为空，无法切歌");
+        return;
     }
 
-    // 3. 执行播放
-    if (state.currentList === "favorite") {
+    // 3. 计算下一首的索引
+    // 注意：优先使用 favoritePlayMode 或 playMode
+    const playMode = (currentMode === "favorites") ? state.favoritePlayMode : state.playMode;
+    let nextIndex = state.currentTrackIndex;
+
+    if (playMode === "random") {
+        nextIndex = Math.floor(Math.random() * targetList.length);
+    } else {
+        // 列表循环 & 单曲循环（手动切歌时强制下一首）
+        nextIndex = (state.currentTrackIndex + 1) % targetList.length;
+    }
+
+    console.log(`⏭️ 切到索引: ${nextIndex} (模式: ${playMode})`);
+
+    // 4. 执行播放 (路由分发)
+    if (currentMode === "search") {
+        return playSearchResult(nextIndex);
+    } else if (currentMode === "favorites") {
         return playFavoriteSong(nextIndex);
-    } else if (state.currentPlaylist === "search") {
-        return playSearchResult(nextIndex); // 调用刚才修复的函数
-    } else if (state.currentPlaylist === "online") {
+    } else if (currentMode === "online") {
         return playOnlineSong(nextIndex);
     } else {
         return playPlaylistSong(nextIndex);
     }
 }
 
-// 修复：播放上一首
+// 修复：上一曲 - 逻辑同步修复
 async function playPrevious() {
-    let playlist = [];
-    if (state.currentList === "favorite") {
-        playlist = ensureFavoriteSongsArray();
-    } else if (state.currentPlaylist === "search") {
-        playlist = state.searchResults;
-    } else if (state.currentPlaylist === "online") {
-        playlist = state.onlineSongs;
+    let targetList = [];
+    let currentMode = state.currentPlaylist;
+
+    if (currentMode === "search") {
+        targetList = state.searchResults;
+    } else if (currentMode === "favorites" || state.currentList === "favorite") {
+        targetList = ensureFavoriteSongsArray();
+        currentMode = "favorites";
+    } else if (currentMode === "online") {
+        targetList = state.onlineSongs;
     } else {
-        playlist = state.playlistSongs;
+        targetList = state.playlistSongs;
+        currentMode = "playlist";
     }
 
-    if (!playlist || playlist.length === 0) return;
+    if (!targetList || targetList.length === 0) return;
 
-    const mode = (state.currentList === "favorite") ? state.favoritePlayMode : state.playMode;
+    const playMode = (currentMode === "favorites") ? state.favoritePlayMode : state.playMode;
     let prevIndex = state.currentTrackIndex;
 
-    if (mode === "random") {
-        prevIndex = Math.floor(Math.random() * playlist.length);
+    if (playMode === "random") {
+        prevIndex = Math.floor(Math.random() * targetList.length);
     } else {
-        // 列表或单曲模式，手动点上一首都是切到上一首
         prevIndex = state.currentTrackIndex - 1;
-        if (prevIndex < 0) prevIndex = playlist.length - 1;
+        if (prevIndex < 0) prevIndex = targetList.length - 1;
     }
 
-    if (state.currentList === "favorite") {
-        return playFavoriteSong(prevIndex);
-    } else if (state.currentPlaylist === "search") {
+    if (currentMode === "search") {
         return playSearchResult(prevIndex);
-    } else if (state.currentPlaylist === "online") {
+    } else if (currentMode === "favorites") {
+        return playFavoriteSong(prevIndex);
+    } else if (currentMode === "online") {
         return playOnlineSong(prevIndex);
     } else {
         return playPlaylistSong(prevIndex);
@@ -6700,14 +6704,59 @@ function setupLoopStrategy() {
     else player.loop = false;
 }
 
+// 修复：事件绑定 - 确保 ended 事件正确触发 playNext
 function bindAudioPlayerEvents(player) {
-    player.onplay = null; player.onpause = null; player.ontimeupdate = null; player.onloadedmetadata = null; player.onvolumechange = null; player.onended = null;
-    player.addEventListener('play', () => { state.isPlaying = true; updatePlayPauseButton(); });
-    player.addEventListener('pause', () => { state.isPlaying = false; updatePlayPauseButton(); });
-    if (typeof handleTimeUpdate === 'function') player.addEventListener('timeupdate', handleTimeUpdate);
+    // 清除旧事件，防止重复
+    player.onplay = null; 
+    player.onpause = null; 
+    player.ontimeupdate = null; 
+    player.onloadedmetadata = null; 
+    player.onvolumechange = null; 
+    player.onended = null;
+
+    // 状态同步
+    player.addEventListener('play', () => { 
+        state.isPlaying = true; 
+        updatePlayPauseButton(); 
+    });
+    
+    player.addEventListener('pause', () => { 
+        state.isPlaying = false; 
+        updatePlayPauseButton(); 
+    });
+
+    // 进度条
+    if (typeof handleTimeUpdate === 'function') {
+        player.addEventListener('timeupdate', handleTimeUpdate);
+    }
+    
     player.addEventListener('loadedmetadata', handleLoadedMetadata);
     player.addEventListener('volumechange', onAudioVolumeChange);
-    player.addEventListener('ended', () => { if (typeof autoPlayNext === 'function') setTimeout(autoPlayNext, 300); });
+
+    // 🔥 关键修复：自然播放结束时，延迟 300ms 自动切下一首
+    player.addEventListener('ended', () => { 
+        console.log("🎵 当前歌曲播放结束，准备切换下一首...");
+        setTimeout(() => {
+            playNext(); // 直接调用修复后的 playNext
+        }, 300); 
+    });
+    
+    // 错误处理：如果加载失败，尝试切下一首，而不是重置
+    player.addEventListener('error', (e) => {
+        console.warn("⚠️ 音频加载出错:", e);
+        if (state.isPlaying) {
+            // 只有在连续出错少于3次时才自动切，防止无限死循环
+            if (!state.errorCount) state.errorCount = 0;
+            if (state.errorCount < 3) {
+                state.errorCount++;
+                console.log("自动跳过错误歌曲...");
+                setTimeout(playNext, 1000);
+            } else {
+                state.errorCount = 0;
+                showNotification("播放连续出错，已停止", "error");
+            }
+        }
+    });
 }
 
 // ================================================
