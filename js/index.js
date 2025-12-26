@@ -1942,10 +1942,8 @@ function showAlbumCoverPlaceholder() {
     placeholderDiv.style.height = '100%';
     placeholderDiv.style.fontSize = '48px';
     placeholderDiv.style.color = '#888';
-    // 获取当前背景色作为占位符背景色
-    const currentBg = getComputedStyle(document.body).backgroundColor;
-    placeholderDiv.style.backgroundColor = currentBg || 'var(--placeholder-bg, #f0f0f0)';
-    placeholderDiv.style.borderRadius = 'inherit';
+    placeholderDiv.style.backgroundColor = '#f0f0f0';
+    placeholderDiv.style.borderRadius = '12px';
     dom.albumCover.innerHTML = '';
     dom.albumCover.appendChild(placeholderDiv);
     dom.albumCover.classList.remove("loading");
@@ -2366,6 +2364,26 @@ const playModeIcons = {
     "single": "fa-redo",
     "random": "fa-shuffle"
 };
+
+// 获取来源标签
+function getSourceLabel(source) {
+    const sourceMap = {
+        "netease": "网易",
+        "qq": "QQ",
+        "kuwo": "酷我",
+        "kugou": "酷狗",
+        "migu": "咪咕",
+        "baidu": "百度",
+        "xiami": "虾米"
+    };
+    return sourceMap[source] || source;
+}
+
+// 创建来源标签HTML
+function createSourceLabel(source) {
+    const sourceText = getSourceLabel(source);
+    return `<span class="source-label">[${sourceText}]</span>`;
+}
 
 function getActivePlayMode() {
     return state.currentList === "favorite" ? state.favoritePlayMode : state.playMode;
@@ -4107,10 +4125,8 @@ function updateCurrentSongInfo(song, options = {}) {
             placeholderDiv.style.height = '100%';
             placeholderDiv.style.fontSize = '48px';
             placeholderDiv.style.color = '#888';
-            // 获取当前背景色作为占位符背景色
-            const currentBg = getComputedStyle(document.body).backgroundColor;
-            placeholderDiv.style.backgroundColor = currentBg || 'var(--placeholder-bg, #f0f0f0)';
-            placeholderDiv.style.borderRadius = 'inherit';
+            placeholderDiv.style.backgroundColor = '#f0f0f0';
+            placeholderDiv.style.borderRadius = '12px';
             dom.albumCover.innerHTML = '';
             dom.albumCover.appendChild(placeholderDiv);
             state.currentArtworkUrl = null;
@@ -4323,7 +4339,13 @@ function createSearchResultItem(song, index) {
 
     const title = document.createElement("div");
     title.className = "search-result-title";
-    title.textContent = song.name || "未知歌曲";
+    
+    // 创建包含来源标签的标题
+    const sourceLabel = createSourceLabel(song.source || 'netease');
+    const titleWithSource = document.createElement("div");
+    titleWithSource.innerHTML = `${sourceLabel} ${song.name || "未知歌曲"}`;
+    
+    title.appendChild(titleWithSource);
 
     const artist = document.createElement("div");
     artist.className = "search-result-artist";
@@ -4812,10 +4834,11 @@ async function playSearchResult(index) {
         showNotification(`${song.name} 播放失败，自动播放下一首`, "error");
         console.log(`搜索结果 ${song.name} 重试 ${maxRetries} 次后仍然失败，自动播放下一首`);
         
-        // 延迟执行下一首，给用户一点时间了解情况
+        // 立即执行下一首，不需要延迟
+        // 使用队列方式确保函数执行完成
         setTimeout(() => {
             playNext();
-        }, 1500);
+        }, 0); // 使用0延迟以确保当前函数完成执行
     }
 }
 
@@ -5138,7 +5161,7 @@ function renderPlaylist() {
         const songKey = getSongKey(song) || `playlist-${index}`;
         return `
         <div class="playlist-item" data-index="${index}" role="button" tabindex="0" aria-label="播放 ${song.name}" data-favorite-key="${songKey}">
-            ${song.name} - ${artistValue}
+            ${createSourceLabel(song.source || 'netease')} ${song.name} - ${artistValue}
             <button class="playlist-item-favorite action-btn favorite favorite-toggle" type="button" data-playlist-action="favorite" data-index="${index}" data-favorite-key="${songKey}" title="收藏" aria-label="收藏">
                 <i class="fa-regular fa-heart"></i>
             </button>
@@ -5401,7 +5424,7 @@ function renderFavorites() {
         const songKey = getSongKey(song) || `favorite-${index}`;
         return `
         <div class="playlist-item${isCurrent ? " current" : ""}" data-index="${index}" role="button" tabindex="0" aria-label="播放 ${song.name}" data-favorite-key="${songKey}">
-            ${song.name} - ${artistValue}
+            ${createSourceLabel(song.source || 'netease')} ${song.name} - ${artistValue}
             <button class="favorite-item-action favorite-item-action--add" type="button" data-favorite-action="add" data-index="${index}" title="添加到播放列表" aria-label="添加到播放列表">
                 <i class="fas fa-plus"></i>
             </button>
@@ -5535,10 +5558,11 @@ async function playFavoriteSong(index) {
         showNotification(`${song.name} 播放失败，自动播放下一首`, "error");
         console.log(`收藏歌曲 ${song.name} 重试 ${maxRetries} 次后仍然失败，自动播放下一首`);
         
-        // 延迟执行下一首，给用户一点时间了解情况
+        // 立即执行下一首，不需要延迟
+        // 使用队列方式确保函数执行完成
         setTimeout(() => {
             playNext();
-        }, 1500);
+        }, 0); // 使用0延迟以确保当前函数完成执行
     }
 }
 
@@ -5841,9 +5865,10 @@ async function playPlaylistSong(index) {
         console.log(`歌曲 ${song.name} 重试 ${maxRetries} 次后仍然失败，自动播放下一首`);
         
         // 立即执行下一首，不需要延迟
+        // 使用队列方式确保函数执行完成
         setTimeout(() => {
             playNext();
-        }, 100); // 使用较短的延迟以确保当前函数完成执行
+        }, 0); // 使用0延迟以确保当前函数完成执行
     }
 }
 
@@ -6477,10 +6502,11 @@ async function playOnlineSong(index) {
         showNotification(`${song.name} 播放失败，自动播放下一首`, "error");
         console.log(`在线歌曲 ${song.name} 重试 ${maxRetries} 次后仍然失败，自动播放下一首`);
         
-        // 延迟执行下一首，给用户一点时间了解情况
+        // 立即执行下一首，不需要延迟
+        // 使用队列方式确保函数执行完成
         setTimeout(() => {
             playNext();
-        }, 1500);
+        }, 0); // 使用0延迟以确保当前函数完成执行
     }
 }
 
@@ -6694,7 +6720,7 @@ async function exploreOnlineMusic() {
             }
         }
 
-        showNotification(`探索雷达：新增${appendedSongs.length}首 ${randomGenre} 歌曲`);
+        showNotification(`探索雷达：新增${appendedSongs.length}首歌曲`);
         debugLog(`探索雷达加载成功，关键词：${randomGenre}，音源：${EXPLORE_RADAR_SOURCES.join(',')}，新增歌曲数：${appendedSongs.length}`);
 
         const shouldAutoplay = existingSongs.length === 0 && state.playlistSongs.length > 0;
