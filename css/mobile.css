@@ -297,8 +297,8 @@ body.mobile-view .album-cover > div {
     height: 100%;
     font-size: 48px;
     color: #888;
-    background-color: transparent;
-    border-radius: inherit;
+    background-color: #f0f0f0;
+    border-radius: 50%;
 }
 
 body.mobile-view .album-cover .placeholder {
@@ -1280,4 +1280,15 @@ body.mobile-view #notification.show {
 
 body.mobile-view .debug-info {
     display: none;
+}
+
+/* 来源标签样式 - 移动端 */
+body.mobile-view .source-label {
+    font-size: 0.75em;
+    color: var(--text-secondary-color);
+    background-color: rgba(127, 140, 141, 0.2);
+    padding: 1px 5px;
+    border-radius: 6px;
+    margin-right: 5px;
+    vertical-align: middle;
 }
