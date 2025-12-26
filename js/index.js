@@ -5484,332 +5484,330 @@ function showNotification(message, type = "success") {
         notification.classList.remove("show");
     }, 3000);
 }
+// ==========================================================================
+// 🚀 v13.0 终极核心模块 (Flash Mode + UI Fix) - Final Clean
+// ==========================================================================
 
-// 
-========================================================================== 
-// 🚀 v13.0 终极核心模块 (Flash Mode + UI Fix) - Final Clean 
-// ========================================================================== 
-
-// 1. ⚡ 闪电刷新：解锁瞬间修复 UI 
-function performInstantUIRefresh() { 
-    console.log('⚡ 闪电侠模式：界面复活'); 
-    requestAnimationFrame(() => { 
-        try { 
-            // 补全欠下的 UI 更新 
-            if (state.pendingUpdates && state.pendingUpdates.song) { 
-                const { song, needsArtwork, needsBackground, needsLyrics } = state.pendingUpdates; 
+// 1. ⚡ 闪电刷新：解锁瞬间修复 UI
+function performInstantUIRefresh() {
+    console.log('⚡ 闪电侠模式：界面复活');
+    requestAnimationFrame(() => {
+        try {
+            // 补全欠下的 UI 更新
+            if (state.pendingUpdates && state.pendingUpdates.song) {
+                const { song, needsArtwork, needsBackground, needsLyrics } = state.pendingUpdates;
                 
-                // 瞬间恢复文字 
-                if (dom.currentSongTitle) dom.currentSongTitle.textContent = song.name; 
-                const artistText = Array.isArray(song.artist) ? song.artist.join(', ') : (song.artist || '未知'); 
-                if (dom.currentSongArtist) dom.currentSongArtist.textContent = artistText; 
+                // 瞬间恢复文字
+                if (dom.currentSongTitle) dom.currentSongTitle.textContent = song.name;
+                const artistText = Array.isArray(song.artist) ? song.artist.join(', ') : (song.artist || '未知');
+                if (dom.currentSongArtist) dom.currentSongArtist.textContent = artistText;
                 
-                // 延迟恢复图片（防止卡顿） 
-                if (needsArtwork) { 
-                    setTimeout(() => updateCurrentSongInfo(song, { loadArtwork: true, updateBackground: needsBackground }), 50); 
-                } 
-                if (needsLyrics) { 
-                    setTimeout(() => loadLyrics(song), 200); 
-                } 
-                state.pendingUpdates = null; 
-            } 
+                // 延迟恢复图片（防止卡顿）
+                if (needsArtwork) {
+                    setTimeout(() => updateCurrentSongInfo(song, { loadArtwork: true, updateBackground: needsBackground }), 50);
+                }
+                if (needsLyrics) {
+                    setTimeout(() => loadLyrics(song), 200);
+                }
+                state.pendingUpdates = null;
+            }
             
-            // 恢复媒体会话 
-            if ('mediaSession' in navigator && state.currentSong) { 
-                setTimeout(() => { 
-                    try { 
-                        let artworkUrl = API.getPicUrl(state.currentSong); 
-                        if (!artworkUrl.startsWith('http')) artworkUrl = new URL(artworkUrl, window.location.origin).href; 
+            // 恢复媒体会话
+            if ('mediaSession' in navigator && state.currentSong) {
+                setTimeout(() => {
+                    try {
+                        let artworkUrl = API.getPicUrl(state.currentSong);
+                        if (!artworkUrl.startsWith('http')) artworkUrl = new URL(artworkUrl, window.location.origin).href;
                         
-                        navigator.mediaSession.metadata = new MediaMetadata({ 
-                            title: state.currentSong.name, 
-                            artist: Array.isArray(state.currentSong.artist) ? state.currentSong.artist.join(', ') : '未知', 
-                            album: state.currentSong.album || '', 
-                            artwork: [{ src: artworkUrl, sizes: '512x512', type: 'image/png' }] 
-                        }); 
-                        setupMediaSessionControls(); 
-                    } catch (e) {} 
-                }, 300); 
-            } 
+                        navigator.mediaSession.metadata = new MediaMetadata({
+                            title: state.currentSong.name,
+                            artist: Array.isArray(state.currentSong.artist) ? state.currentSong.artist.join(', ') : '未知',
+                            album: state.currentSong.album || '',
+                            artwork: [{ src: artworkUrl, sizes: '512x512', type: 'image/png' }]
+                        });
+                        setupMediaSessionControls();
+                    } catch (e) {}
+                }, 300);
+            }
             
-            updatePlayPauseButton(); 
-            if (typeof setupLoopStrategy === 'function') setupLoopStrategy(); 
+            updatePlayPauseButton();
+            if (typeof setupLoopStrategy === 'function') setupLoopStrategy();
             
-        } catch (e) { console.error('闪电刷新异常:', e); } 
-    }); 
-} 
+        } catch (e) { console.error('闪电刷新异常:', e); }
+    });
+}
 
-// 2. 🧠 智能管家：只负责解锁检测 
-class SmartAudioContextManager { 
-    constructor() { 
-        this.isLocked = false; 
-        this.unlockTime = 0; 
-        this.init(); 
-    } 
+// 2. 🧠 智能管家：只负责解锁检测
+class SmartAudioContextManager {
+    constructor() {
+        this.isLocked = false;
+        this.unlockTime = 0;
+        this.init();
+    }
     
-    init() { 
-        // 监听解锁 
-        document.addEventListener('visibilitychange', () => { 
-            const isNowLocked = document.visibilityState === 'hidden'; 
-            if (this.isLocked && !isNowLocked) { 
-                // 刚才锁屏，现在解锁了 -> 执行闪电刷新 
-                this.unlockTime = Date.now(); 
-                console.log('🔓 屏幕解锁 -> 闪电刷新'); 
-                performInstantUIRefresh(); 
-                this.checkZombie(); 
-            } else if (isNowLocked) { 
-                // 刚锁屏 -> 开启 Loop 保活 
-                if (typeof setupLoopStrategy === 'function') setupLoopStrategy(); 
-            } 
-            this.isLocked = isNowLocked; 
-        }); 
+    init() {
+        // 监听解锁
+        document.addEventListener('visibilitychange', () => {
+            const isNowLocked = document.visibilityState === 'hidden';
+            if (this.isLocked && !isNowLocked) {
+                // 刚才锁屏，现在解锁了 -> 执行闪电刷新
+                this.unlockTime = Date.now();
+                console.log('🔓 屏幕解锁 -> 闪电刷新');
+                performInstantUIRefresh();
+                this.checkZombie();
+            } else if (isNowLocked) {
+                // 刚锁屏 -> 开启 Loop 保活
+                if (typeof setupLoopStrategy === 'function') setupLoopStrategy();
+            }
+            this.isLocked = isNowLocked;
+        });
         
-        // 点击恢复（最后防线） 
-        document.addEventListener('click', () => { 
-              const player = dom.audioPlayer; 
-              // 如果显示在播但实际停了，点一下就重置 
-              if (state.isPlaying && player.paused && !this.isLocked) { 
-                  player.play().catch(() => this.rebuild()); 
-              } 
-        }, true); 
-    } 
+        // 点击恢复（最后防线）
+        document.addEventListener('click', () => {
+             const player = dom.audioPlayer;
+             // 如果显示在播但实际停了，点一下就重置
+             if (state.isPlaying && player.paused && !this.isLocked) {
+                 player.play().catch(() => this.rebuild());
+             }
+        }, true);
+    }
     
-    checkZombie() { 
-        // 解锁后 0.8秒 检查一下是不是假死 
-        setTimeout(() => { 
-            const player = dom.audioPlayer; 
-            const isZombie = state.isPlaying && (player.paused || player.readyState === 0) && player.src && !player.ended; 
-            if (isZombie) { 
-                console.warn('🧟‍♂️ 发现僵尸 -> 重建节点'); 
-                player.play().catch(() => this.rebuild()); 
-            } 
-        }, 800); 
-    } 
+    checkZombie() {
+        // 解锁后 0.8秒 检查一下是不是假死
+        setTimeout(() => {
+            const player = dom.audioPlayer;
+            const isZombie = state.isPlaying && (player.paused || player.readyState === 0) && player.src && !player.ended;
+            if (isZombie) {
+                console.warn('🧟‍♂️ 发现僵尸 -> 重建节点');
+                player.play().catch(() => this.rebuild());
+            }
+        }, 800);
+    }
     
-    rebuild() { 
-        console.log('🔨 重建音频节点'); 
-        const oldP = dom.audioPlayer; 
-        const newP = oldP.cloneNode(true); 
-        oldP.parentNode.replaceChild(newP, oldP); 
-        dom.audioPlayer = newP; 
-        bindAudioPlayerEvents(newP); 
-        setTimeout(() => newP.play().catch(() => {}), 100); 
-    } 
-} 
-const audioManager = new SmartAudioContextManager(); 
+    rebuild() {
+        console.log('🔨 重建音频节点');
+        const oldP = dom.audioPlayer;
+        const newP = oldP.cloneNode(true);
+        oldP.parentNode.replaceChild(newP, oldP);
+        dom.audioPlayer = newP;
+        bindAudioPlayerEvents(newP);
+        setTimeout(() => newP.play().catch(() => {}), 100);
+    }
+}
+const audioManager = new SmartAudioContextManager();
 
-// 3. 🎵 新版播放函数 (自动分流) 
-async function playSong(song, options = {}) { 
-    // 如果锁屏，走极简模式；如果解锁，走正常模式 
-    if (document.visibilityState === 'hidden') return await playSongLockScreen(song, options); 
-    else return await playSongNormal(song, options); 
-} 
+// 3. 🎵 新版播放函数 (自动分流)
+async function playSong(song, options = {}) {
+    // 如果锁屏，走极简模式；如果解锁，走正常模式
+    if (document.visibilityState === 'hidden') return await playSongLockScreen(song, options);
+    else return await playSongNormal(song, options);
+}
 
-// 🔒 锁屏模式：只换链接，不修图，不更新UI 
-async function playSongLockScreen(song, options = {}) { 
-    console.log('🔒 锁屏播放'); 
-    try { 
-        const player = dom.audioPlayer; 
-        const quality = state.playbackQuality || '320'; 
-        let url = API.getSongUrl(song, quality); 
-        if (!url.startsWith('http')) url = new URL(url, window.location.origin).href; 
+// 🔒 锁屏模式：只换链接，不修图，不更新UI
+async function playSongLockScreen(song, options = {}) {
+    console.log('🔒 锁屏播放');
+    try {
+        const player = dom.audioPlayer;
+        const quality = state.playbackQuality || '320';
+        let url = API.getSongUrl(song, quality);
+        if (!url.startsWith('http')) url = new URL(url, window.location.origin).href;
         
-        // 加个时间戳，防止缓存死锁 
-        player.src = `${url.split('?')[0]}?_lock=${Date.now()}`; 
-        player.load(); 
+        // 加个时间戳，防止缓存死锁
+        player.src = `${url.split('?')[0]}?_lock=${Date.now()}`;
+        player.load();
         
-        // 开启 Loop 保活 
-        if (typeof setupLoopStrategy === 'function') setupLoopStrategy(); 
+        // 开启 Loop 保活
+        if (typeof setupLoopStrategy === 'function') setupLoopStrategy();
         
-        state.currentSong = song; 
+        state.currentSong = song;
         
-        // 极简媒体会话 (只发文字，不发图片，省内存) 
-        if ('mediaSession' in navigator) { 
-            try { 
-                navigator.mediaSession.metadata = new MediaMetadata({ 
-                    title: song.name, 
-                    artist: Array.isArray(song.artist) ? song.artist.join(', ') : '未知', 
-                    album: song.album || '', 
-                    artwork: [{ src: window.location.origin + '/favicon.png', sizes: '512x512', type: 'image/png' }] 
-                }); 
-                navigator.mediaSession.playbackState = 'playing'; 
-            } catch(e) {} 
-        } 
+        // 极简媒体会话 (只发文字，不发图片，省内存)
+        if ('mediaSession' in navigator) {
+            try {
+                navigator.mediaSession.metadata = new MediaMetadata({
+                    title: song.name,
+                    artist: Array.isArray(song.artist) ? song.artist.join(', ') : '未知',
+                    album: song.album || '',
+                    artwork: [{ src: window.location.origin + '/favicon.png', sizes: '512x512', type: 'image/png' }]
+                });
+                navigator.mediaSession.playbackState = 'playing';
+            } catch(e) {}
+        }
         
-        if (options.autoplay !== false) { 
-            player.play().catch(() => {}); 
-            state.isPlaying = true; 
-        } 
+        if (options.autoplay !== false) {
+            player.play().catch(() => {});
+            state.isPlaying = true;
+        }
         
-        // 🔥 写欠条：记下这首歌，等解锁了再刷新封面 
-        state.pendingUpdates = { 
-            type: 'song', song: song, timestamp: Date.now(), 
-            needsArtwork: true, needsBackground: true, needsLyrics: true 
-        }; 
-        return true; 
-    } catch (e) { return false; } 
-} 
+        // 🔥 写欠条：记下这首歌，等解锁了再刷新封面
+        state.pendingUpdates = {
+            type: 'song', song: song, timestamp: Date.now(),
+            needsArtwork: true, needsBackground: true, needsLyrics: true
+        };
+        return true;
+    } catch (e) { return false; }
+}
 
-// 📱 正常模式：完整流程 
-async function playSongNormal(song, options = {}) { 
-    console.log('📱 正常播放'); 
-    const { autoplay = true, startTime = 0 } = options; 
-    try { 
-        const player = dom.audioPlayer; 
-        state.isPlaying = false; 
+// 📱 正常模式：完整流程
+async function playSongNormal(song, options = {}) {
+    console.log('📱 正常播放');
+    const { autoplay = true, startTime = 0 } = options;
+    try {
+        const player = dom.audioPlayer;
+        state.isPlaying = false;
         
-        const quality = state.playbackQuality || '320'; 
-        let url = API.getSongUrl(song, quality); 
-        if (!url.startsWith('http')) url = new URL(url, window.location.origin).href; 
+        const quality = state.playbackQuality || '320';
+        let url = API.getSongUrl(song, quality);
+        if (!url.startsWith('http')) url = new URL(url, window.location.origin).href;
         
-        player.src = `${url.split('?')[0]}?_=${Date.now()}`; 
-        player.removeAttribute('crossOrigin'); 
-        player.preload = 'auto'; 
-        player.muted = false; 
+        player.src = `${url.split('?')[0]}?_=${Date.now()}`;
+        player.removeAttribute('crossOrigin');
+        player.preload = 'auto';
+        player.muted = false;
         
-        if (typeof setupLoopStrategy === 'function') setupLoopStrategy(); 
+        if (typeof setupLoopStrategy === 'function') setupLoopStrategy();
         
-        // 立即更新 UI 
-        state.currentSong = song; 
-        if (dom.currentSongTitle) dom.currentSongTitle.textContent = song.name; 
-        if (dom.currentSongArtist) dom.currentSongArtist.textContent = Array.isArray(song.artist) ? song.artist.join(', ') : '未知'; 
+        // 立即更新 UI
+        state.currentSong = song;
+        if (dom.currentSongTitle) dom.currentSongTitle.textContent = song.name;
+        if (dom.currentSongArtist) dom.currentSongArtist.textContent = Array.isArray(song.artist) ? song.artist.join(', ') : '未知';
         
-        if (autoplay) { 
-            // 用 Promise 等待就绪，比 setTimeout 稳 
-            const safePlay = async () => { 
-                try { 
-                    await new Promise((resolve) => { 
-                        if (player.readyState >= 2) { resolve(); return; } 
-                        const t = setTimeout(() => resolve(), 3000); 
-                        player.addEventListener('canplay', () => { clearTimeout(t); resolve(); }, { once: true }); 
-                    }); 
-                    if (startTime > 0) player.currentTime = startTime; 
-                    await player.play(); 
-                    state.isPlaying = true; 
-                    updatePlayPauseButton(); 
-                } catch (e) { if (state.isPlaying) { state.isPlaying = false; updatePlayPauseButton(); } } 
-            }; 
-            safePlay(); 
-        } 
+        if (autoplay) {
+            // 用 Promise 等待就绪，比 setTimeout 稳
+            const safePlay = async () => {
+                try {
+                    await new Promise((resolve) => {
+                        if (player.readyState >= 2) { resolve(); return; }
+                        const t = setTimeout(() => resolve(), 3000);
+                        player.addEventListener('canplay', () => { clearTimeout(t); resolve(); }, { once: true });
+                    });
+                    if (startTime > 0) player.currentTime = startTime;
+                    await player.play();
+                    state.isPlaying = true;
+                    updatePlayPauseButton();
+                } catch (e) { if (state.isPlaying) { state.isPlaying = false; updatePlayPauseButton(); } }
+            };
+            safePlay();
+        }
         
-        // 完整媒体会话 
-        if ('mediaSession' in navigator) { 
-            setTimeout(() => { 
-                try { 
-                    navigator.mediaSession.metadata = new MediaMetadata({ 
-                        title: song.name, artist: Array.isArray(song.artist) ? song.artist.join(', ') : '未知', album: song.album || '' 
-                    }); 
-                    navigator.mediaSession.playbackState = 'playing'; 
-                } catch(e){} 
-            }, 500); 
-        } 
+        // 完整媒体会话
+        if ('mediaSession' in navigator) {
+            setTimeout(() => {
+                try {
+                    navigator.mediaSession.metadata = new MediaMetadata({
+                        title: song.name, artist: Array.isArray(song.artist) ? song.artist.join(', ') : '未知', album: song.album || ''
+                    });
+                    navigator.mediaSession.playbackState = 'playing';
+                } catch(e){}
+            }, 500);
+        }
         
-        // 加载图片和歌词 
-        setTimeout(() => { 
-            if (state.currentSong === song) { 
-                loadLyrics(song); 
-                updateCurrentSongInfo(song, { loadArtwork: true, updateBackground: true }); 
-            } 
-        }, 1000); 
-        savePlayerState(); 
-        return true; 
-    } catch (e) { return false; } 
-} 
+        // 加载图片和歌词
+        setTimeout(() => {
+            if (state.currentSong === song) {
+                loadLyrics(song);
+                updateCurrentSongInfo(song, { loadArtwork: true, updateBackground: true });
+            }
+        }, 1000);
+        savePlayerState();
+        return true;
+    } catch (e) { return false; }
+}
 
 async function autoPlayNext() { 
-    // 锁屏切歌稍微慢一点，给硬件缓冲 
-    const delay = document.visibilityState === 'hidden' ? 300 : 0; 
-    setTimeout(() => { if (typeof playNext === 'function') playNext(); }, delay); 
+    // 锁屏切歌稍微慢一点，给硬件缓冲
+    const delay = document.visibilityState === 'hidden' ? 300 : 0;
+    setTimeout(() => { if (typeof playNext === 'function') playNext(); }, delay);
     updatePlayPauseButton(); 
-} 
+}
 
-// 4. 🛠️ 辅助函数库 
-function setupMediaSessionControls() { 
-    if (!('mediaSession' in navigator)) return; 
-    try { 
-        navigator.mediaSession.setActionHandler('play', () => dom.audioPlayer.play()); 
-        navigator.mediaSession.setActionHandler('pause', () => dom.audioPlayer.pause()); 
-        navigator.mediaSession.setActionHandler('previoustrack', () => typeof playPrevious === 'function' && playPrevious()); 
-        navigator.mediaSession.setActionHandler('nexttrack', () => typeof playNext === 'function' && playNext()); 
-        ['seekbackward', 'seekforward', 'seekto'].forEach(a => { try { navigator.mediaSession.setActionHandler(a, null); } catch(e){} }); 
-    } catch(e) {} 
-} 
+// 4. 🛠️ 辅助函数库
+function setupMediaSessionControls() {
+    if (!('mediaSession' in navigator)) return;
+    try {
+        navigator.mediaSession.setActionHandler('play', () => dom.audioPlayer.play());
+        navigator.mediaSession.setActionHandler('pause', () => dom.audioPlayer.pause());
+        navigator.mediaSession.setActionHandler('previoustrack', () => typeof playPrevious === 'function' && playPrevious());
+        navigator.mediaSession.setActionHandler('nexttrack', () => typeof playNext === 'function' && playNext());
+        ['seekbackward', 'seekforward', 'seekto'].forEach(a => { try { navigator.mediaSession.setActionHandler(a, null); } catch(e){} });
+    } catch(e) {}
+}
 
-function setupLoopStrategy() { 
-    const player = dom.audioPlayer; 
-    if (!player) return; 
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent); 
-    const isPWA = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone; 
-    // 只有 iOS PWA 锁屏时才 Loop 保活 
-    if (isIOS && isPWA && document.visibilityState === 'hidden') player.loop = true; 
-    else player.loop = false; 
-} 
+function setupLoopStrategy() {
+    const player = dom.audioPlayer;
+    if (!player) return;
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    const isPWA = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
+    // 只有 iOS PWA 锁屏时才 Loop 保活
+    if (isIOS && isPWA && document.visibilityState === 'hidden') player.loop = true;
+    else player.loop = false;
+}
 
-function bindAudioPlayerEvents(player) { 
-    player.onplay = null; player.onpause = null; player.ontimeupdate = null; player.onloadedmetadata = null; player.onvolumechange = null; player.onended = null; 
-    player.addEventListener('play', () => { state.isPlaying = true; updatePlayPauseButton(); }); 
-    player.addEventListener('pause', () => { state.isPlaying = false; updatePlayPauseButton(); }); 
-    if (typeof handleTimeUpdate === 'function') player.addEventListener('timeupdate', handleTimeUpdate); 
-    player.addEventListener('loadedmetadata', handleLoadedMetadata); 
-    player.addEventListener('volumechange', onAudioVolumeChange); 
-    player.addEventListener('ended', () => { if (typeof autoPlayNext === 'function') setTimeout(autoPlayNext, 300); }); 
-} 
+function bindAudioPlayerEvents(player) {
+    player.onplay = null; player.onpause = null; player.ontimeupdate = null; player.onloadedmetadata = null; player.onvolumechange = null; player.onended = null;
+    player.addEventListener('play', () => { state.isPlaying = true; updatePlayPauseButton(); });
+    player.addEventListener('pause', () => { state.isPlaying = false; updatePlayPauseButton(); });
+    if (typeof handleTimeUpdate === 'function') player.addEventListener('timeupdate', handleTimeUpdate);
+    player.addEventListener('loadedmetadata', handleLoadedMetadata);
+    player.addEventListener('volumechange', onAudioVolumeChange);
+    player.addEventListener('ended', () => { if (typeof autoPlayNext === 'function') setTimeout(autoPlayNext, 300); });
+}
 
-// ================================================ 
-// 🚀 UI 优化 & 初始化：移除加载遮罩 (实现秒开) 
-// ================================================ 
-function removeLoadingMask() { 
-    const mask = document.getElementById('app-loading-mask'); 
-    if (mask) { 
-        mask.classList.add('loaded'); // 触发CSS淡出 
-        mask.style.pointerEvents = 'none'; // 确保点击穿透 
-        setTimeout(() => { 
-            if (mask.parentNode) mask.parentNode.removeChild(mask); 
-        }, 600); 
-    } 
-} 
+// ================================================
+// 🚀 UI 优化 & 初始化：移除加载遮罩 (实现秒开)
+// ================================================
+function removeLoadingMask() {
+    const mask = document.getElementById('app-loading-mask');
+    if (mask) {
+        mask.classList.add('loaded'); // 触发CSS淡出
+        mask.style.pointerEvents = 'none'; // 确保点击穿透
+        setTimeout(() => {
+            if (mask.parentNode) mask.parentNode.removeChild(mask);
+        }, 600);
+    }
+}
 
-// 💀 清理旧 SW 
-async function exterminateServiceWorkers() { 
-    if (!('serviceWorker' in navigator)) return; 
-    try { 
-        const regs = await navigator.serviceWorker.getRegistrations(); 
-        if (regs.length > 0) { 
-            console.log('🧹 清理旧 SW'); 
-            await Promise.all(regs.map(r => r.unregister())); 
-        } 
-    } catch (e) {} 
-} 
+// 💀 清理旧 SW
+async function exterminateServiceWorkers() {
+    if (!('serviceWorker' in navigator)) return;
+    try {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        if (regs.length > 0) {
+            console.log('🧹 清理旧 SW');
+            await Promise.all(regs.map(r => r.unregister()));
+        }
+    } catch (e) {}
+}
 
-// 🔥 最终入口 
-document.addEventListener('DOMContentLoaded', () => { 
-    // 1. 清理 
-    exterminateServiceWorkers(); 
+// 🔥 最终入口
+document.addEventListener('DOMContentLoaded', () => {
+    // 1. 清理
+    exterminateServiceWorkers();
     
-    // 2. 初始化播放器 
-    const player = dom.audioPlayer; 
-    if (player) { 
-        player.removeAttribute('crossOrigin'); 
-        player.preload = "none"; 
-        player.setAttribute('playsinline', ''); 
-        player.setAttribute('webkit-playsinline', ''); 
+    // 2. 初始化播放器
+    const player = dom.audioPlayer;
+    if (player) {
+        player.removeAttribute('crossOrigin');
+        player.preload = "none";
+        player.setAttribute('playsinline', '');
+        player.setAttribute('webkit-playsinline', '');
         
-        // 绑定事件 (v13.0) 
-        bindAudioPlayerEvents(player); 
+        // 绑定事件 (v13.0)
+        bindAudioPlayerEvents(player);
         
-        // 交互解锁 
-        const enableAutoplay = () => { 
-            player.autoplay = true; 
-            document.removeEventListener('click', enableAutoplay); 
-            document.removeEventListener('touchstart', enableAutoplay); 
-        }; 
-        document.addEventListener('click', enableAutoplay); 
-        document.addEventListener('touchstart', enableAutoplay); 
-    } 
+        // 交互解锁
+        const enableAutoplay = () => {
+            player.autoplay = true;
+            document.removeEventListener('click', enableAutoplay);
+            document.removeEventListener('touchstart', enableAutoplay);
+        };
+        document.addEventListener('click', enableAutoplay);
+        document.addEventListener('touchstart', enableAutoplay);
+    }
     
-    // 3. 延迟初始化媒体控制 
-    setTimeout(setupMediaSessionControls, 1000); 
+    // 3. 延迟初始化媒体控制
+    setTimeout(setupMediaSessionControls, 1000);
     
-    // 4. 🚀 关键：移除遮罩，展示界面 
-    setTimeout(removeLoadingMask, 100); 
+    // 4. 🚀 关键：移除遮罩，展示界面
+    setTimeout(removeLoadingMask, 100);
 });
