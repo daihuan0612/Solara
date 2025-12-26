@@ -297,7 +297,7 @@ body.mobile-view .album-cover > div {
     height: 100%;
     font-size: 48px;
     color: #888;
-    background-color: var(--placeholder-bg, #f0f0f0);
+    background-color: transparent;
     border-radius: inherit;
 }
 
