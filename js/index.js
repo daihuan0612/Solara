@@ -5792,7 +5792,8 @@ function updateMediaMetadataForLockScreen(song) {
 })();
 
 // ================================================
-// iOS PWA 终极版 playSong (v7.3 Sound Fix)
+// iOS PWA 终极版 playSong (v7.4 Ghost Fix)
+// 修复：锁屏切歌有进度无声音、按钮卡死
 // ================================================
 async function playSong(song, options = {}) {
     const { autoplay = true, startTime = 0, preserveProgress = false } = options;
@@ -5803,7 +5804,7 @@ async function playSong(song, options = {}) {
     const isIOSPWA = isIOS && isPWA;
     const isLockScreen = document.visibilityState === 'hidden';
     
-    console.log(`🎵 准备播放: ${song.name}`);
+    console.log(`🎵 准备播放: ${song.name} (锁屏: ${isLockScreen})`);
 
     try {
         if (state._isPlayingSong) return false;
@@ -5811,19 +5812,23 @@ async function playSong(song, options = {}) {
         state.currentSong = song;
         const player = dom.audioPlayer;
 
-        // 1. 启动守护 (填补切歌间隙)
-        if (isIOSPWA && window.solaraAudioGuard) window.solaraAudioGuard.start();
+        // 1. 启动守护 (关键：只要是 iOS PWA 就启动，不管是否锁屏，防止切歌间隙被杀)
+        if (isIOSPWA && window.solaraAudioGuard) {
+            window.solaraAudioGuard.start();
+            console.log('🛡️ 守护启动：保护切歌间隙');
+        }
 
-        // 2. 抢占锁屏
+        // 2. 抢占锁屏信息 (防止上一首结束后控件清空)
         updateMediaMetadataForLockScreen(song);
 
-        // 3. 暂停并保留音量
+        // 3. 暂停旧音频并保存音量
         let safeVolume = player.volume;
         if (!safeVolume || safeVolume < 0.1) safeVolume = 1.0;
         
         if (!player.paused) {
             player.pause();
-            await new Promise(r => setTimeout(r, 50));
+            // 给一点缓冲时间让硬件释放
+            await new Promise(r => setTimeout(r, 30));
         }
 
         // 4. 构建防缓存 URL
@@ -5832,9 +5837,8 @@ async function playSong(song, options = {}) {
         if (!rawUrl.startsWith('http')) rawUrl = new URL(rawUrl, window.location.origin).href;
         const separator = rawUrl.includes('?') ? '&' : '?';
         const streamUrl = `${rawUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
-        console.log('🚀 音频直连:', streamUrl);
-
-        // 5. 柔性切换
+        
+        // 5. 柔性切换 (Soft Switch)
         player.removeAttribute('crossOrigin');
         player.setAttribute('playsinline', '');
         player.setAttribute('webkit-playsinline', '');
@@ -5842,17 +5846,17 @@ async function playSong(song, options = {}) {
         player.src = streamUrl;
         state.currentAudioUrl = streamUrl;
         
-        // ⚡️ 预先解除静音
+        // ⚡️ 预备状态：静音并加载
         player.muted = false;
         player.volume = safeVolume;
-        
         player.preload = 'auto';
         player.load();
 
-        // 6. 等待加载
+        // 6. 快速等待加载 (超时时间缩短，防止卡死)
         await new Promise((resolve) => {
             let resolved = false;
-            const timer = setTimeout(() => { if(!resolved) { resolved=true; resolve(); } }, 5000);
+            // 3秒超时，防止网络卡顿时按钮一直点不动
+            const timer = setTimeout(() => { if(!resolved) { resolved=true; resolve(); } }, 3000);
             const done = () => { if(!resolved) { resolved=true; clearTimeout(timer); resolve(); } };
             player.addEventListener('canplay', done, { once: true });
             player.addEventListener('error', done, { once: true });
@@ -5873,44 +5877,67 @@ async function playSong(song, options = {}) {
             setTimeout(() => {
                 updateCurrentSongInfo(song, { loadArtwork: true, updateBackground: true, immediate: true });
                 setTimeout(() => { if (dom.albumCover) dom.albumCover.classList.remove('loading'); }, 300);
-            }, 150);
+            }, 100);
         }
 
-        // 9. 播放逻辑
+        // 9. 播放逻辑 (核心修复区)
         if (autoplay) {
             state.isPlaying = true;
             updatePlayPauseButton();
             if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
 
-            await new Promise(r => setTimeout(r, 100));
+            // 给一点点缓冲
+            await new Promise(r => setTimeout(r, 50));
 
             try {
+                // 尝试播放
                 await player.play();
-                console.log('✅ 播放成功');
+                console.log('✅ 播放指令已发出');
 
-                // ⚡️⚡️ [核心] 强制开嗓并停止守护
-                player.muted = false;
-                player.volume = safeVolume;
-                
-                if (isIOSPWA && window.solaraAudioGuard) {
-                    window.solaraAudioGuard.stop();
+                // ⚡️⚡️ [核心修复 1] 硬件通道强制握手 ⚡️⚡️
+                // 在 iOS 锁屏下，有时候 Audio 元素状态是 playing，但硬件通道没打开。
+                // 我们通过快速切换 muted 状态来“惊醒”音频守护进程。
+                if (isIOS) {
+                    setTimeout(() => {
+                        player.muted = true;
+                        player.volume = safeVolume;
+                        setTimeout(() => {
+                            player.muted = false; // 这一刻，声音应该出来了
+                            console.log('🔊 硬件通道强制握手完成');
+                        }, 50); // 50ms 的静音闪烁
+                    }, 100);
                 }
                 
+                // ⚡️⚡️ [核心修复 2] 延迟关闭守护进程 ⚡️⚡️
+                // 不要立即关闭！让 AudioContext 再跑 3 秒，和新歌重叠一会儿。
+                // 这就像接力赛，两人同跑一段距离再松手，防止掉棒。
+                if (isIOSPWA && window.solaraAudioGuard) {
+                    console.log('⏳ 守护进程将在 3 秒后退出...');
+                    setTimeout(() => {
+                        if (!player.paused) { // 只有还在播放才关闭
+                            window.solaraAudioGuard.stop();
+                            console.log('🛑 守护进程安全退出');
+                        }
+                    }, 3000);
+                }
+                
+                // 再次刷新锁屏信息，确保 metadata 没被系统清空
                 setTimeout(() => updateMediaMetadataForLockScreen(song), 500);
 
             } catch (error) {
                 console.warn('⚠️ 播放受阻，尝试强力修复:', error);
+                // 兜底策略：如果播放失败，不关闭守护进程，甚至尝试重新加载
                 try {
                     player.muted = true;
                     await player.play();
-                    setTimeout(() => {
-                        player.muted = false;
-                        player.volume = safeVolume;
-                    }, 200);
+                    player.muted = false;
                 } catch (e) {
                     state.isPlaying = false;
                     updatePlayPauseButton();
-                    if (isIOSPWA && window.solaraAudioGuard) window.solaraAudioGuard.stop();
+                    // 播放失败也延迟关闭，或者不关闭
+                    if (isIOSPWA && window.solaraAudioGuard) {
+                        setTimeout(() => window.solaraAudioGuard.stop(), 2000);
+                    }
                 }
             }
         } else {
@@ -5924,7 +5951,7 @@ async function playSong(song, options = {}) {
         return true;
 
     } catch (error) {
-        console.error("异常:", error);
+        console.error("播放流程异常:", error);
         state.isPlaying = false;
         updatePlayPauseButton();
         if (isIOSPWA && window.solaraAudioGuard) window.solaraAudioGuard.stop();
@@ -6004,13 +6031,16 @@ function scheduleDeferredSongAssets(song, playPromise) {
     }
 }
 
-// 修复：自动播放下一首 (移除会导致中断的 skip 标记判断)
+// 修复：自动播放下一首 (带状态重置)
 function autoPlayNext() {
-    // 假设 getActivePlayMode 是你原文件里有的函数
+    console.log('🔄 触发自动连播...');
+    
+    // 强制重置播放锁，防止因为上一首结束时的状态错误导致无法切歌
+    state._isPlayingSong = false;
+    
     const mode = typeof getActivePlayMode === 'function' ? getActivePlayMode() : 'sequence';
     
     if (mode === "single") {
-        // 单曲循环：重置进度并播放
         if (dom.audioPlayer) {
             dom.audioPlayer.currentTime = 0;
             dom.audioPlayer.play().catch(console.warn);
@@ -6018,9 +6048,6 @@ function autoPlayNext() {
         return;
     }
 
-    // 正常切歌
-    console.log('🔄 自动播放下一首...');
-    // 确保 playNext 存在再调用
     if (typeof playNext === 'function') {
         playNext();
     }
