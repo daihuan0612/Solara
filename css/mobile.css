@@ -299,6 +299,8 @@ body.mobile-view .album-cover > div {
     color: #ffffff;
     background-color: transparent;
     border-radius: 50%;
+    font-weight: bold;
+    letter-spacing: -2px;
 }
 
 body.mobile-view .album-cover .placeholder {
@@ -1267,9 +1269,13 @@ body.mobile-view .search-results {
 body.mobile-view #notification {
     top: 18px;
     left: 50%;
-    transform: translate(-50%, -200%);
+    transform: translate(-50%, -100%);
     opacity: 0;
     pointer-events: none;
+    z-index: 10000;
+    min-width: 200px;
+    max-width: calc(100% - 40px);
+    word-wrap: break-word;
 }
 
 body.mobile-view #notification.show {
