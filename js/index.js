@@ -4028,89 +4028,84 @@ function fixAudioOutputIfNeeded() {
     }
 }
 
-// 修复：更新当前歌曲信息和封面
-function updateCurrentSongInfo(song, options = {}) {
-    const { loadArtwork = true, updateBackground = true } = options;
-    
-    // 如果是隐身模式，跳过UI更新
-    if (shouldUseStealthMode() && !state.forceUIUpdate) {
-        console.log('🔒 隐身模式：跳过UI更新');
-        return Promise.resolve();
-    }
-    
-    // 只有在 updateBackground 为 true 时才更新当前歌曲状态
-    if (updateBackground) {
-        state.currentSong = song;
-        dom.currentSongTitle.textContent = song.name;
-        updateMobileToolbarTitle();
-        updateFavoriteIcons();
+// 修复：更新当前歌曲信息和封面 (v7.8 无缝切换版)
+ function updateCurrentSongInfo(song, options = {}) {
+     const { loadArtwork = true, updateBackground = true } = options;
+     
+     // 隐身模式跳过
+     if (shouldUseStealthMode() && !state.forceUIUpdate) {
+         return Promise.resolve();
+     }
+     
+     // 1. 立即更新文字信息
+     if (updateBackground) {
+         state.currentSong = song;
+         if (dom.currentSongTitle) dom.currentSongTitle.textContent = song.name;
+         updateMobileToolbarTitle();
+         updateFavoriteIcons();
 
-        // 修复艺人名称显示问题 - 使用正确的字段名
-        const artistText = Array.isArray(song.artist) ? song.artist.join(', ') : (song.artist || '未知艺术家');
-        dom.currentSongArtist.textContent = artistText;
-    }
+         const artistText = Array.isArray(song.artist) ? song.artist.join(', ') : (song.artist || '未知艺术家');
+         if (dom.currentSongArtist) dom.currentSongArtist.textContent = artistText;
+     }
 
-    cancelDeferredPaletteUpdate();
+     cancelDeferredPaletteUpdate();
 
-    if (!loadArtwork) {
-        if (updateBackground) {
-            dom.albumCover.classList.add("loading");
-            dom.albumCover.innerHTML = PLACEHOLDER_HTML;
-            state.currentArtworkUrl = null;
-        }
-        return Promise.resolve();
-    }
+     if (!loadArtwork) {
+         return Promise.resolve();
+     }
 
-    // 加载封面
-    if (song.pic_id || song.id) {
-        cancelDeferredPaletteUpdate();
-        dom.albumCover.classList.add("loading");
-        const picUrl = API.getPicUrl(song);
-        
-        // 直接使用图片URL，不通过JSON解析
-        debugLog(`直接使用封面URL: ${picUrl}`);
-        
-        const img = new Image();
-        const preferredImageUrl = preferHttpsUrl(picUrl);
-        const absoluteImageUrl = toAbsoluteUrl(preferredImageUrl);
-        
-        if (state.currentSong === song) {
-            state.currentArtworkUrl = absoluteImageUrl;
-            if (typeof window.__SOLARA_UPDATE_MEDIA_METADATA === 'function') {
-                window.__SOLARA_UPDATE_MEDIA_METADATA();
-            }
-        }
-        
-        img.crossOrigin = "anonymous";
-        img.onload = () => {
-            if (state.currentSong !== song) {
-                return;
-            }
-            if (updateBackground) {
-                setAlbumCoverImage(preferredImageUrl);
-                // 优化：总是立即应用调色板，加快视觉效果
-                scheduleDeferredPaletteUpdate(preferredImageUrl, { immediate: true });
-            }
-        };
-        img.onerror = () => {
-            if (state.currentSong !== song) {
-                return;
-            }
-            if (updateBackground) {
-                cancelDeferredPaletteUpdate();
-                showAlbumCoverPlaceholder();
-            }
-        };
-        
-        img.src = preferredImageUrl;
-    } else {
-        cancelDeferredPaletteUpdate();
-        if (updateBackground) {
-            showAlbumCoverPlaceholder();
-        }
-    }
+     // 2. 图片加载逻辑优化
+     if (song.pic_id || song.id) {
+         const picUrl = API.getPicUrl(song);
+         const preferredImageUrl = preferHttpsUrl(picUrl);
+         const absoluteImageUrl = toAbsoluteUrl(preferredImageUrl);
+         
+         // 更新全局状态，但不立即清空 DOM
+         if (state.currentSong === song) {
+             state.currentArtworkUrl = absoluteImageUrl;
+             if (typeof window.__SOLARA_UPDATE_MEDIA_METADATA === 'function') {
+                 window.__SOLARA_UPDATE_MEDIA_METADATA();
+             }
+         }
+         
+         // 如果不更新背景（仅预加载），直接返回
+         if (!updateBackground) return Promise.resolve();
 
-    return Promise.resolve();
+         // 🌟 核心优化：后台静默加载，不闪烁 🌟
+         // 只有给 dom.albumCover 加上 'loading' 类，稍微降低透明度告诉用户在加载，但不删图
+         if (dom.albumCover) dom.albumCover.classList.add("loading");
+
+         const img = new Image();
+         img.crossOrigin = "anonymous";
+         
+         img.onload = () => {
+             // 只有当加载完成，且这首歌依然是当前歌曲时，才替换图片
+             if (state.currentSong === song) {
+                 setAlbumCoverImage(preferredImageUrl);
+                 // 图片到位了，去掉 loading 状态，图片瞬间呈现
+                 if (dom.albumCover) dom.albumCover.classList.remove("loading");
+                 scheduleDeferredPaletteUpdate(preferredImageUrl, { immediate: true });
+             }
+         };
+         
+         img.onerror = () => {
+             if (state.currentSong === song) {
+                 // 如果真的加载失败了，再显示默认图标（Favicon）
+                 showAlbumCoverPlaceholder();
+                 if (dom.albumCover) dom.albumCover.classList.remove("loading");
+             }
+         };
+         
+         img.src = preferredImageUrl;
+
+     } else {
+         // 如果这首歌本来就没有封面，那就直接显示默认图标
+         if (updateBackground) {
+             showAlbumCoverPlaceholder();
+         }
+     }
+
+     return Promise.resolve();
 }
 
 // 搜索功能 - 修复搜索下拉框显示问题
@@ -5792,8 +5787,9 @@ function updateMediaMetadataForLockScreen(song) {
 })();
 
 // ================================================
- // iOS PWA 终极版 playSong (v7.6 Sound Priority)
- // 策略：回归 v7.4 的“接力”策略（保证有声音），但增强控件刷新
+ // iOS PWA 终极版 playSong (v7.7 Event-Driven)
+ // 修复：网络卡顿导致守护进程提前关闭（有进度无声）
+ // 策略：不再猜时间，直到检测到新歌真正播放出声(>0.2s)才关闭守护
  // ================================================
 async function playSong(song, options = {}) {
      const { autoplay = true, startTime = 0, preserveProgress = false } = options;
@@ -5812,9 +5808,10 @@ async function playSong(song, options = {}) {
          state.currentSong = song;
          const player = dom.audioPlayer;
 
-         // 1. 启动守护 (v7.6: 依然启动，为了保护切歌间隙)
+         // 1. 启动守护 (v7.7: 必须启动，等待交接信号)
          if (isIOSPWA && window.solaraAudioGuard) {
              window.solaraAudioGuard.start();
+             console.log('🛡️ 守护启动：等待新歌出声...');
          }
 
          // 2. 更新锁屏
@@ -5850,7 +5847,8 @@ async function playSong(song, options = {}) {
          // 6. 等待加载
          await new Promise((resolve) => {
              let resolved = false;
-             const timer = setTimeout(() => { if(!resolved) { resolved=true; resolve(); } }, 3000);
+             // 延长超时到 5秒，给网络多点时间
+             const timer = setTimeout(() => { if(!resolved) { resolved=true; resolve(); } }, 5000);
              const done = () => { if(!resolved) { resolved=true; clearTimeout(timer); resolve(); } };
              player.addEventListener('canplay', done, { once: true });
              player.addEventListener('error', done, { once: true });
@@ -5884,22 +5882,41 @@ async function playSong(song, options = {}) {
 
              try {
                  await player.play();
-                 console.log('✅ 播放成功');
+                 console.log('✅ 播放指令成功');
 
-                 // ⚡️⚡️ [核心修复 v7.6] 回归 v7.4 逻辑，但做优化 ⚡️⚡️
-                 // 必须在几秒后关闭守护，否则新歌会被静音（这就是你遇到的问题）
+                 // ⚡️⚡️ [核心修复 v7.7] 动态交接策略 ⚡️⚡️
                  if (isIOSPWA && window.solaraAudioGuard) {
-                     console.log('⏳ 2.5秒后释放音频通道...');
+                     
+                     // 定义交接逻辑：只有真的播了 0.2秒，才关闭守护
+                     const handoffGuard = () => {
+                         // 检查当前播放时间，确保真的走动了
+                         if (player.currentTime > 0.2 && !player.paused) {
+                             console.log(`🔊 检测到新歌信号 (time=${player.currentTime.toFixed(2)})，守护退场`);
+                             
+                             // 1. 关闭守护
+                             window.solaraAudioGuard.stop();
+                             
+                             // 2. 再次刷新锁屏 (防控件消失)
+                             updateMediaMetadataForLockScreen(song);
+                             if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
+                             
+                             // 3. 移除监听，避免重复执行
+                             player.removeEventListener('timeupdate', handoffGuard);
+                         }
+                     };
+
+                     // 开始监听进度条
+                     player.addEventListener('timeupdate', handoffGuard);
+
+                     // 兜底保险：万一 timeupdate 死活不触发，8秒后强制关闭，防止耗电
                      setTimeout(() => {
-                         // 1. 关闭守护 (让声音出来)
-                         window.solaraAudioGuard.stop();
-                         console.log('🛑 守护停止，音频通道已移交');
-                         
-                         // 2. [关键新增] 再次强制刷新锁屏信息 (防止控件消失)
-                         // 告诉 iOS：“虽然守护停了，但 Music 还在响，别关控件！”
-                         updateMediaMetadataForLockScreen(song);
-                         if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
-                     }, 2500);
+                         if (window.solaraAudioGuard && window.solaraAudioGuard.start) { // 简单检查是否存在
+                              // 这里我们不直接读isActive，直接调stop反正也是安全的
+                              console.warn('⚠️ 8秒超时兜底：强制关闭守护');
+                              window.solaraAudioGuard.stop();
+                              player.removeEventListener('timeupdate', handoffGuard);
+                         }
+                     }, 8000);
                  }
 
              } catch (error) {
@@ -5911,6 +5928,7 @@ async function playSong(song, options = {}) {
                  } catch (e) {
                      state.isPlaying = false;
                      updatePlayPauseButton();
+                     // 只有真的播不出来才停止守护
                      if (isIOSPWA && window.solaraAudioGuard) window.solaraAudioGuard.stop();
                  }
              }
