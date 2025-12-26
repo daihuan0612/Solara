@@ -1933,18 +1933,21 @@ function attemptPaletteApplication() {
 }
 
 function showAlbumCoverPlaceholder() {
-    const placeholderImg = document.createElement('img');
-    placeholderImg.src = '/favicon.png';
-    placeholderImg.alt = '音乐图标';
-    placeholderImg.style.width = '100%';
-    placeholderImg.style.height = '100%';
-    placeholderImg.style.objectFit = 'cover';
-    placeholderImg.style.borderRadius = 'inherit';
+    const placeholderDiv = document.createElement('div');
+    placeholderDiv.innerHTML = '♪';
+    placeholderDiv.style.display = 'flex';
+    placeholderDiv.style.alignItems = 'center';
+    placeholderDiv.style.justifyContent = 'center';
+    placeholderDiv.style.width = '100%';
+    placeholderDiv.style.height = '100%';
+    placeholderDiv.style.fontSize = '48px';
+    placeholderDiv.style.color = '#888';
+    placeholderDiv.style.backgroundColor = 'var(--placeholder-bg, #f0f0f0)';
+    placeholderDiv.style.borderRadius = 'inherit';
     dom.albumCover.innerHTML = '';
-    dom.albumCover.appendChild(placeholderImg);
+    dom.albumCover.appendChild(placeholderDiv);
     dom.albumCover.classList.remove("loading");
-    state.currentArtworkUrl = toAbsoluteUrl('/favicon.png');
-    queueDefaultPalette();
+    state.currentArtworkUrl = null;
     if (typeof window.__SOLARA_UPDATE_MEDIA_METADATA === 'function') {
         window.__SOLARA_UPDATE_MEDIA_METADATA();
     }
@@ -4093,15 +4096,19 @@ function updateCurrentSongInfo(song, options = {}) {
     if (!loadArtwork) {
         if (updateBackground) {
             dom.albumCover.classList.add("loading");
-            const placeholderImg = document.createElement('img');
-            placeholderImg.src = '/favicon.png';
-            placeholderImg.alt = '音乐图标';
-            placeholderImg.style.width = '100%';
-            placeholderImg.style.height = '100%';
-            placeholderImg.style.objectFit = 'cover';
-            placeholderImg.style.borderRadius = 'inherit';
+            const placeholderDiv = document.createElement('div');
+            placeholderDiv.innerHTML = '♪';
+            placeholderDiv.style.display = 'flex';
+            placeholderDiv.style.alignItems = 'center';
+            placeholderDiv.style.justifyContent = 'center';
+            placeholderDiv.style.width = '100%';
+            placeholderDiv.style.height = '100%';
+            placeholderDiv.style.fontSize = '48px';
+            placeholderDiv.style.color = '#888';
+            placeholderDiv.style.backgroundColor = 'var(--placeholder-bg, #f0f0f0)';
+            placeholderDiv.style.borderRadius = 'inherit';
             dom.albumCover.innerHTML = '';
-            dom.albumCover.appendChild(placeholderImg);
+            dom.albumCover.appendChild(placeholderDiv);
             state.currentArtworkUrl = null;
         }
         return Promise.resolve();
@@ -5829,10 +5836,10 @@ async function playPlaylistSong(index) {
         showNotification(`${song.name} 播放失败，自动播放下一首`, "error");
         console.log(`歌曲 ${song.name} 重试 ${maxRetries} 次后仍然失败，自动播放下一首`);
         
-        // 延迟执行下一首，给用户一点时间了解情况
+        // 立即执行下一首，不需要延迟
         setTimeout(() => {
             playNext();
-        }, 1500);
+        }, 100); // 使用较短的延迟以确保当前函数完成执行
     }
 }
 
