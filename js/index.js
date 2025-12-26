@@ -1944,10 +1944,16 @@ function showAlbumCoverPlaceholder() {
     placeholderDiv.style.color = '#ffffff';
     placeholderDiv.style.backgroundColor = 'transparent';
     placeholderDiv.style.borderRadius = '12px';
+    placeholderDiv.style.fontWeight = 'bold';
+    placeholderDiv.style.letterSpacing = '-2px';
     dom.albumCover.innerHTML = '';
     dom.albumCover.appendChild(placeholderDiv);
     dom.albumCover.classList.remove("loading");
     state.currentArtworkUrl = null;
+    
+    // 重置动态背景，确保不延续上一首歌的背景色
+    resetDynamicBackground();
+    
     if (typeof window.__SOLARA_UPDATE_MEDIA_METADATA === 'function') {
         window.__SOLARA_UPDATE_MEDIA_METADATA();
     }
@@ -4127,9 +4133,14 @@ function updateCurrentSongInfo(song, options = {}) {
             placeholderDiv.style.color = '#ffffff';
             placeholderDiv.style.backgroundColor = 'transparent';
             placeholderDiv.style.borderRadius = '12px';
+            placeholderDiv.style.fontWeight = 'bold';
+            placeholderDiv.style.letterSpacing = '-2px';
             dom.albumCover.innerHTML = '';
             dom.albumCover.appendChild(placeholderDiv);
             state.currentArtworkUrl = null;
+            
+            // 重置动态背景，确保不延续上一首歌的背景色
+            resetDynamicBackground();
         }
         return Promise.resolve();
     }
