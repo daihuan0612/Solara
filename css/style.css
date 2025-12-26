@@ -796,6 +796,8 @@ body.background-transitioning .background-stage__layer--transition {
     color: #ffffff;
     background-color: transparent;
     border-radius: 12px;
+    font-weight: bold;
+    letter-spacing: -2px;
 }
 
 .album-cover.loading {
@@ -2149,9 +2151,12 @@ input[type="range"]:active::-moz-range-thumb {
     padding: 12px 20px;
     border-radius: 8px;
     box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-    z-index: 1000;
-    transform: translateX(400px);
+    z-index: 10000;
+    transform: translateX(100%);
     transition: transform 0.3s ease;
+    min-width: 200px;
+    max-width: 300px;
+    word-wrap: break-word;
 }
 
 .notification.show {
