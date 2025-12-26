@@ -800,17 +800,37 @@ const API = {
     },
 
     search: async (keyword, source = "netease", count = 20, page = 1) => {
-        const url = `${API.baseUrl}/api/?source=${source}&type=search&keyword=${encodeURIComponent(keyword)}&limit=${count}`;
+        // 使用聚合搜索API，提高搜索成功率
+        const url = `${API.baseUrl}/api/?type=aggregateSearch&keyword=${encodeURIComponent(keyword)}&limit=${count}`;
 
         try {
             debugLog(`API请求: ${url}`);
             const data = await API.fetchJson(url);
             debugLog(`API响应: ${JSON.stringify(data).substring(0, 200)}...`);
 
-            if (!data || data.code !== 200 || !Array.isArray(data.data.results)) {
-                throw new Error("搜索结果格式错误");
+            if (!data || data.code !== 200) {
+                // 如果聚合搜索失败，尝试传统的单平台搜索
+                debugLog("聚合搜索失败，尝试单平台搜索");
+                const fallbackUrl = `${API.baseUrl}/api/?source=${source}&type=search&keyword=${encodeURIComponent(keyword)}&limit=${count}`;
+                const fallbackData = await API.fetchJson(fallbackUrl);
+                
+                if (!fallbackData || fallbackData.code !== 200 || !Array.isArray(fallbackData.data.results)) {
+                    throw new Error("搜索结果格式错误");
+                }
+                
+                return fallbackData.data.results.map(song => ({
+                    id: song.id,
+                    name: song.name,
+                    artist: song.artist,
+                    album: song.album,
+                    source: song.platform || source,
+                    pic_id: song.id,
+                    url_id: song.id,
+                    lyric_id: song.id,
+                }));
             }
 
+            // 聚合搜索成功，返回结果
             return data.data.results.map(song => ({
                 id: song.id,
                 name: song.name,
@@ -855,12 +875,13 @@ const API = {
     },
 
     getSongUrl: (song, quality = "320") => {
-        // 根据API文档，quality参数需要映射为128k, 192k, 320k, flac
+        // 根据TuneHub API文档，quality参数需要映射为128k, 192k, 320k, flac, flac24bit
         const qualityMap = {
             "128": "128k",
             "192": "192k",
             "320": "320k",
-            "999": "flac"
+            "999": "flac",
+            "1411": "flac" // 无损音质
         };
         
         // 处理MP3选项，返回默认的MP3质量
@@ -6214,10 +6235,19 @@ function updateOnlineHighlight() {
 
 const EXPLORE_RADAR_GENRES = [
     "流行",
-    "排行榜",
-    "每日排行榜",
-    "每日排行",
+    "热歌",
+    "新歌",
+    "经典",
+    "华语",
+    "欧美",
+    "日韩",
+    "摇滚",
     "民谣",
+    "古风",
+    "说唱",
+    "情歌",
+    "抖音热歌",
+    "影视金曲",
 ];
 
 function pickRandomExploreGenre() {
@@ -6265,26 +6295,45 @@ async function exploreOnlineMusic() {
     try {
         setLoadingState(true);
 
-        const randomGenre = pickRandomExploreGenre();
-        const source = pickRandomExploreSource();
-        const results = await API.search(randomGenre, source, 10, 1);
-
-        if (!Array.isArray(results) || results.length === 0) {
-            showNotification("探索雷达：未找到歌曲", "error");
-            debugLog(`探索雷达未找到歌曲，关键词：${randomGenre}，音源：${source}`);
+        // 从所有分类中各取一首歌曲
+        const genres = EXPLORE_RADAR_GENRES;
+        let allSongs = [];
+        
+        // 并发搜索所有分类
+        const searchPromises = genres.map(async (genre) => {
+            try {
+                debugLog(`探索雷达搜索: ${genre}`);
+                const source = pickRandomExploreSource();
+                const results = await API.search(genre, source, 1, 1); // 每个分类只取1首
+                
+                if (Array.isArray(results) && results.length > 0) {
+                    // 取第一个结果
+                    const song = results[0];
+                    return {
+                        ...song,
+                        source: song.source || "netease",
+                        lyric_id: song.lyric_id || song.id,
+                        pic_id: song.pic_id || song.id || "",
+                        url_id: song.url_id || song.id,
+                    };
+                }
+            } catch (error) {
+                debugLog(`探索雷达分类失败: ${genre}, 错误: ${error.message}`);
+                return null; // 失败时返回null
+            }
+        });
+        
+        // 等待所有搜索完成
+        const searchResults = await Promise.all(searchPromises);
+        
+        // 过滤掉失败的结果
+        allSongs = searchResults.filter(song => song !== null);
+        
+        if (!Array.isArray(allSongs) || allSongs.length === 0) {
+            showNotification("探索雷达：所有分类均未找到歌曲", "error");
+            debugLog(`探索雷达：所有分类都未能返回结果`);
             return;
         }
-
-        const normalizedSongs = results.map((song) => ({
-            id: song.id,
-            name: song.name,
-            artist: Array.isArray(song.artist) ? song.artist.join(" / ") : (song.artist || "未知艺术家"),
-            album: song.album || "",
-            source: song.source || source,
-            lyric_id: song.lyric_id || song.id,
-            pic_id: song.pic_id || song.pic || "",
-            url_id: song.url_id,
-        }));
 
         const existingSongs = Array.isArray(state.playlistSongs) ? state.playlistSongs.slice() : [];
         const existingKeys = new Set(existingSongs
@@ -6292,7 +6341,7 @@ async function exploreOnlineMusic() {
             .filter((key) => typeof key === "string" && key.length > 0));
 
         const appendedSongs = [];
-        for (const song of normalizedSongs) {
+        for (const song of allSongs) {
             const key = getSongKey(song);
             if (key && existingKeys.has(key)) {
                 continue;
@@ -6305,7 +6354,7 @@ async function exploreOnlineMusic() {
 
         if (appendedSongs.length === 0) {
             showNotification("探索雷达：本次未找到新的歌曲，当前列表已包含这些曲目", "info");
-            debugLog(`探索雷达无新增歌曲，关键词：${randomGenre}`);
+            debugLog(`探索雷达无新增歌曲，共搜索${genres.length}个分类`);
             return;
         }
 
@@ -6330,8 +6379,8 @@ async function exploreOnlineMusic() {
             }
         }
 
-        showNotification(`探索雷达：新增${appendedSongs.length}首 ${randomGenre} 歌曲`);
-        debugLog(`探索雷达加载成功，关键词：${randomGenre}，音源：${source}，新增歌曲数：${appendedSongs.length}`);
+        showNotification(`探索雷达：新增${appendedSongs.length}首歌曲（来自${genres.length}个分类）`);
+        debugLog(`探索雷达加载成功，共搜索${genres.length}个分类，新增歌曲数：${appendedSongs.length}`);
 
         const shouldAutoplay = existingSongs.length === 0 && state.playlistSongs.length > 0;
         if (shouldAutoplay) {
