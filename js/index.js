@@ -817,10 +817,10 @@ const API = {
                 artist: song.artist,
                 album: song.album,
                 source: song.platform || source,
-                // 新API返回的URL已经是完整的API链接，我们需要提取id用于后续请求
-                pic_id: song.id,
-                url_id: song.id,
-                lyric_id: song.id,
+                // 使用正确的ID作为封面、歌词和URL的标识
+                pic_id: song.pic_id || song.id,
+                url_id: song.url_id || song.id,
+                lyric_id: song.lyric_id || song.id,
             }));
         } catch (error) {
             debugLog(`API错误: ${error.message}`);
@@ -844,9 +844,9 @@ const API = {
                 name: track.name,
                 artist: track.artist || "",
                 album: track.album || "",
-                source: "netease",
-                lyric_id: track.id,
-                pic_id: track.id,
+                source: track.source || "netease",
+                lyric_id: track.lyric_id || track.id,
+                pic_id: track.pic_id || track.id,
             }));
         } catch (error) {
             console.error("API request failed:", error);
