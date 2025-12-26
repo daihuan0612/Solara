@@ -2115,39 +2115,6 @@ input[type="range"]:active::-moz-range-thumb {
     transform: scale(1) rotate(0deg);
 }
 
-/* 加载遮罩样式 */
-#app-loading-mask {
-    position: fixed;
-    inset: 0;
-    background: var(--bg-gradient);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 999999;
-    transition: opacity 0.6s ease, visibility 0.6s ease;
-    visibility: visible;
-    opacity: 1;
-}
-
-#app-loading-mask::after {
-    content: '';
-    width: 40px;
-    height: 40px;
-    border: 4px solid rgba(255, 255, 255, 0.3);
-    border-top-color: var(--primary-color);
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
-}
-
-#app-loading-mask.loaded {
-    opacity: 0;
-    visibility: hidden;
-    pointer-events: none;
-}
-
-@keyframes spin {
-    to { transform: rotate(360deg); }
-}
 
 /* 通知样式 */
 .notification {
