@@ -288,6 +288,19 @@ body.mobile-view .album-cover img {
     border-radius: inherit;
 }
 
+/* 为移动端没有封面的占位符添加样式 */
+body.mobile-view .album-cover > div {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    font-size: 48px;
+    color: #888;
+    background-color: var(--placeholder-bg, #f0f0f0);
+    border-radius: inherit;
+}
+
 body.mobile-view .album-cover .placeholder {
     font-size: clamp(36px, 12vw, 48px);
     color: rgba(255, 255, 255, 0.9);
