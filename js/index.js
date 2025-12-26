@@ -873,7 +873,21 @@ const API = {
         const br = qualityMap[validQuality];
         
         // 构建API URL，支持不同类型的请求
-        return `${API.baseUrl}/api/?source=${song.source || "netease"}&id=${song.id}&type=url&br=${br}`;
+        // 为酷我音乐添加额外参数以提高兼容性
+        const source = song.source || "netease";
+        const baseUrl = `${API.baseUrl}/api/?source=${source}&id=${song.id}&type=url&br=${br}`;
+        
+        // 酷我音乐可能需要额外的参数来提高兼容性
+        if (source === "kuwo") {
+            return `${baseUrl}&needNewCode=1`;
+        }
+        
+        // QQ音乐可能需要额外的参数来提高兼容性
+        if (source === "qq") {
+            return `${baseUrl}&platform=20&format=json`;
+        }
+        
+        return baseUrl;
     },
 
     getLyric: (song) => {
