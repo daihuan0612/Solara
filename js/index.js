@@ -6769,10 +6769,6 @@ function showNotification(message, type = "success") {
     };
 })();
 
-// ==========================================
-// 💀 强力驱魔：在 App 启动时强制杀掉所有残留 Service Worker
-// 包含：卸载 SW、删除 Cache Storage、重置控制器
-// ==========================================
 // ================================================
 // 💀 启动清理：清除所有僵尸 SW 和缓存
 // ================================================
@@ -6801,8 +6797,7 @@ function removeLoadingMask() {
     const mask = document.getElementById('app-loading-mask');
     if (mask) {
         mask.classList.add('loaded'); // 触发CSS淡出
-        // 确保点击穿透
-        mask.style.pointerEvents = 'none';
+        mask.style.pointerEvents = 'none'; // 确保点击穿透
         setTimeout(() => {
             if (mask.parentNode) mask.parentNode.removeChild(mask);
         }, 600);
@@ -6813,7 +6808,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // 1. 立即清理僵尸进程
     exterminateServiceWorkers();
     
-    // 2. 初始化播放器配置
+    // 2. 初始化播放器
     const player = dom.audioPlayer;
     if (player) {
         player.removeAttribute('crossOrigin');
@@ -6821,7 +6816,7 @@ document.addEventListener('DOMContentLoaded', () => {
         player.setAttribute('playsinline', '');
         player.setAttribute('webkit-playsinline', '');
         
-        // 监控异常静音
+        // 监控是否静音
         player.addEventListener('volumechange', () => {
              if(player.muted || player.volume === 0) console.warn('⚠️ 播放器变为静音状态');
         });
@@ -6834,5 +6829,5 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(removeLoadingMask, 100);
 });
 
-// 作为兜底，如果 load 事件触发（所有图片资源加载完），也尝试移除
+// 作为兜底，如果 load 事件触发（所有资源加载完），也尝试移除
 window.addEventListener('load', () => setTimeout(removeLoadingMask, 200));
