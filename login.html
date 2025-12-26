@@ -382,13 +382,75 @@
 
     .login-form input {
       flex: 1;
-      background: transparent;
-      border: none;
-      outline: none;
-      color: #ffffff;
+      background: transparent !important;
+      border: none !important;
+      outline: none !important;
+      color: #ffffff !important;
       font-size: 1rem;
       font-family: inherit;
       letter-spacing: 1px;
+      /* 确保没有白色衬底 */
+      box-shadow: none !important;
+      -webkit-box-shadow: none !important;
+      -moz-box-shadow: none !important;
+      /* 禁用浏览器默认的输入框样式 */
+      -webkit-appearance: none;
+      -moz-appearance: none;
+      appearance: none;
+    }
+
+    /* 修复浏览器自动填充导致的白色背景 - 增强版，兼容移动端 */
+    .login-form input:-webkit-autofill,
+    .login-form input:-webkit-autofill:hover,
+    .login-form input:-webkit-autofill:focus,
+    .login-form input:-webkit-autofill:active,
+    /* 移动端特定选择器 */
+    .login-form input:-webkit-autofill:-webkit-autofill,
+    .mobile-view .login-form input:-webkit-autofill,
+    .portrait-mobile .login-form input:-webkit-autofill {
+      /* 核心修复：使用透明背景和白色文字 */
+      -webkit-background-clip: text !important;
+      -webkit-text-fill-color: #ffffff !important;
+      /* 自定义背景色，与输入框背景一致 */
+      background-color: rgba(12, 18, 24, 0.75) !important;
+      background-image: none !important;
+      /* 防止背景色恢复 */
+      transition: background-color 5000s ease-in-out 0s !important;
+      /* 确保没有边框和阴影 */
+      border: none !important;
+      box-shadow: none !important;
+      -webkit-box-shadow: none !important;
+      /* 确保与输入框容器样式一致 */
+      border-radius: 16px !important;
+    }
+
+    /* 修复Firefox自动填充 - 增强版，兼容移动端 */
+    .login-form input:-moz-autofill,
+    .login-form input:-moz-autofill:hover,
+    .login-form input:-moz-autofill:focus,
+    .login-form input:-moz-autofill:active,
+    /* 移动端特定选择器 */
+    .mobile-view .login-form input:-moz-autofill,
+    .portrait-mobile .login-form input:-moz-autofill {
+      background-color: rgba(12, 18, 24, 0.75) !important;
+      color: #ffffff !important;
+      border: none !important;
+      box-shadow: none !important;
+      border-radius: 16px !important;
+    }
+
+    /* 修复Safari移动端自动填充 */
+    @-webkit-keyframes autofill {
+      to {
+        color: #ffffff;
+        background: transparent;
+      }
+    }
+
+    .login-form input,
+    .mobile-view .login-form input {
+      -webkit-animation-name: autofill;
+      -webkit-animation-fill-mode: both;
     }
 
     .login-form input::placeholder {
