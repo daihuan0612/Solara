@@ -5787,9 +5787,9 @@ function updateMediaMetadataForLockScreen(song) {
 })();
 
 // ================================================
- // iOS PWA 终极版 playSong (v7.7 Event-Driven)
- // 修复：网络卡顿导致守护进程提前关闭（有进度无声）
- // 策略：不再猜时间，直到检测到新歌真正播放出声(>0.2s)才关闭守护
+ // iOS PWA 终极版 playSong (v7.9 Kickstart)
+ // 修复：自动切歌“有进度无声音” & 锁屏控件死死
+ // 策略：在守护退场瞬间，执行“暂停-播放”起搏，强制激活硬件
  // ================================================
 async function playSong(song, options = {}) {
      const { autoplay = true, startTime = 0, preserveProgress = false } = options;
@@ -5808,10 +5808,9 @@ async function playSong(song, options = {}) {
          state.currentSong = song;
          const player = dom.audioPlayer;
 
-         // 1. 启动守护 (v7.7: 必须启动，等待交接信号)
+         // 1. 启动守护 (必须启动，撑过加载期)
          if (isIOSPWA && window.solaraAudioGuard) {
              window.solaraAudioGuard.start();
-             console.log('🛡️ 守护启动：等待新歌出声...');
          }
 
          // 2. 更新锁屏
@@ -5847,7 +5846,6 @@ async function playSong(song, options = {}) {
          // 6. 等待加载
          await new Promise((resolve) => {
              let resolved = false;
-             // 延长超时到 5秒，给网络多点时间
              const timer = setTimeout(() => { if(!resolved) { resolved=true; resolve(); } }, 5000);
              const done = () => { if(!resolved) { resolved=true; clearTimeout(timer); resolve(); } };
              player.addEventListener('canplay', done, { once: true });
@@ -5861,7 +5859,7 @@ async function playSong(song, options = {}) {
          }
          if (targetTime > 0) player.currentTime = targetTime;
 
-         // 8. UI 更新
+         // 8. UI 更新 (v7.8 无缝逻辑已集成在 updateCurrentSongInfo)
          if (isIOSPWA && isLockScreen) {
              state.needUpdateOnUnlock = true;
          } else {
@@ -5884,35 +5882,41 @@ async function playSong(song, options = {}) {
                  await player.play();
                  console.log('✅ 播放指令成功');
 
-                 // ⚡️⚡️ [核心修复 v7.7] 动态交接策略 ⚡️⚡️
+                 // ⚡️⚡️ [核心修复 v7.9] 起搏器机制 ⚡️⚡️
                  if (isIOSPWA && window.solaraAudioGuard) {
                      
-                     // 定义交接逻辑：只有真的播了 0.2秒，才关闭守护
                      const handoffGuard = () => {
-                         // 检查当前播放时间，确保真的走动了
+                         // 只有真的走动了 0.2 秒，才执行交接
                          if (player.currentTime > 0.2 && !player.paused) {
-                             console.log(`🔊 检测到新歌信号 (time=${player.currentTime.toFixed(2)})，守护退场`);
+                             console.log(`🔊 [起搏器] 触发交接 (time=${player.currentTime.toFixed(2)})`);
                              
-                             // 1. 关闭守护
+                             // 1. 关闭守护 (此时音频可能会掉线)
                              window.solaraAudioGuard.stop();
                              
-                             // 2. 再次刷新锁屏 (防控件消失)
-                             updateMediaMetadataForLockScreen(song);
-                             if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
-                             
-                             // 3. 移除监听，避免重复执行
+                             // 2. ⚡️⚡️ 关键动作：快速重启 ⚡️⚡️
+                             // 这会强制 iOS 重新分配硬件通道，修复“幽灵播放”
+                             if (isLockScreen) {
+                                 console.log('⚡️ 执行硬件重连...');
+                                 player.pause();
+                                 setTimeout(() => {
+                                     player.play().catch(e => console.warn('起搏重播失败', e));
+                                     
+                                     // 3. 再次刷新锁屏控件 (防止按钮死死)
+                                     updateMediaMetadataForLockScreen(song);
+                                     if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
+                                 }, 50); // 50ms 间隙，人耳几乎听不出，但对系统足够了
+                             }
+
+                             // 移除监听
                              player.removeEventListener('timeupdate', handoffGuard);
                          }
                      };
 
-                     // 开始监听进度条
                      player.addEventListener('timeupdate', handoffGuard);
 
-                     // 兜底保险：万一 timeupdate 死活不触发，8秒后强制关闭，防止耗电
+                     // 兜底：8秒超时
                      setTimeout(() => {
-                         if (window.solaraAudioGuard && window.solaraAudioGuard.start) { // 简单检查是否存在
-                              // 这里我们不直接读isActive，直接调stop反正也是安全的
-                              console.warn('⚠️ 8秒超时兜底：强制关闭守护');
+                         if (window.solaraAudioGuard && window.solaraAudioGuard.stop) {
                               window.solaraAudioGuard.stop();
                               player.removeEventListener('timeupdate', handoffGuard);
                          }
@@ -5928,7 +5932,6 @@ async function playSong(song, options = {}) {
                  } catch (e) {
                      state.isPlaying = false;
                      updatePlayPauseButton();
-                     // 只有真的播不出来才停止守护
                      if (isIOSPWA && window.solaraAudioGuard) window.solaraAudioGuard.stop();
                  }
              }
