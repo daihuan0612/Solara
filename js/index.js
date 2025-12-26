@@ -1942,7 +1942,9 @@ function showAlbumCoverPlaceholder() {
     placeholderDiv.style.height = '100%';
     placeholderDiv.style.fontSize = '48px';
     placeholderDiv.style.color = '#888';
-    placeholderDiv.style.backgroundColor = 'var(--placeholder-bg, #f0f0f0)';
+    // 获取当前背景色作为占位符背景色
+    const currentBg = getComputedStyle(document.body).backgroundColor;
+    placeholderDiv.style.backgroundColor = currentBg || 'var(--placeholder-bg, #f0f0f0)';
     placeholderDiv.style.borderRadius = 'inherit';
     dom.albumCover.innerHTML = '';
     dom.albumCover.appendChild(placeholderDiv);
@@ -4105,7 +4107,9 @@ function updateCurrentSongInfo(song, options = {}) {
             placeholderDiv.style.height = '100%';
             placeholderDiv.style.fontSize = '48px';
             placeholderDiv.style.color = '#888';
-            placeholderDiv.style.backgroundColor = 'var(--placeholder-bg, #f0f0f0)';
+            // 获取当前背景色作为占位符背景色
+            const currentBg = getComputedStyle(document.body).backgroundColor;
+            placeholderDiv.style.backgroundColor = currentBg || 'var(--placeholder-bg, #f0f0f0)';
             placeholderDiv.style.borderRadius = 'inherit';
             dom.albumCover.innerHTML = '';
             dom.albumCover.appendChild(placeholderDiv);
