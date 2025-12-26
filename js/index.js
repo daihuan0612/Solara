@@ -4674,47 +4674,63 @@ async function downloadWithQuality(event, index, type, quality) {
 }
 
 // 修复：播放搜索结果 - 添加到播放列表而不是清空
+// 修复：播放搜索结果 - 保持在"搜索"模式下播放，不强制切回播放列表
 async function playSearchResult(index) {
+    // 确保索引有效
+    if (index < 0 || index >= state.searchResults.length) return;
+
     const song = state.searchResults[index];
     if (!song) return;
 
     try {
-        // 立即隐藏搜索结果，显示播放界面
-        hideSearchResults();
-        dom.searchInput.value = "";
+        console.log(`🔍 播放搜索结果: ${song.name} (索引: ${index})`);
+
+        // 1. 关键修复：明确告知播放器我们现在在"搜索"列表里
+        state.currentPlaylist = "search"; 
+        state.currentList = "playlist"; // 这是一个 UI 状态，保持 playlist 即可
+        state.currentTrackIndex = index; // 更新当前索引为搜索结果的索引
+
+        // 2. 隐藏搜索面板，显示播放器
+        hideSearchResults(); // 注意：这个函数会把 isSearchMode 设为 false，这没问题
+        
+        // 3. 移动端特殊处理
+        if (dom.searchInput) dom.searchInput.value = "";
         if (isMobileView) {
             closeMobileSearch();
         }
 
-        // 检查歌曲是否已在播放列表中
-        const existingIndex = state.playlistSongs.findIndex(s => s.id === song.id && s.source === song.source);
+        // 4. 更新高亮 (需要新建一个针对搜索列表的高亮函数，或者复用逻辑)
+        updateSearchHighlight(index);
 
-        if (existingIndex !== -1) {
-            // 如果歌曲已存在，直接播放
-            state.currentTrackIndex = existingIndex;
-            state.currentPlaylist = "playlist";
-            state.currentList = "playlist";
-        } else {
-            // 如果歌曲不存在，添加到播放列表
-            state.playlistSongs.push(song);
-            state.currentTrackIndex = state.playlistSongs.length - 1;
-            state.currentPlaylist = "playlist";
-            state.currentList = "playlist";
-        }
-
-        // 更新播放列表显示
-        renderPlaylist();
-
-        // 播放歌曲
-        await playSong(song);
+        // 5. 播放歌曲 (强制重新加载)
+        await playSong(song, { autoplay: true });
+        
+        // 6. 更新 UI 状态
         updatePlayModeUI();
-
         showNotification(`正在播放: ${song.name}`);
 
     } catch (error) {
-        console.error("播放失败:", error);
+        console.error("播放搜索结果失败:", error);
         showNotification("播放失败，请稍后重试", "error");
     }
+}
+
+// 新增：搜索列表高亮辅助函数
+function updateSearchHighlight(activeIndex) {
+    const container = dom.searchResultsList || dom.searchResults;
+    if (!container) return;
+    
+    const items = container.querySelectorAll(".search-result-item");
+    items.forEach((item) => {
+        const itemIndex = Number(item.dataset.index);
+        if (itemIndex === activeIndex) {
+            item.classList.add("current");
+            item.classList.add("playing"); // 增加这个类以确保样式
+        } else {
+            item.classList.remove("current");
+            item.classList.remove("playing");
+        }
+    });
 }
 
 function resolveSongId(song) {
@@ -5848,128 +5864,85 @@ function scheduleDeferredSongAssets(song, playPromise) {
 
 
 // 修复：播放下一首 - 支持播放模式和统一播放列表
+// 修复：播放下一首 - 完美支持搜索列表
 async function playNext() {
-    if (state.currentList === "favorite") {
-        const favorites = ensureFavoriteSongsArray();
-        if (favorites.length === 0) {
-            clearLyricsIfLibraryEmpty();
-            return;
-        }
-        const mode = state.favoritePlayMode || "list";
-        let nextIndex = state.currentFavoriteIndex;
-        if (mode === "random") {
-            nextIndex = Math.floor(Math.random() * favorites.length);
-        } else if (mode === "list") {
-            nextIndex = (state.currentFavoriteIndex + 1) % favorites.length;
-        }
-        if (mode !== "single") {
-            state.currentFavoriteIndex = nextIndex;
-        }
-        return playFavoriteSong(state.currentFavoriteIndex);
-    }
-
-    let nextIndex = -1;
     let playlist = [];
-
-    if (state.currentPlaylist === "playlist") {
-        playlist = state.playlistSongs;
+    
+    // 1. 确定当前使用的是哪个列表
+    if (state.currentList === "favorite") {
+        playlist = ensureFavoriteSongsArray();
+    } else if (state.currentPlaylist === "search") {
+        // 🔥 关键：如果是搜索模式，使用搜索结果作为播放列表
+        playlist = state.searchResults;
     } else if (state.currentPlaylist === "online") {
         playlist = state.onlineSongs;
-    } else if (state.currentPlaylist === "search") {
-        playlist = state.searchResults;
+    } else {
+        // 默认为主播放列表
+        playlist = state.playlistSongs;
     }
 
-    if (playlist.length === 0) {
-        clearLyricsIfLibraryEmpty();
-        return;
-    }
+    if (!playlist || playlist.length === 0) return;
 
-    const mode = state.playMode || "list";
+    // 2. 计算下一首的索引
+    const mode = (state.currentList === "favorite") ? state.favoritePlayMode : state.playMode;
+    let nextIndex = state.currentTrackIndex; // 默认为当前
+
     if (mode === "random") {
-        // 随机播放
         nextIndex = Math.floor(Math.random() * playlist.length);
     } else if (mode === "list") {
-        // 列表循环
         nextIndex = (state.currentTrackIndex + 1) % playlist.length;
     } else if (mode === "single") {
-        nextIndex = state.currentTrackIndex >= 0 ? state.currentTrackIndex : 0;
+        // 单曲循环逻辑：如果是手动点击下一首，通常还是切到下一首，或者重播当前
+        // 这里设定为切到下一首，只有自动结束时才循环
+        nextIndex = (state.currentTrackIndex + 1) % playlist.length;
     }
 
-    if (mode !== "single") {
-        state.currentTrackIndex = nextIndex;
-    }
-
-    const targetIndex = mode === "single" ? state.currentTrackIndex : nextIndex;
-
-    if (state.currentPlaylist === "playlist") {
-        return playPlaylistSong(targetIndex);
-    } else if (state.currentPlaylist === "online") {
-        return playOnlineSong(targetIndex);
+    // 3. 执行播放
+    if (state.currentList === "favorite") {
+        return playFavoriteSong(nextIndex);
     } else if (state.currentPlaylist === "search") {
-        return playSearchResult(targetIndex);
+        return playSearchResult(nextIndex); // 调用刚才修复的函数
+    } else if (state.currentPlaylist === "online") {
+        return playOnlineSong(nextIndex);
+    } else {
+        return playPlaylistSong(nextIndex);
     }
 }
 
-// 修复：播放上一首 - 支持播放模式和统一播放列表
+// 修复：播放上一首
 async function playPrevious() {
-    if (state.currentList === "favorite") {
-        const favorites = ensureFavoriteSongsArray();
-        if (favorites.length === 0) {
-            return;
-        }
-        const mode = state.favoritePlayMode || "list";
-        let prevIndex = state.currentFavoriteIndex;
-        if (mode === "random") {
-            prevIndex = Math.floor(Math.random() * favorites.length);
-        } else if (mode === "list") {
-            prevIndex = state.currentFavoriteIndex - 1;
-            if (prevIndex < 0) {
-                prevIndex = favorites.length - 1;
-            }
-        }
-        if (mode !== "single") {
-            state.currentFavoriteIndex = prevIndex;
-        }
-        return playFavoriteSong(state.currentFavoriteIndex);
-    }
-
-    let prevIndex = -1;
     let playlist = [];
-
-    if (state.currentPlaylist === "playlist") {
-        playlist = state.playlistSongs;
-    } else if (state.currentPlaylist === "online") {
-        playlist = state.onlineSongs;
+    if (state.currentList === "favorite") {
+        playlist = ensureFavoriteSongsArray();
     } else if (state.currentPlaylist === "search") {
         playlist = state.searchResults;
+    } else if (state.currentPlaylist === "online") {
+        playlist = state.onlineSongs;
+    } else {
+        playlist = state.playlistSongs;
     }
 
-    if (playlist.length === 0) return;
+    if (!playlist || playlist.length === 0) return;
 
-    const mode = state.playMode || "list";
+    const mode = (state.currentList === "favorite") ? state.favoritePlayMode : state.playMode;
+    let prevIndex = state.currentTrackIndex;
+
     if (mode === "random") {
-        // 随机播放
         prevIndex = Math.floor(Math.random() * playlist.length);
-    } else if (mode === "list") {
-        // 列表循环
+    } else {
+        // 列表或单曲模式，手动点上一首都是切到上一首
         prevIndex = state.currentTrackIndex - 1;
         if (prevIndex < 0) prevIndex = playlist.length - 1;
-    } else if (mode === "single") {
-        prevIndex = state.currentTrackIndex >= 0 ? state.currentTrackIndex : 0;
     }
 
-    if (mode !== "single") {
-        state.currentTrackIndex = prevIndex;
-    }
-
-    const targetIndex = mode === "single" ? state.currentTrackIndex : prevIndex;
-
-    if (state.currentPlaylist === "playlist") {
-        return playPlaylistSong(targetIndex);
-    } else if (state.currentPlaylist === "online") {
-        return playOnlineSong(targetIndex);
+    if (state.currentList === "favorite") {
+        return playFavoriteSong(prevIndex);
     } else if (state.currentPlaylist === "search") {
-        return playSearchResult(targetIndex);
+        return playSearchResult(prevIndex);
+    } else if (state.currentPlaylist === "online") {
+        return playOnlineSong(prevIndex);
+    } else {
+        return playPlaylistSong(prevIndex);
     }
 }
 
@@ -6743,70 +6716,64 @@ function bindAudioPlayerEvents(player) {
 function removeLoadingMask() {
     const mask = document.getElementById('app-loading-mask');
     if (mask) {
-        mask.classList.add('loaded'); // 触发CSS淡出
-        mask.style.pointerEvents = 'none'; // 确保点击穿透
+        mask.style.opacity = '0'; // 强制透明
+        mask.style.pointerEvents = 'none';
         setTimeout(() => {
             if (mask.parentNode) mask.parentNode.removeChild(mask);
-        }, 600);
+        }, 500);
     }
 }
 
-// 💀 清理旧 SW (Service Worker)
-// 彻底注销所有已注册的 Service Worker，防止缓存干扰
-if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.getRegistrations().then(function(registrations) {
-        let hasRemoved = false;
-        for(let registration of registrations) {
-            console.log('💀 [系统] 正在注销旧版 Service Worker:', registration.scope);
-            registration.unregister();
-            hasRemoved = true;
-        }
-        if (hasRemoved) {
-            console.log('💀 [系统] 旧版 SW 已清理，下次刷新将是纯净模式');
-        }
-    }).catch(function(err) {
-        console.warn('Service Worker 清理失败:', err);
-    });
-}
-
 // ================================================
-// 🏁 全局初始化入口
+// 🏁 全局初始化入口 (极速版)
 // ================================================
-
-// 确保在页面加载完成后移除遮罩
 function initApp() {
-    console.log("🚀 应用初始化开始...");
+    console.log("🚀 应用初始化...");
     
-    // 1. 尝试移除加载遮罩
+    // 1. 立即移除遮罩 (不要等待图片，先让用户看到界面)
     removeLoadingMask();
     
-    // 2. 如果是 iOS PWA，初始化一些特定的手势监听（如果有需要）
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-    const isPWA = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
-    
-    if (isIOS && isPWA) {
-        console.log("📱 检测到 iOS PWA 环境，已就绪");
+    // 2. 注册 Service Worker (恢复缓存能力，这对 PWA 速度至关重要)
+    if ('serviceWorker' in navigator && !state.debugMode) {
+        navigator.serviceWorker.register('/service-worker.js')
+            .then(reg => console.log('✅ SW 已注册 (缓存开启)', reg.scope))
+            .catch(err => console.warn('SW 注册失败', err));
     }
 
-    // 3. 再次检查音频上下文（解决部分浏览器自动播放限制）
-    document.addEventListener('click', function unlockAudio() {
-        if (window.solaraAudioGuard && window.solaraAudioGuard.audioCtx) {
-            if (window.solaraAudioGuard.audioCtx.state === 'suspended') {
-                window.solaraAudioGuard.audioCtx.resume();
-            }
+    // 3. 预热音频引擎 (解决无声问题的关键)
+    const unlockAudio = () => {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (AudioContext) {
+            // 创建一个临时的 AudioContext 来解锁 iOS 音频限制
+            const ctx = new AudioContext();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            gain.gain.value = 0.001; // 极低音量
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(0);
+            setTimeout(() => {
+                osc.stop();
+                ctx.close();
+                console.log('🔓 音频引擎已解锁');
+            }, 100);
         }
-        // 只需要执行一次
+        // 如果有全局音频守护，也尝试唤醒
+        if (window.solaraAudioGuard && window.solaraAudioGuard.audioCtx) {
+            window.solaraAudioGuard.audioCtx.resume();
+        }
         document.removeEventListener('click', unlockAudio);
-    }, { once: true });
+        document.removeEventListener('touchstart', unlockAudio);
+    };
+
+    document.addEventListener('click', unlockAudio, { once: true });
+    document.addEventListener('touchstart', unlockAudio, { once: true });
 }
 
-// 监听加载完成事件
-if (document.readyState === 'complete' || document.readyState === 'interactive') {
-    // 如果脚本加载时 DOM 已经解析完，直接运行
-    setTimeout(initApp, 100);
+// 极速启动：只要 DOM 好了就运行，不等图片
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initApp);
 } else {
-    // 否则等待加载完成
-    window.addEventListener('DOMContentLoaded', initApp);
-    window.addEventListener('load', () => setTimeout(removeLoadingMask, 500)); // 双重保险
+    initApp();
 }
 
