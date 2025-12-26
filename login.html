@@ -102,6 +102,43 @@
       overflow-x: hidden;
     }
 
+    /* 修复登录时出现的灰色长条问题 */
+    * {
+      /* 移除所有元素的默认焦点轮廓 */
+      outline: none !important;
+      /* 确保所有过渡效果平滑，不会突然出现 */
+      transition: all 0.3s ease !important;
+    }
+
+    /* 确保背景元素不会在登录时突然变化 */
+    .background-stage,
+    .background-stage__layer,
+    .background-stage__overlay {
+      transition: none !important;
+      animation: none !important;
+    }
+
+    /* 确保表单提交时不会出现不必要的滚动或溢出 */
+    .login-form {
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* 修复按钮点击时可能出现的问题 */
+    .login-form button {
+      /* 确保按钮点击时不会产生超出容器的效果 */
+      position: relative;
+      z-index: 1;
+      overflow: hidden;
+    }
+
+    /* 防止任何元素超出屏幕范围 */
+    *:before,
+    *:after {
+      overflow: hidden !important;
+      max-width: 100% !important;
+    }
+
     html.login-page-root.mobile-view {
       height: auto;
       overflow-y: auto;
