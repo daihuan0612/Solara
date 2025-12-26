@@ -6552,16 +6552,21 @@ async function playSong(song, options = {}) {
 }
 
 // 🔒 锁屏模式：只换链接，不修图，不更新UI
+// 🔒 锁屏模式：只换链接，不修图，不更新UI
 async function playSongLockScreen(song, options = {}) {
     console.log('🔒 锁屏播放');
     try {
         const player = dom.audioPlayer;
         const quality = state.playbackQuality || '320';
         let url = API.getSongUrl(song, quality);
+        
+        // 确保 HTTPS
         if (!url.startsWith('http')) url = new URL(url, window.location.origin).href;
         
-        // 加个时间戳，防止缓存死锁
-        player.src = `${url.split('?')[0]}?_lock=${Date.now()}`;
+        // 🔥 核心修复：正确追加时间戳，不破坏原有参数
+        const separator = url.includes('?') ? '&' : '?';
+        player.src = `${url}${separator}_lock=${Date.now()}`;
+        
         player.load();
         
         // 开启 Loop 保活
@@ -6569,7 +6574,7 @@ async function playSongLockScreen(song, options = {}) {
         
         state.currentSong = song;
         
-        // 极简媒体会话 (只发文字，不发图片，省内存)
+        // 极简媒体会话
         if ('mediaSession' in navigator) {
             try {
                 navigator.mediaSession.metadata = new MediaMetadata({
@@ -6583,17 +6588,24 @@ async function playSongLockScreen(song, options = {}) {
         }
         
         if (options.autoplay !== false) {
-            player.play().catch(() => {});
-            state.isPlaying = true;
+            try {
+                await player.play();
+                state.isPlaying = true;
+            } catch (e) {
+                console.warn("锁屏播放失败:", e);
+            }
         }
         
-        // 🔥 写欠条：记下这首歌，等解锁了再刷新封面
+        // 记下欠条
         state.pendingUpdates = {
             type: 'song', song: song, timestamp: Date.now(),
             needsArtwork: true, needsBackground: true, needsLyrics: true
         };
         return true;
-    } catch (e) { return false; }
+    } catch (e) { 
+        console.error("锁屏模式出错:", e);
+        return false; 
+    }
 }
 
 // 📱 正常模式：完整流程
@@ -6606,9 +6618,15 @@ async function playSongNormal(song, options = {}) {
         
         const quality = state.playbackQuality || '320';
         let url = API.getSongUrl(song, quality);
+        
+        // 确保 HTTPS
         if (!url.startsWith('http')) url = new URL(url, window.location.origin).href;
         
-        player.src = `${url.split('?')[0]}?_=${Date.now()}`;
+        // 🔥 核心修复：正确追加时间戳，不破坏原有 API 参数
+        // 你的 API url 格式是 .../api/?source=... 所以必须用 & 连接时间戳
+        const separator = url.includes('?') ? '&' : '?';
+        player.src = `${url}${separator}_t=${Date.now()}`;
+        
         player.removeAttribute('crossOrigin');
         player.preload = 'auto';
         player.muted = false;
@@ -6621,19 +6639,26 @@ async function playSongNormal(song, options = {}) {
         if (dom.currentSongArtist) dom.currentSongArtist.textContent = Array.isArray(song.artist) ? song.artist.join(', ') : '未知';
         
         if (autoplay) {
-            // 用 Promise 等待就绪，比 setTimeout 稳
+            // 用 Promise 等待就绪
             const safePlay = async () => {
                 try {
                     await new Promise((resolve) => {
                         if (player.readyState >= 2) { resolve(); return; }
-                        const t = setTimeout(() => resolve(), 3000);
+                        const t = setTimeout(() => resolve(), 3000); // 3秒超时
                         player.addEventListener('canplay', () => { clearTimeout(t); resolve(); }, { once: true });
+                        player.addEventListener('error', () => { clearTimeout(t); resolve(); }, { once: true }); // 错误也放行，避免卡死
                     });
+                    
                     if (startTime > 0) player.currentTime = startTime;
+                    
                     await player.play();
                     state.isPlaying = true;
                     updatePlayPauseButton();
-                } catch (e) { if (state.isPlaying) { state.isPlaying = false; updatePlayPauseButton(); } }
+                    console.log("✅ 播放成功");
+                } catch (e) { 
+                    console.error("❌ 播放请求失败:", e);
+                    if (state.isPlaying) { state.isPlaying = false; updatePlayPauseButton(); } 
+                }
             };
             safePlay();
         }
@@ -6642,8 +6667,15 @@ async function playSongNormal(song, options = {}) {
         if ('mediaSession' in navigator) {
             setTimeout(() => {
                 try {
+                    // 尝试获取高清封面
+                    let artworkUrl = API.getPicUrl(song);
+                    if (!artworkUrl.startsWith('http')) artworkUrl = new URL(artworkUrl, window.location.origin).href;
+
                     navigator.mediaSession.metadata = new MediaMetadata({
-                        title: song.name, artist: Array.isArray(song.artist) ? song.artist.join(', ') : '未知', album: song.album || ''
+                        title: song.name, 
+                        artist: Array.isArray(song.artist) ? song.artist.join(', ') : '未知', 
+                        album: song.album || '',
+                        artwork: [{ src: artworkUrl, sizes: '512x512', type: 'image/png' }]
                     });
                     navigator.mediaSession.playbackState = 'playing';
                 } catch(e){}
@@ -6656,10 +6688,14 @@ async function playSongNormal(song, options = {}) {
                 loadLyrics(song);
                 updateCurrentSongInfo(song, { loadArtwork: true, updateBackground: true });
             }
-        }, 1000);
+        }, 100); // 稍微加快一点加载速度
+        
         savePlayerState();
         return true;
-    } catch (e) { return false; }
+    } catch (e) { 
+        console.error("正常模式出错:", e);
+        return false; 
+    }
 }
 
 async function autoPlayNext() { 
