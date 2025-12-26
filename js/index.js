@@ -6715,5 +6715,62 @@ function removeLoadingMask() {
     }
 }
 
-// 💀 清理旧 SW
+// 💀 清理旧 SW (Service Worker)
+// 彻底注销所有已注册的 Service Worker，防止缓存干扰
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistrations().then(function(registrations) {
+        let hasRemoved = false;
+        for(let registration of registrations) {
+            console.log('💀 [系统] 正在注销旧版 Service Worker:', registration.scope);
+            registration.unregister();
+            hasRemoved = true;
+        }
+        if (hasRemoved) {
+            console.log('💀 [系统] 旧版 SW 已清理，下次刷新将是纯净模式');
+        }
+    }).catch(function(err) {
+        console.warn('Service Worker 清理失败:', err);
+    });
+}
+
+// ================================================
+// 🏁 全局初始化入口
+// ================================================
+
+// 确保在页面加载完成后移除遮罩
+function initApp() {
+    console.log("🚀 应用初始化开始...");
+    
+    // 1. 尝试移除加载遮罩
+    removeLoadingMask();
+    
+    // 2. 如果是 iOS PWA，初始化一些特定的手势监听（如果有需要）
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    const isPWA = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
+    
+    if (isIOS && isPWA) {
+        console.log("📱 检测到 iOS PWA 环境，已就绪");
+    }
+
+    // 3. 再次检查音频上下文（解决部分浏览器自动播放限制）
+    document.addEventListener('click', function unlockAudio() {
+        if (window.solaraAudioGuard && window.solaraAudioGuard.audioCtx) {
+            if (window.solaraAudioGuard.audioCtx.state === 'suspended') {
+                window.solaraAudioGuard.audioCtx.resume();
+            }
+        }
+        // 只需要执行一次
+        document.removeEventListener('click', unlockAudio);
+    }, { once: true });
+}
+
+// 监听加载完成事件
+if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    // 如果脚本加载时 DOM 已经解析完，直接运行
+    setTimeout(initApp, 100);
+} else {
+    // 否则等待加载完成
+    window.addEventListener('DOMContentLoaded', initApp);
+    window.addEventListener('load', () => setTimeout(removeLoadingMask, 500)); // 双重保险
+}
 
