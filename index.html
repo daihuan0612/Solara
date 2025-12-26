@@ -592,5 +592,19 @@
         document.body.appendChild(mobileScript);
     }
 </script>
+
+<!-- 保险脚本：防止加载遮罩无法移除 -->
+<script>
+    (function() {
+        setTimeout(function() {
+            var mask = document.getElementById('app-loading-mask');
+            if (mask) {
+                mask.style.opacity = '0';
+                mask.style.pointerEvents = 'none';
+                setTimeout(function() { if(mask.parentNode) mask.parentNode.removeChild(mask); }, 600);
+            }
+        }, 3000);
+    })();
+</script>
 </body>
 </html>
