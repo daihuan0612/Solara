@@ -763,17 +763,27 @@ const API = {
     fetchJson: async (url, options = {}) => {
         const maxRetries = options.maxRetries || 3;
         const retryDelay = options.retryDelay || 1000;
+        const timeout = options.timeout || 30000;
         
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
             try {
                 debugLog(`API请求 (尝试 ${attempt}/${maxRetries}): ${url}`);
+                
+                // 添加 timeout 支持
+                const controller = new AbortController();
+                const id = setTimeout(() => controller.abort(), timeout);
+                
                 const response = await fetch(url, {
                     headers: {
                         "Accept": "application/json",
                         ...options.headers,
                     },
+                    mode: 'cors', // 添加 cors 模式支持
+                    signal: controller.signal,
                     ...options,
                 });
+                
+                clearTimeout(id); // 清除 timeout
 
                 if (!response.ok) {
                     throw new Error(`Request failed with status ${response.status}`);
@@ -6920,17 +6930,29 @@ async function downloadSong(song, quality = null) {
         }
         console.log('🔗 API端点:', apiUrl);
 
-        // 2. 调用API获取实际的文件下载链接
-        const apiResponse = await fetch(apiUrl);
-        if (!apiResponse.ok) {
-            throw new Error(`API调用失败: ${apiResponse.status}`);
-        }
-        const apiData = await apiResponse.json();
+        // 2. 调用API获取实际的文件下载链接，使用API.fetchJson方法，利用现有的重试机制
+        const apiData = await API.fetchJson(apiUrl);
         console.log('📡 API响应:', apiData);
         
-        // 检查API返回的数据格式
-        if (!apiData || apiData.code !== 200 || !apiData.data || !apiData.data.url) {
-            throw new Error('API返回数据格式错误');
+        // 检查API返回的数据格式，增加更多调试信息
+        if (typeof apiData !== 'object') {
+            console.error('❌ API返回数据不是对象:', typeof apiData, apiData);
+            throw new Error(`API返回数据类型错误: ${typeof apiData}`);
+        }
+        
+        if (apiData.code !== 200) {
+            console.error('❌ API返回错误代码:', apiData.code, apiData.message || '无错误信息');
+            throw new Error(`API返回错误: ${apiData.code} - ${apiData.message || '未知错误'}`);
+        }
+        
+        if (!apiData.data) {
+            console.error('❌ API返回数据中没有data字段:', apiData);
+            throw new Error('API返回数据中没有data字段');
+        }
+        
+        if (!apiData.data.url) {
+            console.error('❌ API返回数据中没有url字段:', apiData);
+            throw new Error('API返回数据中没有url字段');
         }
         
         const actualDownloadUrl = apiData.data.url;
@@ -6953,10 +6975,20 @@ async function downloadSong(song, quality = null) {
             // 无损格式：使用blob下载，防止直接播放
             showNotification(`正在准备 ${song.name} 无损音频下载...`, 'info');
             
-            // 获取文件数据
-            const response = await fetch(actualDownloadUrl);
+            // 获取文件数据，添加超时处理
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30000);
+            
+            const response = await fetch(actualDownloadUrl, {
+                mode: 'cors',
+                signal: controller.signal
+            });
+            
+            clearTimeout(timeoutId);
+            
             if (!response.ok) {
-                throw new Error(`下载失败: ${response.status}`);
+                console.error('❌ 无损文件下载失败:', response.status, response.statusText);
+                throw new Error(`无损文件下载失败: ${response.status} - ${response.statusText}`);
             }
             
             const blob = await response.blob();
@@ -6995,7 +7027,8 @@ async function downloadSong(song, quality = null) {
 
     } catch (error) {
         console.error('❌ 下载出错:', error);
-        showNotification('获取下载地址失败', 'error');
+        console.error('❌ 错误堆栈:', error.stack);
+        showNotification(`获取下载地址失败: ${error.message}`, 'error');
     }
 }
 
