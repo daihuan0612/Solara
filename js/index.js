@@ -6947,12 +6947,49 @@ async function downloadSong(song, quality = null) {
             // 无损格式：使用blob下载，防止直接播放
             showNotification(`正在准备 ${song.name} 无损音频下载...`, 'info');
             
-            // 获取文件数据
-            const response = await fetch(downloadUrl);
-            if (!response.ok) {
-                throw new Error(`下载失败: ${response.status}`);
+            // 获取文件数据，添加跨域支持和超时处理
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30000);
+            
+            let response;
+            try {
+                // 尝试使用cors模式
+                response = await fetch(downloadUrl, {
+                    mode: 'cors',
+                    cache: 'no-cache',
+                    signal: controller.signal
+                });
+                
+                clearTimeout(timeoutId);
+                
+                if (!response.ok) {
+                    throw new Error(`下载失败: ${response.status} - ${response.statusText}`);
+                }
+            } catch (fetchError) {
+                clearTimeout(timeoutId);
+                console.error('❌ 无损文件cors模式fetch失败:', fetchError);
+                
+                // 如果是跨域错误，尝试直接使用a标签下载
+                console.log('🔄 尝试直接使用a标签下载无损文件');
+                
+                // 直接使用a标签下载，不使用blob，虽然可能会在新窗口播放，但总比下载失败好
+                const link = document.createElement('a');
+                link.href = downloadUrl;
+                link.download = fileName; // 设置下载文件名
+                link.rel = 'noopener noreferrer'; // 添加安全属性
+                link.target = '_blank'; // 新窗口打开
+                
+                // 触发下载
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                
+                showNotification(`${song.name} 无损音频下载已开始...`, 'success');
+                console.log('✅ 无损文件直接下载流程完成');
+                return;
             }
             
+            // 继续使用blob下载
             const blob = await response.blob();
             console.log('📦 获取到无损blob，大小:', blob.size, '类型:', blob.type);
             
