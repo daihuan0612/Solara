@@ -1376,10 +1376,8 @@ bootstrapPersistentStorage();
         // 播放/暂停交给 <audio> 默认行为即可
         try {
             navigator.mediaSession.setActionHandler('previoustrack', async () => {
-                // 直接复用你已有的全局函数（HTML 里也在用）:contentReference[oaicite:9]{index=9}
                 if (typeof window.playPrevious === 'function') {
                     try {
-                        // 调用playPrevious并等待可能的异步操作完成
                         const result = window.playPrevious();
                         if (result && typeof result.then === 'function') {
                             await result;
@@ -1393,7 +1391,6 @@ bootstrapPersistentStorage();
             navigator.mediaSession.setActionHandler('nexttrack', async () => {
                 if (typeof window.playNext === 'function') {
                     try {
-                        // 调用playNext并等待可能的异步操作完成
                         const result = window.playNext();
                         if (result && typeof result.then === 'function') {
                             await result;
