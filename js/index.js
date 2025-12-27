@@ -860,7 +860,8 @@ const API = {
             "128": "128k",
             "192": "192k",
             "320": "320k",
-            "999": "flac"
+            "999": "flac",
+            "flac": "flac" // 添加flac到qualityMap，确保flac质量参数能正确映射
         };
         
         // 处理MP3选项，返回默认的MP3质量
@@ -868,7 +869,7 @@ const API = {
             quality = "320";
         }
         
-        // 确保使用有效的音质映射，支持192k
+        // 确保使用有效的音质映射，支持192k和flac
         const validQuality = quality in qualityMap ? quality : "320";
         const br = qualityMap[validQuality];
         
