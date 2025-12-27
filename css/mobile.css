@@ -1281,7 +1281,7 @@ body.mobile-view .search-results {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-    width: min(100%, 340px);
+    width: min(100%, 400px);
     margin: 0 auto;
 }
 
