@@ -825,13 +825,14 @@ const API = {
                 };
                 
                 // ⚠️ 新增：为不同平台添加特殊ID字段
-                if (source === "kuwo") {
+                const platform = song.platform || source;
+                if (platform === "kuwo") {
                     // 酷我音乐特有ID字段
                     result.kw_id = song.kw_id || song.id;
                     result.rid = song.rid || song.id;
                 }
                 
-                if (source === "qq") {
+                if (platform === "qq") {
                     // QQ音乐特有ID字段
                     result.songmid = song.songmid || song.mid || song.id;
                     result.mid = song.mid || song.id;
@@ -5988,10 +5989,10 @@ async function playSong(song, options = {}) {
     if (song.source === "kuwo") {
         // 优先使用酷我特有ID
         if (song.kw_id && song.kw_id !== song.id) {
-            console.log("酷我音乐：使用 kw_id", song.kw_id);
+            if (state.debugMode) console.log("酷我音乐：使用 kw_id", song.kw_id);
             fixedSong.id = song.kw_id;
         } else if (song.rid && song.rid !== song.id) {
-            console.log("酷我音乐：使用 rid", song.rid);
+            if (state.debugMode) console.log("酷我音乐：使用 rid", song.rid);
             fixedSong.id = song.rid;
         }
     }
@@ -5999,27 +6000,29 @@ async function playSong(song, options = {}) {
     if (song.source === "qq") {
         // 优先使用QQ音乐特有ID
         if (song.songmid && song.songmid !== song.id) {
-            console.log("QQ音乐：使用 songmid", song.songmid);
+            if (state.debugMode) console.log("QQ音乐：使用 songmid", song.songmid);
             fixedSong.id = song.songmid;
         } else if (song.mid && song.mid !== song.id) {
-            console.log("QQ音乐：使用 mid", song.mid);
+            if (state.debugMode) console.log("QQ音乐：使用 mid", song.mid);
             fixedSong.id = song.mid;
         }
     }
     
-    console.log(`🎵 准备播放: ${song.name} (锁屏: ${isLockScreen})`);
+    if (state.debugMode) console.log(`🎵 准备播放: ${song.name} (锁屏: ${isLockScreen})`);
 
-    // ⚠️ 调试日志
-    console.group(`🎵 播放调试: ${song.name} (${song.source})`);
-    console.log("歌曲对象:", song);
-    console.log("可用ID字段:", {
-        id: song.id,
-        kw_id: song.kw_id,
-        rid: song.rid,
-        songmid: song.songmid,
-        mid: song.mid
-    });
-    console.groupEnd();
+    // ⚠️ 调试日志（仅在调试模式下启用）
+    if (state.debugMode) {
+        console.group(`🎵 播放调试: ${song.name} (${song.source})`);
+        console.log("歌曲对象:", song);
+        console.log("可用ID字段:", {
+            id: song.id,
+            kw_id: song.kw_id,
+            rid: song.rid,
+            songmid: song.songmid,
+            mid: song.mid
+        });
+        console.groupEnd();
+    }
 
     try {
         if (state._isPlayingSong) return false;
@@ -6053,12 +6056,15 @@ async function playSong(song, options = {}) {
         const separator = rawUrl.includes('?') ? '&' : '?';
         const streamUrl = `${rawUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
         
-        console.log(`播放 ${song.source} 歌曲:`, {
-            歌名: song.name,
-            原始ID: song.id,
-            修正ID: fixedSong.id,
-            播放URL: rawUrl
-        });
+        // 仅在调试模式下输出详细信息
+        if (state.debugMode) {
+            console.log(`播放 ${song.source} 歌曲:`, {
+                歌名: song.name,
+                原始ID: song.id,
+                修正ID: fixedSong.id,
+                播放URL: rawUrl
+            });
+        }
         
         // 5. 柔性切换 (Soft Switch)
         player.removeAttribute('crossOrigin');
@@ -6114,7 +6120,7 @@ async function playSong(song, options = {}) {
             try {
                 // 尝试播放
                 const playPromise = player.play();
-                console.log('✅ 播放指令已发出');
+                if (state.debugMode) console.log('✅ 播放指令已发出');
             
                 // ⚡️⚡️ [核心修复 1] 硬件通道强制握手 ⚡️⚡️
                 // 在 iOS 锁屏下，有时候 Audio 元素状态是 playing，但硬件通道没打开。
@@ -6128,7 +6134,7 @@ async function playSong(song, options = {}) {
                         setTimeout(() => {
                             player.muted = false; // 这一刻，声音应该出来了
                             player.volume = originalVolume; // 恢复原始音量
-                            console.log('🔊 硬件通道强制握手完成');
+                            if (state.debugMode) console.log('🔊 硬件通道强制握手完成');
                         }, 30); // 减少静音时间
                     }, 50); // 减少延迟
                 }
@@ -6140,7 +6146,7 @@ async function playSong(song, options = {}) {
                 // 不要立即关闭！让 AudioContext 再跑 3 秒，和新歌重叠一会儿。
                 // 这就像接力赛，两人同跑一段距离再松手，防止掉棒。
                 if (isIOSPWA && window.solaraAudioGuard) {
-                    console.log('⏳ 守护进程将在 3 秒后退出...');
+                    if (state.debugMode) console.log('⏳ 守护进程将在 3 秒后退出...');
                     setTimeout(() => {
                         if (!player.paused) { // 只有还在播放才关闭
                             window.solaraAudioGuard.stop();
@@ -6154,7 +6160,7 @@ async function playSong(song, options = {}) {
                     if (window.solaraAudioGuard.audioCtx.state === 'suspended') {
                         try {
                             await window.solaraAudioGuard.audioCtx.resume();
-                            console.log('🔓 音频上下文已恢复');
+                            if (state.debugMode) console.log('🔓 音频上下文已恢复');
                         } catch (ctxError) {
                             console.warn('音频上下文恢复失败:', ctxError);
                         }
@@ -6169,7 +6175,7 @@ async function playSong(song, options = {}) {
                         // 额外的锁屏音频管理
                         if (window.solaraAudioGuard && typeof window.solaraAudioGuard.start === 'function') {
                             window.solaraAudioGuard.start();
-                            console.log('🛡️ 锁屏音频守护已启动');
+                            if (state.debugMode) console.log('🛡️ 锁屏音频守护已启动');
                         }
                     }, 100); // 减少延迟
                 }
@@ -7349,23 +7355,25 @@ window.solaraDebug = {
             source: "kuwo"
         };
         
-        console.log("🔧 测试酷我播放:", testSong);
+        if (state.debugMode) console.log("🔧 测试酷我播放:", testSong);
         
         const url = API.getSongUrl(testSong, "320");
-        console.log("生成的URL:", url);
+        if (state.debugMode) console.log("生成的URL:", url);
         
         // 测试链接是否有效
         try {
             const response = await fetch(url, { method: 'HEAD' });
-            console.log("链接测试结果:", {
-                状态: response.status,
-                重定向: response.redirected,
-                文件大小: response.headers.get('content-length'),
-                类型: response.headers.get('content-type')
-            });
+            if (state.debugMode) {
+                console.log("链接测试结果:", {
+                    状态: response.status,
+                    重定向: response.redirected,
+                    文件大小: response.headers.get('content-length'),
+                    类型: response.headers.get('content-type')
+                });
+            }
             
             if (response.ok) {
-                console.log("✅ 链接有效，尝试播放...");
+                if (state.debugMode) console.log("✅ 链接有效，尝试播放...");
                 return await playSong(testSong);
             }
         } catch (error) {
@@ -7376,19 +7384,21 @@ window.solaraDebug = {
     // 检查当前歌曲ID
     checkCurrentSong: function() {
         if (!state.currentSong) {
-            console.log("当前没有播放的歌曲");
+            if (state.debugMode) console.log("当前没有播放的歌曲");
             return;
         }
         
-        console.log("当前歌曲详情:", {
-            平台: state.currentSong.source,
-            歌名: state.currentSong.name,
-            ID字段: {
-                id: state.currentSong.id,
-                kw_id: state.currentSong.kw_id,
-                rid: state.currentSong.rid,
-                songmid: state.currentSong.songmid
-            }
-        });
+        if (state.debugMode) {
+            console.log("当前歌曲详情:", {
+                平台: state.currentSong.source,
+                歌名: state.currentSong.name,
+                ID字段: {
+                    id: state.currentSong.id,
+                    kw_id: state.currentSong.kw_id,
+                    rid: state.currentSong.rid,
+                    songmid: state.currentSong.songmid
+                }
+            });
+        }
     }
 };
