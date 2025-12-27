@@ -6923,42 +6923,14 @@ async function downloadSong(song, quality = null) {
         const finalQuality = quality || state.playbackQuality || '320';
         showNotification(`正在获取 ${song.name} 下载地址...`, 'info');
 
-        // 1. 获取API端点URL
-        const apiUrl = API.getSongUrl(song, finalQuality);
-        if (!apiUrl) {
+        // 1. 获取直接下载链接
+        const downloadUrl = API.getSongUrl(song, finalQuality);
+        if (!downloadUrl) {
             throw new Error('无法获取链接');
         }
-        console.log('🔗 API端点:', apiUrl);
+        console.log('🔗 直接下载链接:', downloadUrl);
 
-        // 2. 调用API获取实际的文件下载链接，使用API.fetchJson方法，利用现有的重试机制
-        const apiData = await API.fetchJson(apiUrl);
-        console.log('📡 API响应:', apiData);
-        
-        // 检查API返回的数据格式，增加更多调试信息
-        if (typeof apiData !== 'object') {
-            console.error('❌ API返回数据不是对象:', typeof apiData, apiData);
-            throw new Error(`API返回数据类型错误: ${typeof apiData}`);
-        }
-        
-        if (apiData.code !== 200) {
-            console.error('❌ API返回错误代码:', apiData.code, apiData.message || '无错误信息');
-            throw new Error(`API返回错误: ${apiData.code} - ${apiData.message || '未知错误'}`);
-        }
-        
-        if (!apiData.data) {
-            console.error('❌ API返回数据中没有data字段:', apiData);
-            throw new Error('API返回数据中没有data字段');
-        }
-        
-        if (!apiData.data.url) {
-            console.error('❌ API返回数据中没有url字段:', apiData);
-            throw new Error('API返回数据中没有url字段');
-        }
-        
-        const actualDownloadUrl = apiData.data.url;
-        console.log('🔗 实际下载链接:', actualDownloadUrl);
-
-        // 3. 生成文件名，处理artist为数组的情况
+        // 2. 生成文件名，处理artist为数组的情况
         const artistName = Array.isArray(song.artist) ? song.artist.join(', ') : (song.artist || '未知艺术家');
         const songName = song.name || '未知歌曲';
         // 根据质量确定文件扩展名
@@ -6970,57 +6942,18 @@ async function downloadSong(song, quality = null) {
         const fileName = `${songName} - ${artistName}.${fileExtension}`;
         console.log('📁 最终文件名:', fileName);
 
-        // 4. 处理下载
-        if (fileExtension === 'flac') {
-            // 无损格式：使用blob下载，防止直接播放
-            showNotification(`正在准备 ${song.name} 无损音频下载...`, 'info');
-            
-            // 获取文件数据，添加超时处理
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 30000);
-            
-            const response = await fetch(actualDownloadUrl, {
-                mode: 'cors',
-                signal: controller.signal
-            });
-            
-            clearTimeout(timeoutId);
-            
-            if (!response.ok) {
-                console.error('❌ 无损文件下载失败:', response.status, response.statusText);
-                throw new Error(`无损文件下载失败: ${response.status} - ${response.statusText}`);
-            }
-            
-            const blob = await response.blob();
-            console.log('📦 获取到无损blob，大小:', blob.size, '类型:', blob.type);
-            
-            // 创建blob URL
-            const blobUrl = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = blobUrl;
-            a.download = fileName; // 设置下载文件名
-            
-            // 触发下载
-            document.body.appendChild(a);
-            a.click();
-            
-            // 清理
-            setTimeout(() => {
-                document.body.removeChild(a);
-                URL.revokeObjectURL(blobUrl);
-            }, 1000);
-        } else {
-            // MP3格式：使用直接链接下载，确保IDM可以拦截
-            const link = document.createElement('a');
-            link.href = actualDownloadUrl;
-            link.download = fileName; // 设置下载文件名
-            link.rel = 'noopener noreferrer'; // 添加安全属性
-            
-            // 触发下载
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        }
+        // 3. 处理下载
+        // 直接使用a标签下载，确保IDM可以拦截，同时保留文件名
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = fileName; // 设置下载文件名
+        link.rel = 'noopener noreferrer'; // 添加安全属性
+        link.target = '_blank'; // 新窗口打开，这是最不容易被拦截的方式
+        
+        // 触发下载
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
         
         showNotification(`${song.name} 音频下载已开始...`, 'success');
         console.log('✅ 下载流程完成');
