@@ -6943,17 +6943,48 @@ async function downloadSong(song, quality = null) {
         console.log('📁 最终文件名:', fileName);
 
         // 3. 处理下载
-        // 直接使用a标签下载，确保IDM可以拦截，同时保留文件名
-        const link = document.createElement('a');
-        link.href = downloadUrl;
-        link.download = fileName; // 设置下载文件名
-        link.rel = 'noopener noreferrer'; // 添加安全属性
-        link.target = '_blank'; // 新窗口打开，这是最不容易被拦截的方式
-        
-        // 触发下载
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        if (fileExtension === 'flac') {
+            // 无损格式：使用blob下载，防止直接播放
+            showNotification(`正在准备 ${song.name} 无损音频下载...`, 'info');
+            
+            // 获取文件数据
+            const response = await fetch(downloadUrl);
+            if (!response.ok) {
+                throw new Error(`下载失败: ${response.status}`);
+            }
+            
+            const blob = await response.blob();
+            console.log('📦 获取到无损blob，大小:', blob.size, '类型:', blob.type);
+            
+            // 创建blob URL
+            const blobUrl = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = blobUrl;
+            a.download = fileName; // 设置下载文件名
+            a.rel = 'noopener noreferrer'; // 添加安全属性
+            
+            // 触发下载
+            document.body.appendChild(a);
+            a.click();
+            
+            // 清理
+            setTimeout(() => {
+                document.body.removeChild(a);
+                URL.revokeObjectURL(blobUrl);
+            }, 1000);
+        } else {
+            // MP3格式：使用直接链接下载，确保IDM可以拦截
+            const link = document.createElement('a');
+            link.href = downloadUrl;
+            link.download = fileName; // 设置下载文件名
+            link.rel = 'noopener noreferrer'; // 添加安全属性
+            link.target = '_blank'; // 新窗口打开，这是最不容易被拦截的方式
+            
+            // 触发下载
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
         
         showNotification(`${song.name} 音频下载已开始...`, 'success');
         console.log('✅ 下载流程完成');
