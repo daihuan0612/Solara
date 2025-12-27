@@ -418,15 +418,6 @@ body.background-transitioning .background-stage__layer--transition {
     z-index: 20000;
 }
 
-.import-selected-btn {
-    display: inline-flex;
-    flex-direction: row;
-    align-items: center;
-    gap: 6px;
-    writing-mode: horizontal-tb;
-    white-space: nowrap;
-}
-
 .import-dropdown-caret {
     font-size: 12px;
 }
