@@ -3725,11 +3725,11 @@ function setupInteractions() {
     });
 
     // 额外的直接事件监听器作为备用
+    // 移除了阻止事件传播的代码以避免影响其他交互
     document.addEventListener("click", (e) => {
         if (e.target.id === "loadMoreBtn" || e.target.closest("#loadMoreBtn")) {
             debugLog("备用事件监听器触发");
             e.preventDefault();
-            e.stopPropagation();
             loadMoreResults();
         }
     });
