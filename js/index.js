@@ -2508,6 +2508,13 @@ function handleVolumeChange(event) {
 
 function handleTimeUpdate() {
     const currentTime = dom.audioPlayer.currentTime || 0;
+    console.log('⏱️ timeupdate事件触发:', {
+        currentTime: currentTime,
+        duration: dom.audioPlayer.duration,
+        paused: dom.audioPlayer.paused,
+        readyState: dom.audioPlayer.readyState
+    });
+    
     if (!state.isSeeking) {
         dom.progressBar.value = currentTime;
         dom.currentTimeDisplay.textContent = formatTime(currentTime);
@@ -2528,6 +2535,62 @@ function handleTimeUpdate() {
             state.lastSavedPlaybackTime = currentTime;
             safeSetLocalStorage("currentPlaybackTime", currentTime.toFixed(1));
         }
+    }
+}
+
+// 针对酷我音乐的额外修复：监控currentTime变化
+let currentTimeMonitor = null;
+function startCurrentTimeMonitor() {
+    if (currentTimeMonitor) {
+        clearInterval(currentTimeMonitor);
+    }
+    
+    if (state.currentSong && state.currentSong.source === 'kuwo') {
+        console.log('🎵 酷我音乐：启动currentTime监控');
+        let lastCurrentTime = 0;
+        let consecutiveSameTime = 0;
+        
+        currentTimeMonitor = setInterval(() => {
+            const currentTime = dom.audioPlayer.currentTime || 0;
+            
+            console.log('⏱️ 酷我音乐currentTime监控:', {
+                currentTime: currentTime,
+                lastCurrentTime: lastCurrentTime,
+                consecutiveSameTime: consecutiveSameTime,
+                paused: dom.audioPlayer.paused
+            });
+            
+            if (Math.abs(currentTime - lastCurrentTime) < 0.1) {
+                consecutiveSameTime++;
+            } else {
+                consecutiveSameTime = 0;
+            }
+            
+            // 如果连续5次检查currentTime都没有变化，尝试重置播放
+            if (consecutiveSameTime >= 5 && !dom.audioPlayer.paused) {
+                console.warn('⚠️ 酷我音乐currentTime连续未变化，尝试重置播放');
+                consecutiveSameTime = 0;
+                
+                // 保存当前进度
+                const savedTime = currentTime;
+                
+                // 尝试重置播放
+                dom.audioPlayer.currentTime = Math.max(0, savedTime - 0.5);
+                dom.audioPlayer.play().catch(error => {
+                    console.error('❌ 酷我音乐重置播放失败:', error);
+                });
+            }
+            
+            lastCurrentTime = currentTime;
+        }, 1000);
+    }
+}
+
+function stopCurrentTimeMonitor() {
+    if (currentTimeMonitor) {
+        clearInterval(currentTimeMonitor);
+        currentTimeMonitor = null;
+        console.log('🛑 关闭currentTime监控');
     }
 }
 
@@ -5866,6 +5929,9 @@ async function playSong(song, options = {}) {
     console.log(`🎵 准备播放: ${song.name} (锁屏: ${isLockScreen})`);
 
     try {
+        // 停止之前的监控
+        stopCurrentTimeMonitor();
+        
         if (state._isPlayingSong) return false;
         state._isPlayingSong = true;
         state.currentSong = song;
@@ -6004,20 +6070,118 @@ async function playSong(song, options = {}) {
                 setTimeout(() => { if (dom.albumCover) dom.albumCover.classList.remove('loading'); }, 300);
             }, 100);
         }
+        
+        // 9. 针对酷我音乐的额外修复：确保音频真正播放
+        if (song.source === 'kuwo') {
+            console.log('🎵 酷我音乐：启动额外播放监控');
+            
+            // 监控播放状态，确保音频真正播放
+            let monitorCount = 0;
+            const maxMonitors = 10;
+            
+            const playMonitor = setInterval(() => {
+                monitorCount++;
+                
+                console.log(`🔊 酷我音乐播放监控 (${monitorCount}/${maxMonitors}):`, {
+                    paused: player.paused,
+                    currentTime: player.currentTime,
+                    readyState: player.readyState,
+                    volume: player.volume,
+                    muted: player.muted
+                });
+                
+                // 检查播放状态
+                if (player.paused) {
+                    console.warn('⚠️ 酷我音乐监控发现播放暂停，尝试恢复');
+                    player.play().catch(error => {
+                        console.error('❌ 酷我音乐恢复播放失败:', error);
+                    });
+                }
+                
+                // 检查音量和静音状态
+                if (player.muted) {
+                    console.warn('⚠️ 酷我音乐监控发现音频被静音，尝试取消静音');
+                    player.muted = false;
+                }
+                
+                if (player.volume < 0.1) {
+                    console.warn('⚠️ 酷我音乐监控发现音量过低，尝试调高音量');
+                    player.volume = 0.5;
+                }
+                
+                // 检查当前时间是否变化
+                if (monitorCount > 1 && player.currentTime === 0) {
+                    console.warn('⚠️ 酷我音乐监控发现当前时间未变化，尝试重置');
+                    player.currentTime = 0;
+                    player.play().catch(error => {
+                        console.error('❌ 酷我音乐重置播放失败:', error);
+                    });
+                }
+                
+                // 停止监控
+                if (monitorCount >= maxMonitors || (player.currentTime > 0 && !player.paused)) {
+                    console.log('✅ 酷我音乐播放监控结束，播放状态正常');
+                    clearInterval(playMonitor);
+                }
+            }, 500);
+        }
 
-        // 9. 播放逻辑 (核心修复区)
+        // 10. 播放逻辑 (核心修复区)
         if (autoplay) {
             state.isPlaying = true;
             updatePlayPauseButton();
             if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
+            
+            // 针对酷我音乐启动currentTime监控
+            if (song.source === 'kuwo') {
+                startCurrentTimeMonitor();
+            }
 
             // 给一点点缓冲
             await new Promise(r => setTimeout(r, 50));
 
             try {
                 // 尝试播放
-                await player.play();
-                console.log('✅ 播放指令已发出');
+                const playResult = await player.play();
+                console.log('✅ 播放指令已发出，结果:', playResult);
+                console.log('🔊 音频状态检查:', {
+                    paused: player.paused,
+                    ended: player.ended,
+                    readyState: player.readyState,
+                    currentTime: player.currentTime,
+                    duration: player.duration
+                });
+
+                // 针对酷我音乐的特殊处理：检查播放状态
+                if (song.source === 'kuwo') {
+                    console.log('🎵 酷我音乐：检查播放状态，准备执行额外修复');
+                    
+                    // 检查play()调用后是否真的开始播放
+                    setTimeout(() => {
+                        console.log('🔊 酷我音乐播放状态检查 (100ms):', {
+                            paused: player.paused,
+                            readyState: player.readyState,
+                            currentTime: player.currentTime
+                        });
+                        
+                        // 如果播放状态异常，尝试重置播放
+                        if (player.paused) {
+                            console.warn('⚠️ 酷我音乐播放状态异常，尝试重置');
+                            player.currentTime = 0;
+                            player.play().catch(error => {
+                                console.error('❌ 酷我音乐重置播放失败:', error);
+                            });
+                        }
+                    }, 100);
+                    
+                    // 再次检查
+                    setTimeout(() => {
+                        console.log('🔊 酷我音乐播放状态检查 (500ms):', {
+                            paused: player.paused,
+                            currentTime: player.currentTime
+                        });
+                    }, 500);
+                }
 
                 // ⚡️⚡️ [核心修复 1] 硬件通道强制握手 ⚡️⚡️
                 // 在 iOS 锁屏下，有时候 Audio 元素状态是 playing，但硬件通道没打开。
@@ -6731,34 +6895,38 @@ function scrollToCurrentLyric(element, containerOverride) {
 // ============================================================
 // 最终稳妥版下载函数：直链跳转 (放弃重命名，保证成功率)
 // ============================================================
-async function downloadSong(song) {
+async function downloadSong(song, quality = null) {
     try {
-        const quality = state.playbackQuality || '320';
+        // 使用传入的质量参数，如果没有则使用当前播放质量
+        const finalQuality = quality || state.playbackQuality || '320';
         showNotification(`正在获取 ${song.name} 下载地址...`, 'info');
 
         // 1. 获取链接
-        const downloadUrl = API.getSongUrl(song, quality);
+        const downloadUrl = API.getSongUrl(song, finalQuality);
         if (!downloadUrl) {
             throw new Error('无法获取链接');
         }
+        console.log('🔗 下载链接:', downloadUrl);
 
-        // 2. 简单的跳转下载
-        // 既然 JS 没法重命名，就不搞那些花里胡哨的 Blob 了，直接让浏览器打开
-        
-        // 创建一个临时链接
-        const link = document.createElement('a');
-        link.href = downloadUrl;
-        link.target = '_blank'; // 新窗口打开，这是最不容易被拦截的方式
-        
-        // 哪怕浏览器忽略，我们也试着写一下，万一有些旧浏览器支持呢
-        link.download = `${song.artist} - ${song.name}.mp3`;
-        
-        // 3. 触发
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        // 2. 生成文件名
+        const artistName = Array.isArray(song.artist) ? song.artist.join(', ') : (song.artist || '未知艺术家');
+        const songName = song.name || '未知歌曲';
+        // 根据质量确定文件扩展名
+        let fileExtension = 'mp3';
+        if (finalQuality === '999') {
+            fileExtension = 'flac';
+        } else if (finalQuality === 'flac') {
+            fileExtension = 'flac';
+        }
+        // 按照用户要求的格式：歌曲名 - 艺术家.扩展名
+        const fileName = `${songName} - ${artistName}.${fileExtension}`;
+        console.log('📁 下载文件名:', fileName);
 
-        showNotification('已弹出下载窗口 (如果变成了播放，请按 Ctrl+S 保存)', 'success');
+        // 3. 直接打开下载链接，让浏览器或下载工具处理
+        // 这种方式会触发浏览器的下载行为，或者调用外部下载工具
+        window.open(downloadUrl, '_blank');
+
+        showNotification('已弹出下载窗口，等待下载工具响应...', 'success');
 
     } catch (error) {
         console.error('下载出错:', error);
