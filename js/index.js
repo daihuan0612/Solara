@@ -635,7 +635,7 @@ function buildAudioProxyUrl(url) {
 
 const SOURCE_OPTIONS = [
     { value: "netease", label: "网易云音乐" },
-    { value: "kuwo", label: "酷我音乐" },
+    // { value: "kuwo", label: "酷我音乐" }, // 暂注释掉酷我音乐，等恢复后再启用
     { value: "qq", label: "QQ音乐" }
 ];
 
@@ -6920,23 +6920,82 @@ async function downloadSong(song, quality = null) {
         const fileName = `${songName} - ${artistName}.${fileExtension}`;
         console.log('📁 最终文件名:', fileName);
 
-        // 3. 创建下载链接，使用7.4版的简单实现，确保IDM等下载工具能拦截
-        const a = document.createElement('a');
-        a.href = songUrl;
-        a.target = '_blank'; // 新窗口打开，这是最不容易被拦截的方式，确保IDM能拦截
-        a.download = fileName; // 设置下载文件名，确保浏览器下载时使用正确的文件名
-        
-        console.log('📤 触发下载，URL:', songUrl, '文件名:', fileName);
-        
-        // 4. 触发下载
-        document.body.appendChild(a);
-        a.click();
-        
-        // 5. 立即清理
-        document.body.removeChild(a);
-        
-        showNotification(`${song.name} 音频下载已开始...`, 'success');
-        console.log('✅ 下载流程完成');
+        // 3. 特殊处理MP3格式，绕过IDM自动拦截
+        if (fileExtension === 'mp3') {
+            // 使用XMLHttpRequest替代fetch，尝试绕过IDM的自动拦截
+            showNotification(`正在准备 ${song.name} MP3音频下载...`, 'info');
+            
+            const xhr = new XMLHttpRequest();
+            xhr.open('GET', songUrl, true);
+            xhr.responseType = 'blob';
+            
+            xhr.onload = function() {
+                if (xhr.status === 200) {
+                    const blob = xhr.response;
+                    console.log('📦 获取到MP3 blob，大小:', blob.size, '类型:', blob.type);
+                    
+                    // 创建自定义blob，修改MIME类型为application/octet-stream，防止IDM拦截
+                    const customBlob = new Blob([blob], { type: 'application/octet-stream' });
+                    
+                    // 创建下载链接
+                    const blobUrl = URL.createObjectURL(customBlob);
+                    const a = document.createElement('a');
+                    a.href = blobUrl;
+                    a.download = fileName;
+                    
+                    // 触发下载
+                    document.body.appendChild(a);
+                    a.click();
+                    
+                    // 清理
+                    setTimeout(() => {
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(blobUrl);
+                    }, 1000);
+                    
+                    showNotification(`${song.name} MP3音频下载已开始...`, 'success');
+                    console.log('✅ MP3下载流程完成');
+                } else {
+                    throw new Error(`下载失败: ${xhr.status}`);
+                }
+            };
+            
+            xhr.onerror = function() {
+                throw new Error('网络错误');
+            };
+            
+            xhr.send();
+        } else {
+            // 无损格式使用正常的blob下载
+            showNotification(`正在准备 ${song.name} 无损音频下载...`, 'info');
+            
+            const response = await fetch(songUrl);
+            if (!response.ok) {
+                throw new Error(`下载失败: ${response.status}`);
+            }
+            
+            const blob = await response.blob();
+            console.log('📦 获取到无损blob，大小:', blob.size, '类型:', blob.type);
+            
+            // 创建blob URL
+            const blobUrl = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = blobUrl;
+            a.download = fileName;
+            
+            // 触发下载
+            document.body.appendChild(a);
+            a.click();
+            
+            // 清理
+            setTimeout(() => {
+                document.body.removeChild(a);
+                URL.revokeObjectURL(blobUrl);
+            }, 1000);
+            
+            showNotification(`${song.name} 无损音频下载已开始...`, 'success');
+            console.log('✅ 无损下载流程完成');
+        }
 
     } catch (error) {
         console.error('❌ 下载出错:', error);
