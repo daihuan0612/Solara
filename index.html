@@ -16,6 +16,22 @@
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
     <link rel="stylesheet" href="css/style.css">
+    
+   !-- ============ 新增的 PWA 配置开始 ============ -->
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#FF6B8B">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="application-name" content="小苹果Music">
+<meta name="msapplication-TileColor" content="#FF6B8B">
+
+<!-- 优先使用网站图标，备用使用 Cloudflare Worker 的图标 -->
+<link rel="icon" sizes="192x192" href="/icon-192.png">
+<link rel="icon" sizes="512x512" href="/icon-512.png">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<!-- ============ 新增的 PWA 配置结束 ============ -->
+    
     <script>
         (function () {
             const ua = navigator.userAgent || "";
