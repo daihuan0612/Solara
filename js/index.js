@@ -4042,7 +4042,9 @@ function updateCurrentSongInfo(song, options = {}) {
     // 只有在 updateBackground 为 true 时才更新当前歌曲状态
     if (updateBackground) {
         state.currentSong = song;
-        dom.currentSongTitle.textContent = song.name;
+        const sourceShortName = getSourceShortName(song.source);
+        const songNameWithSource = sourceShortName ? `[${sourceShortName}] ${song.name}` : song.name;
+        dom.currentSongTitle.textContent = songNameWithSource;
         updateMobileToolbarTitle();
         updateFavoriteIcons();
 
@@ -4287,6 +4289,16 @@ async function loadMoreResults() {
     }
 }
 
+// 获取歌曲来源简称
+function getSourceShortName(source) {
+    const sourceMap = {
+        'netease': '网易',
+        'kuwo': '酷我',
+        'qq': 'QQ'
+    };
+    return sourceMap[source] || '';
+}
+
 function createSearchResultItem(song, index) {
     const item = document.createElement("div");
     item.className = "search-result-item";
@@ -4307,7 +4319,8 @@ function createSearchResultItem(song, index) {
 
     const title = document.createElement("div");
     title.className = "search-result-title";
-    title.textContent = song.name || "未知歌曲";
+    const sourceShortName = getSourceShortName(song.source);
+    title.textContent = sourceShortName ? `[${sourceShortName}] ${song.name || "未知歌曲"}` : (song.name || "未知歌曲");
 
     const artist = document.createElement("div");
     artist.className = "search-result-artist";
@@ -5095,9 +5108,11 @@ function renderPlaylist() {
             ? song.artist.join(", ")
             : (song.artist || "未知艺术家");
         const songKey = getSongKey(song) || `playlist-${index}`;
+        const sourceShortName = getSourceShortName(song.source);
+        const songNameWithSource = sourceShortName ? `[${sourceShortName}] ${song.name}` : song.name;
         return `
         <div class="playlist-item" data-index="${index}" role="button" tabindex="0" aria-label="播放 ${song.name}" data-favorite-key="${songKey}">
-            ${song.name} - ${artistValue}
+            ${songNameWithSource} - ${artistValue}
             <button class="playlist-item-favorite action-btn favorite favorite-toggle" type="button" data-playlist-action="favorite" data-index="${index}" data-favorite-key="${songKey}" title="收藏" aria-label="收藏">
                 <i class="fa-regular fa-heart"></i>
             </button>
@@ -5109,6 +5124,7 @@ function renderPlaylist() {
             </button>
         </div>`;
     }).join("");
+    
 
     dom.playlistItems.innerHTML = playlistHtml;
     savePlayerState();
@@ -5358,9 +5374,11 @@ function renderFavorites() {
             : (song.artist || "未知艺术家");
         const isCurrent = state.currentList === "favorite" && index === state.currentFavoriteIndex;
         const songKey = getSongKey(song) || `favorite-${index}`;
+        const sourceShortName = getSourceShortName(song.source);
+        const songNameWithSource = sourceShortName ? `[${sourceShortName}] ${song.name}` : song.name;
         return `
         <div class="playlist-item${isCurrent ? " current" : ""}" data-index="${index}" role="button" tabindex="0" aria-label="播放 ${song.name}" data-favorite-key="${songKey}">
-            ${song.name} - ${artistValue}
+            ${songNameWithSource} - ${artistValue}
             <button class="favorite-item-action favorite-item-action--add" type="button" data-favorite-action="add" data-index="${index}" title="添加到播放列表" aria-label="添加到播放列表">
                 <i class="fas fa-plus"></i>
             </button>
