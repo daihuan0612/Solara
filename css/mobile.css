@@ -1181,8 +1181,7 @@ body.mobile-view .search-area .search-results {
 }
 
 body.mobile-view .search-results-toolbar {
-    width: min(100%, 400px);
-    margin: 0 auto;
+    width: 100%;
     padding-top: 8px;
 }
 
@@ -1192,8 +1191,7 @@ body.mobile-view .import-selected-btn {
 }
 
 body.mobile-view .search-results-list {
-    width: min(100%, 400px);
-    margin: 0 auto;
+    width: 100%;
 }
 
 body.mobile-view .search-area > :not(.mobile-close-btn) {
@@ -1282,7 +1280,9 @@ body.mobile-view .search-results {
     min-height: 0;
     overflow-y: auto;
     width: min(100%, 400px);
-    margin: 0 auto;
+    margin: 0;
+    padding: 0;
+    border: none;
 }
 
 body.mobile-view #notification {
