@@ -6901,35 +6901,45 @@ async function downloadSong(song, quality = null) {
         const finalQuality = quality || state.playbackQuality || '320';
         showNotification(`正在获取 ${song.name} 下载地址...`, 'info');
 
-        // 1. 获取链接
-        const downloadUrl = API.getSongUrl(song, finalQuality);
-        if (!downloadUrl) {
+        // 1. 获取下载链接
+        const songUrl = API.getSongUrl(song, finalQuality);
+        if (!songUrl) {
             throw new Error('无法获取链接');
         }
-        console.log('🔗 下载链接:', downloadUrl);
+        console.log('🔗 原始链接:', songUrl);
 
         // 2. 生成文件名
         const artistName = Array.isArray(song.artist) ? song.artist.join(', ') : (song.artist || '未知艺术家');
         const songName = song.name || '未知歌曲';
         // 根据质量确定文件扩展名
         let fileExtension = 'mp3';
-        if (finalQuality === '999') {
-            fileExtension = 'flac';
-        } else if (finalQuality === 'flac') {
+        if (finalQuality === '999' || finalQuality === 'flac') {
             fileExtension = 'flac';
         }
         // 按照用户要求的格式：歌曲名 - 艺术家.扩展名
         const fileName = `${songName} - ${artistName}.${fileExtension}`;
-        console.log('📁 下载文件名:', fileName);
+        console.log('📁 最终文件名:', fileName);
 
-        // 3. 直接打开下载链接，让浏览器或下载工具处理
-        // 这种方式会触发浏览器的下载行为，或者调用外部下载工具
-        window.open(downloadUrl, '_blank');
-
-        showNotification('已弹出下载窗口，等待下载工具响应...', 'success');
+        // 3. 创建下载链接，使用7.4版的简单实现，确保IDM等下载工具能拦截
+        const a = document.createElement('a');
+        a.href = songUrl;
+        a.target = '_blank'; // 新窗口打开，这是最不容易被拦截的方式，确保IDM能拦截
+        a.download = fileName; // 设置下载文件名，确保浏览器下载时使用正确的文件名
+        
+        console.log('📤 触发下载，URL:', songUrl, '文件名:', fileName);
+        
+        // 4. 触发下载
+        document.body.appendChild(a);
+        a.click();
+        
+        // 5. 立即清理
+        document.body.removeChild(a);
+        
+        showNotification(`${song.name} 音频下载已开始...`, 'success');
+        console.log('✅ 下载流程完成');
 
     } catch (error) {
-        console.error('下载出错:', error);
+        console.error('❌ 下载出错:', error);
         showNotification('获取下载地址失败', 'error');
     }
 }
