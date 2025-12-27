@@ -4803,8 +4803,8 @@ async function downloadWithQuality(event, index, type, quality) {
     }
 
     try {
-        // 7.4版本逻辑：忽略quality参数，直接使用固定质量
-        await downloadSong(song);
+        // 正确传递质量参数
+        await downloadSong(song, quality);
     } catch (error) {
         console.error("下载失败:", error);
         showNotification("下载失败，请稍后重试", "error");
@@ -6896,25 +6896,32 @@ function scrollToCurrentLyric(element, containerOverride) {
 // ============================================================
 // 最终稳妥版下载函数：直链跳转 (放弃重命名，保证成功率)
 // ============================================================
-async function downloadSong(song) {
+async function downloadSong(song, quality = null) {
     try {
-        // 7.4版本逻辑：MP3直接使用320质量，不接受质量参数
-        const quality = '320'; // 固定使用320质量，与7.4版本一致
+        // 恢复质量选择功能，根据不同质量获取不同链接
+        const finalQuality = quality || state.playbackQuality || '320';
         showNotification(`正在获取 ${song.name} 下载地址...`, 'info');
 
         // 1. 获取下载链接
-        const downloadUrl = API.getSongUrl(song, quality);
+        const downloadUrl = API.getSongUrl(song, finalQuality);
         if (!downloadUrl) {
             throw new Error('无法获取链接');
         }
         console.log('🔗 原始链接:', downloadUrl);
 
-        // 2. 生成文件名，完全按照7.4版本的格式
-        const fileName = `${song.artist} - ${song.name}.mp3`;
+        // 2. 生成文件名，处理artist为数组的情况
+        const artistName = Array.isArray(song.artist) ? song.artist.join(', ') : (song.artist || '未知艺术家');
+        const songName = song.name || '未知歌曲';
+        // 根据质量确定文件扩展名
+        let fileExtension = 'mp3';
+        if (finalQuality === '999' || finalQuality === 'flac') {
+            fileExtension = 'flac';
+        }
+        // 按照用户要求的格式：歌曲名 - 艺术家.扩展名
+        const fileName = `${songName} - ${artistName}.${fileExtension}`;
         console.log('📁 最终文件名:', fileName);
 
-        // 3. 移除target="_blank"，使用更适合隐私模式的下载方式
-        // 同时保持IDM能正确拦截
+        // 3. 使用更可靠的下载方式
         const link = document.createElement('a');
         link.href = downloadUrl;
         link.download = fileName; // 设置下载文件名
@@ -6922,20 +6929,7 @@ async function downloadSong(song) {
         
         // 4. 触发下载
         document.body.appendChild(link);
-        
-        // 使用更可靠的方式触发点击
-        if (typeof link.click === 'function') {
-            link.click();
-        } else {
-            // 兼容性处理
-            const clickEvent = new MouseEvent('click', {
-                view: window,
-                bubbles: true,
-                cancelable: true
-            });
-            link.dispatchEvent(clickEvent);
-        }
-        
+        link.click();
         document.body.removeChild(link);
         
         showNotification(`${song.name} 音频下载已开始...`, 'success');
