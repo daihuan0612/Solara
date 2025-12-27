@@ -1531,7 +1531,9 @@ bootstrapPersistentStorage();
 
     function updatePositionState() {
         // iOS 15+ 支持 setPositionState；用于让锁屏进度条可拖动与显示
-        if (!allowLockScreenScrubbing) return;
+        if (!allowLockScreenScrubbing) {
+            return;
+        }
         const duration = Number.isFinite(audio.duration) ? audio.duration : 0;
         const position = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
         const playbackRate = Number.isFinite(audio.playbackRate) ? audio.playbackRate : 1;
@@ -1557,7 +1559,9 @@ bootstrapPersistentStorage();
     });
 
     function bindActionHandlersOnce() {
-        if (handlersBound) return;
+        if (handlersBound) {
+            return;
+        }
         handlersBound = true;
 
         // 播放/暂停交给 <audio> 默认行为即可
@@ -1595,7 +1599,9 @@ bootstrapPersistentStorage();
             if (allowLockScreenScrubbing) {
                 // 关键：让锁屏支持拖动进度到任意位置
                 navigator.mediaSession.setActionHandler('seekto', (e) => {
-                    if (!e || typeof e.seekTime !== 'number') return;
+                    if (!e || typeof e.seekTime !== 'number') {
+                        return;
+                    }
                     audio.currentTime = Math.max(0, Math.min(audio.duration || 0, e.seekTime));
                     if (e.fastSeek && typeof audio.fastSeek === 'function') {
                         audio.fastSeek(audio.currentTime);
@@ -1755,7 +1761,9 @@ let floatingMenuListenersAttached = false;
 let qualityMenuAnchor = null;
 
 function runWithoutTransition(element, callback) {
-    if (!element || typeof callback !== "function") return;
+    if (!element || typeof callback !== "function") {
+        return;
+    }
     const previousTransition = element.style.transition;
     element.style.transition = "none";
     callback();
@@ -1899,7 +1907,9 @@ function captureThemeDefaults() {
 }
 
 function applyThemeTokens(tokens) {
-    if (!tokens) return;
+    if (!tokens) {
+        return;
+    }
     if (tokens.primaryColor) {
         setGlobalThemeProperty("--primary-color", tokens.primaryColor);
     }
@@ -2719,7 +2729,9 @@ function formatTime(seconds) {
 }
 
 function updatePlayPauseButton() {
-    if (!dom.playPauseBtn) return;
+    if (!dom.playPauseBtn) {
+        return;
+    }
     const isPlaying = !dom.audioPlayer.paused && !dom.audioPlayer.ended;
     dom.playPauseBtn.innerHTML = `<i class="fas ${isPlaying ? "fa-pause" : "fa-play"}"></i>`;
     dom.playPauseBtn.title = isPlaying ? "暂停" : "播放";
@@ -2741,7 +2753,9 @@ function updateVolumeSliderBackground(volume = dom.audioPlayer.volume) {
 }
 
 function updateVolumeIcon(volume) {
-    if (!dom.volumeIcon) return;
+    if (!dom.volumeIcon) {
+        return;
+    }
     const clamped = Math.min(Math.max(Number.isFinite(volume) ? volume : 0, 0), 1);
     let icon = "fa-volume-high";
     if (clamped === 0) {
@@ -2910,7 +2924,9 @@ async function togglePlayPause() {
 }
 
 function buildSourceMenu() {
-    if (!dom.sourceMenu) return;
+    if (!dom.sourceMenu) {
+        return;
+    }
     const optionsHtml = SOURCE_OPTIONS.map(option => {
         const isActive = option.value === state.searchSource;
         return `
@@ -2928,7 +2944,9 @@ function buildSourceMenu() {
 
 function updateSourceLabel() {
     const option = SOURCE_OPTIONS.find(item => item.value === state.searchSource) || SOURCE_OPTIONS[0];
-    if (!option || !dom.sourceSelectLabel || !dom.sourceSelectButton) return;
+    if (!option || !dom.sourceSelectLabel || !dom.sourceSelectButton) {
+        return;
+    }
     dom.sourceSelectLabel.textContent = option.label;
     dom.sourceSelectButton.dataset.source = option.value;
     dom.sourceSelectButton.setAttribute("aria-expanded", state.sourceMenuOpen ? "true" : "false");
@@ -2937,7 +2955,9 @@ function updateSourceLabel() {
 }
 
 function updateSourceMenuPosition() {
-    if (!state.sourceMenuOpen || !dom.sourceMenu || !dom.sourceSelectButton) return;
+    if (!state.sourceMenuOpen || !dom.sourceMenu || !dom.sourceSelectButton) {
+        return;
+    }
 
     const menu = dom.sourceMenu;
     const button = dom.sourceSelectButton;
@@ -3016,7 +3036,9 @@ function toggleSourceMenu(event) {
 
 function handleSourceSelection(event) {
     const option = event.target.closest(".source-option");
-    if (!option) return;
+    if (!option) {
+        return;
+    }
     event.preventDefault();
     event.stopPropagation();
     const { source } = option.dataset;
@@ -3039,7 +3061,9 @@ function selectSearchSource(source) {
 }
 
 function buildQualityMenu() {
-    if (!dom.playerQualityMenu) return;
+    if (!dom.playerQualityMenu) {
+        return;
+    }
     const optionsHtml = QUALITY_OPTIONS.map(option => {
         const isActive = option.value === state.playbackQuality;
         return `
@@ -3093,7 +3117,9 @@ function getQualityMenuAnchor() {
 
 function updateQualityLabel() {
     const option = QUALITY_OPTIONS.find(item => item.value === state.playbackQuality) || QUALITY_OPTIONS[0];
-    if (!option) return;
+    if (!option) {
+        return;
+    }
     dom.qualityLabel.textContent = option.label;
     dom.qualityToggle.title = `音质: ${option.label} (${option.description})`;
     if (dom.mobileQualityLabel) {
@@ -3121,7 +3147,9 @@ function togglePlayerQualityMenu(event) {
 }
 
 function updatePlayerQualityMenuPosition() {
-    if (!state.qualityMenuOpen || !dom.playerQualityMenu) return;
+    if (!state.qualityMenuOpen || !dom.playerQualityMenu) {
+        return;
+    }
 
     const anchor = getQualityMenuAnchor();
     if (!isElementNode(anchor)) {
@@ -3185,7 +3213,9 @@ function updatePlayerQualityMenuPosition() {
 }
 
 function resetPlayerQualityMenuPosition() {
-    if (!dom.playerQualityMenu) return;
+    if (!dom.playerQualityMenu) {
+        return;
+    }
     dom.playerQualityMenu.classList.remove("floating", "open-upwards", "open-downwards");
     dom.playerQualityMenu.style.top = "";
     dom.playerQualityMenu.style.left = "";
@@ -3196,7 +3226,9 @@ function resetPlayerQualityMenuPosition() {
 }
 
 function openPlayerQualityMenu(anchor) {
-    if (!dom.playerQualityMenu) return;
+    if (!dom.playerQualityMenu) {
+        return;
+    }
     const targetAnchor = resolveQualityAnchor(anchor);
     if (!targetAnchor) {
         return;
@@ -3217,7 +3249,9 @@ function openPlayerQualityMenu(anchor) {
     });
 
     requestAnimationFrame(() => {
-        if (!state.qualityMenuOpen) return;
+        if (!state.qualityMenuOpen) {
+            return;
+        }
         menu.classList.add("show");
     });
 
@@ -3272,7 +3306,9 @@ function closePlayerQualityMenu() {
 
 function handlePlayerQualitySelection(event) {
     const option = event.target.closest(".player-quality-option");
-    if (!option) return;
+    if (!option) {
+        return;
+    }
     event.preventDefault();
     event.stopPropagation();
     const { quality } = option.dataset;
@@ -3329,7 +3365,9 @@ async function reloadCurrentSong() {
 }
 
 async function restoreCurrentSongState() {
-    if (!state.currentSong) return;
+    if (!state.currentSong) {
+        return;
+    }
     try {
         await playSong(state.currentSong, {
             autoplay: false,
@@ -4257,7 +4295,9 @@ function performUnlockRecovery() {
 // 修复音频输出
 function fixAudioOutputIfNeeded() {
     const player = dom.audioPlayer;
-    if (!player || !player.src || player.paused) return;
+    if (!player || !player.src || player.paused) {
+        return;
+    }
     
     console.log('🔓 尝试修复音频输出');
     
@@ -4950,7 +4990,9 @@ async function downloadWithQuality(event, index, type, quality) {
         song = state.favoriteSongs[index];
     }
 
-    if (!song) return;
+    if (!song) {
+        return;
+    }
 
     // 关闭菜单并移除 menu-active 类
     document.querySelectorAll(".quality-menu").forEach(menu => {
@@ -4976,7 +5018,9 @@ async function downloadWithQuality(event, index, type, quality) {
 // 修复：播放搜索结果 - 添加到播放列表而不是清空
 async function playSearchResult(index) {
     const song = state.searchResults[index];
-    if (!song) return;
+    if (!song) {
+        return;
+    }
 
     // 带重试机制的播放
     const maxRetries = 3;
@@ -5341,7 +5385,9 @@ function handleImportPlaylistChange(event) {
 
 // 新增：渲染统一播放列表
 function renderPlaylist() {
-    if (!dom.playlistItems) return;
+    if (!dom.playlistItems) {
+        return;
+    }
 
     if (state.playlistSongs.length === 0) {
         dom.playlist.classList.add("empty");
@@ -5491,7 +5537,9 @@ function switchLibraryTab(target) {
 
 // 新增：从播放列表移除歌曲
 function removeFromPlaylist(index) {
-    if (index < 0 || index >= state.playlistSongs.length) return;
+    if (index < 0 || index >= state.playlistSongs.length) {
+        return;
+    }
 
     const removingCurrent = state.currentPlaylist === "playlist" && state.currentTrackIndex === index;
 
@@ -5982,7 +6030,9 @@ function handleImportFavoritesChange(event) {
 
 // 新增：清空播放列表
 function clearPlaylist() {
-    if (state.playlistSongs.length === 0) return;
+    if (state.playlistSongs.length === 0) {
+        return;
+    }
 
     if (state.currentPlaylist === "playlist") {
         dom.audioPlayer.pause();
@@ -6075,7 +6125,9 @@ async function playPlaylistSong(index) {
 
 // 新增：更新播放列表高亮
 function updatePlaylistHighlight() {
-    if (!dom.playlistItems) return;
+    if (!dom.playlistItems) {
+        return;
+    }
     const playlistItems = dom.playlistItems.querySelectorAll(".playlist-item");
     playlistItems.forEach((item, index) => {
         const isCurrent = state.currentPlaylist === "playlist" && index === state.currentTrackIndex;
@@ -6123,10 +6175,14 @@ function updateMediaMetadataForLockScreen(song) {
             audioCtx: null, 
             osc: null, 
             start: function() { 
-                if (this.isActive) return; 
+                if (this.isActive) {
+                    return;
+                } 
                 try { 
                     const AC = window.AudioContext || window.webkitAudioContext; 
-                    if (!AC) return; 
+                    if (!AC) {
+                        return;
+                    } 
                     this.audioCtx = new AC(); 
                     this.osc = this.audioCtx.createOscillator(); 
                     const gain = this.audioCtx.createGain(); 
@@ -6141,7 +6197,9 @@ function updateMediaMetadataForLockScreen(song) {
                 } catch (e) { console.error('守护启动失败:', e); } 
             }, 
             stop: function() { 
-                if (!this.isActive) return; 
+                if (!this.isActive) {
+                    return;
+                } 
                 try { 
                     if (this.osc) { this.osc.stop(); this.osc.disconnect(); } 
                     if (this.audioCtx) { this.audioCtx.close(); } 
@@ -6687,7 +6745,9 @@ async function playPrevious() {
         playlist = state.searchResults;
     }
 
-    if (playlist.length === 0) return;
+    if (playlist.length === 0) {
+        return;
+    }
 
     const mode = state.playMode || "list";
     if (mode === "random") {
@@ -6765,7 +6825,9 @@ async function playOnlineSong(index) {
 
 // 修复：更新在线音乐高亮
 function updateOnlineHighlight() {
-    if (!dom.playlistItems) return;
+    if (!dom.playlistItems) {
+        return;
+    }
     const playlistItems = dom.playlistItems.querySelectorAll(".playlist-item");
     playlistItems.forEach((item, index) => {
         if (state.currentPlaylist === "online" && index === state.currentTrackIndex) {
@@ -6789,25 +6851,11 @@ const EXPLORE_RADAR_GENRES = [
     "影视金曲",
 ];
 
-function pickRandomExploreGenre() {
-    if (!Array.isArray(EXPLORE_RADAR_GENRES) || EXPLORE_RADAR_GENRES.length === 0) {
-        return "流行";
-    }
-    const index = Math.floor(Math.random() * EXPLORE_RADAR_GENRES.length);
-    return EXPLORE_RADAR_GENRES[index];
-}
-
 const EXPLORE_RADAR_SOURCES = ["netease", "kuwo", "qq"];
+const EXPLORE_RADAR_SONGS_PER_SOURCE = 10;
+const EXPLORE_RADAR_MAX_SONGS = 20;
 
-function pickRandomExploreSource() {
-    if (!Array.isArray(EXPLORE_RADAR_SOURCES) || EXPLORE_RADAR_SOURCES.length === 0) {
-        return "netease";
-    }
-    const index = Math.floor(Math.random() * EXPLORE_RADAR_SOURCES.length);
-    return EXPLORE_RADAR_SOURCES[index];
-}
-
-// 探索雷达：通过代理后端随机搜歌并刷新播放列表
+// 探索雷达：从各平台排行榜获取歌曲
 async function exploreOnlineMusic() {
     const desktopButton = dom.loadOnlineBtn;
     const mobileButton = dom.mobileExploreButton;
@@ -6834,51 +6882,67 @@ async function exploreOnlineMusic() {
     try {
         setLoadingState(true);
 
-        const randomGenre = pickRandomExploreGenre();
-        debugLog(`探索雷达使用聚合搜索: ${randomGenre}`);
-        
-        const results = await API.aggregateSearch(randomGenre, 20);
-        
-        if (!Array.isArray(results) || results.length === 0) {
-            showNotification("探索雷达：未找到符合要求的榜单歌曲", "info");
-            debugLog(`探索雷达未找到符合要求的榜单歌曲，关键词：${randomGenre}`);
-            return;
-        }
+        const randomGenre = EXPLORE_RADAR_GENRES[Math.floor(Math.random() * EXPLORE_RADAR_GENRES.length)];
+        debugLog(`探索雷达从排行榜获取歌曲: ${randomGenre}`);
 
-        const filteredResults = results.filter(song => {
-            const isKeywordInTitle = song.name.includes(randomGenre);
-            const isRankingRelated = song.name.toLowerCase().includes('榜单') || 
-                                    song.name.toLowerCase().includes('排行') ||
-                                    song.name.toLowerCase().includes('top') ||
-                                    song.name.toLowerCase().includes('chart');
-            const isAlbumKeyword = song.album && song.album.includes(randomGenre);
-            const isRealCategory = ['新歌', '热歌', '经典', '欧美', '日韩', '民谣', '古风', '说唱', '影视金曲'].includes(randomGenre);
-            
-            if (isRealCategory) {
-                return !(isRankingRelated && !isKeywordInTitle);
-            } else {
-                return !isKeywordInTitle && !isRankingRelated && !isAlbumKeyword;
+        const allSongs = [];
+        const songKeys = new Set();
+
+        for (const source of EXPLORE_RADAR_SOURCES) {
+            try {
+                debugLog(`获取 ${source} 平台排行榜列表`);
+                const toplists = await API.getToplists(source);
+                
+                if (!Array.isArray(toplists) || toplists.length === 0) {
+                    debugLog(`${source} 平台无排行榜`);
+                    continue;
+                }
+
+                const randomToplist = toplists[Math.floor(Math.random() * toplists.length)];
+                debugLog(`从 ${source} 平台选择排行榜: ${randomToplist.name}`);
+
+                const toplistSongs = await API.getToplistSongs(randomToplist.id, source);
+                
+                if (!Array.isArray(toplistSongs)) {
+                    continue;
+                }
+
+                for (const song of toplistSongs) {
+                    const songKey = getSongKey(song);
+                    if (!songKey || songKeys.has(songKey)) {
+                        continue;
+                    }
+
+                    songKeys.add(songKey);
+                    allSongs.push({
+                        id: song.id,
+                        name: song.name,
+                        artist: Array.isArray(song.artist) ? song.artist.join(" / ") : (song.artist || "未知艺术家"),
+                        album: song.album || "",
+                        source: source,
+                        lyric_id: song.lyric_id || song.id,
+                        pic_id: song.pic_id || song.id || "",
+                        url_id: song.url_id || song.id,
+                    });
+
+                    if (allSongs.length >= EXPLORE_RADAR_MAX_SONGS) {
+                        break;
+                    }
+                }
+
+                if (allSongs.length >= EXPLORE_RADAR_MAX_SONGS) {
+                    break;
+                }
+            } catch (error) {
+                debugLog(`${source} 平台获取排行榜失败:`, error.message);
             }
-        });
-
-        if (filteredResults.length === 0) {
-            showNotification("探索雷达：未找到符合要求的榜单歌曲", "info");
-            debugLog(`探索雷达过滤后无结果，关键词：${randomGenre}`);
-            return;
         }
 
-        const selectedResults = filteredResults.slice(0, 8);
-        
-        const normalizedSongs = selectedResults.map((song) => ({
-            id: song.id,
-            name: song.name,
-            artist: Array.isArray(song.artist) ? song.artist.join(" / ") : (song.artist || "未知艺术家"),
-            album: song.album || "",
-            source: song.source || song.platform || "netease",
-            lyric_id: song.lyric_id || song.id,
-            pic_id: song.pic_id || song.id || "",
-            url_id: song.url_id || song.id,
-        }));
+        if (allSongs.length === 0) {
+            showNotification("探索雷达：未找到符合要求的榜单歌曲", "info");
+            debugLog(`探索雷达未找到任何歌曲`);
+            return;
+        }
 
         const existingSongs = Array.isArray(state.playlistSongs) ? state.playlistSongs.slice() : [];
         const existingKeys = new Set(existingSongs
@@ -6886,7 +6950,7 @@ async function exploreOnlineMusic() {
             .filter((key) => typeof key === "string" && key.length > 0));
 
         const appendedSongs = [];
-        for (const song of normalizedSongs) {
+        for (const song of allSongs) {
             const key = getSongKey(song);
             if (key && existingKeys.has(key)) {
                 continue;
@@ -6899,7 +6963,7 @@ async function exploreOnlineMusic() {
 
         if (appendedSongs.length === 0) {
             showNotification("探索雷达：本次未找到新的歌曲，当前列表已包含这些曲目", "info");
-            debugLog(`探索雷达无新增歌曲，关键词：${randomGenre}`);
+            debugLog(`探索雷达无新增歌曲`);
             return;
         }
 
@@ -6922,7 +6986,7 @@ async function exploreOnlineMusic() {
         }
 
         showNotification(`探索雷达：新增${appendedSongs.length}首歌曲`);
-        debugLog(`探索雷达加载成功，关键词：${randomGenre}，新增歌曲数：${appendedSongs.length}`);
+        debugLog(`探索雷达加载成功，新增歌曲数：${appendedSongs.length}`);
 
         const shouldAutoplay = existingSongs.length === 0 && state.playlistSongs.length > 0;
         if (shouldAutoplay) {
@@ -7079,7 +7143,9 @@ function displayLyrics() {
 
 // 修复：同步歌词
 function syncLyrics() {
-    if (state.lyricsData.length === 0) return;
+    if (state.lyricsData.length === 0) {
+        return;
+    }
 
     const currentTime = dom.audioPlayer.currentTime;
     let currentIndex = -1;
@@ -7247,7 +7313,9 @@ function showNotification(message, type = "success") {
                   (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     
     // 只在 iOS PWA 下运行
-    if (!isIOS || !window.navigator.standalone) return;
+    if (!isIOS || !window.navigator.standalone) {
+        return;
+    }
     
     console.log('🛡️ 启动 iOS 音频保活守卫');
     
@@ -7257,7 +7325,9 @@ function showNotification(message, type = "success") {
     
     // 初始化一个极低功耗的静音守护进程
     function initGuard() {
-        if (audioCtx) return;
+        if (audioCtx) {
+            return;
+        }
         
         const AudioContext = window.AudioContext || window.webkitAudioContext;
         if (!AudioContext) return;
