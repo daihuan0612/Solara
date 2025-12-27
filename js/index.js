@@ -811,35 +811,17 @@ const API = {
                 throw new Error("搜索结果格式错误");
             }
 
-            return data.data.results.map(song => {
-                const result = {
-                    id: song.id,
-                    name: song.name,
-                    artist: song.artist,
-                    album: song.album,
-                    source: song.platform || source,
-                    // 使用正确的ID作为封面、歌词和URL的标识
-                    pic_id: song.pic_id || song.id,
-                    url_id: song.url_id || song.id,
-                    lyric_id: song.lyric_id || song.id,
-                };
-                
-                // ⚠️ 新增：为不同平台添加特殊ID字段
-                const platform = song.platform || source;
-                if (platform === "kuwo") {
-                    // 酷我音乐特有ID字段
-                    result.kw_id = song.kw_id || song.id;
-                    result.rid = song.rid || song.id;
-                }
-                
-                if (platform === "qq") {
-                    // QQ音乐特有ID字段
-                    result.songmid = song.songmid || song.mid || song.id;
-                    result.mid = song.mid || song.id;
-                }
-                
-                return result;
-            });
+            return data.data.results.map(song => ({
+                id: song.id,
+                name: song.name,
+                artist: song.artist,
+                album: song.album,
+                source: song.platform || source,
+                // 新API返回的URL已经是完整的API链接，我们需要提取id用于后续请求
+                pic_id: song.id,
+                url_id: song.id,
+                lyric_id: song.id,
+            }));
         } catch (error) {
             debugLog(`API错误: ${error.message}`);
             throw error;
@@ -862,9 +844,9 @@ const API = {
                 name: track.name,
                 artist: track.artist || "",
                 album: track.album || "",
-                source: track.source || "netease",
-                lyric_id: track.lyric_id || track.id,
-                pic_id: track.pic_id || track.id,
+                source: "netease",
+                lyric_id: track.id,
+                pic_id: track.id,
             }));
         } catch (error) {
             console.error("API request failed:", error);
@@ -873,7 +855,7 @@ const API = {
     },
 
     getSongUrl: (song, quality = "320") => {
-        // 质量映射（保持原样）
+        // 根据API文档，quality参数需要映射为128k, 192k, 320k, flac
         const qualityMap = {
             "128": "128k",
             "192": "192k",
@@ -881,18 +863,17 @@ const API = {
             "999": "flac"
         };
         
+        // 处理MP3选项，返回默认的MP3质量
         if (quality === "mp3") {
             quality = "320";
         }
         
+        // 确保使用有效的音质映射，支持192k
         const validQuality = quality in qualityMap ? quality : "320";
         const br = qualityMap[validQuality];
         
-        // ⚠️ 修改：简化URL，移除平台特定参数
-        const source = song.source || "netease";
-        
-        // 所有平台使用统一格式（根据API文档）
-        return `${API.baseUrl}/api/?source=${source}&id=${song.id}&type=url&br=${br}`;
+        // 构建API URL，支持不同类型的请求
+        return `${API.baseUrl}/api/?source=${song.source || "netease"}&id=${song.id}&type=url&br=${br}`;
     },
 
     getLyric: (song) => {
@@ -1376,8 +1357,10 @@ bootstrapPersistentStorage();
         // 播放/暂停交给 <audio> 默认行为即可
         try {
             navigator.mediaSession.setActionHandler('previoustrack', async () => {
+                // 直接复用你已有的全局函数（HTML 里也在用）:contentReference[oaicite:9]{index=9}
                 if (typeof window.playPrevious === 'function') {
                     try {
+                        // 调用playPrevious并等待可能的异步操作完成
                         const result = window.playPrevious();
                         if (result && typeof result.then === 'function') {
                             await result;
@@ -1391,6 +1374,7 @@ bootstrapPersistentStorage();
             navigator.mediaSession.setActionHandler('nexttrack', async () => {
                 if (typeof window.playNext === 'function') {
                     try {
+                        // 调用playNext并等待可能的异步操作完成
                         const result = window.playNext();
                         if (result && typeof result.then === 'function') {
                             await result;
@@ -1471,21 +1455,6 @@ bootstrapPersistentStorage();
             triggerMediaSessionMetadataRefresh();
             audio[MEDIA_SESSION_ENDED_FLAG] = false;
         };
-        
-        // 检查是否为锁屏状态，如果是则确保音频上下文可用
-        const isIOSPWA = /iPad|iPhone|iPod/.test(navigator.userAgent) && 
-                        (window.navigator.standalone === true || 
-                        window.matchMedia('(display-mode: standalone)').matches);
-        
-        if (isIOSPWA && document.visibilityState === 'hidden') {
-            // 在锁屏状态下，确保音频上下文处于活动状态
-            if (window.solaraAudioGuard && window.solaraAudioGuard.audioCtx) {
-                if (window.solaraAudioGuard.audioCtx.state === 'suspended') {
-                    window.solaraAudioGuard.audioCtx.resume();
-                }
-            }
-        }
-        
         if (typeof autoPlayNext === 'function') {
             try {
                 audio[MEDIA_SESSION_ENDED_FLAG] = 'handling';
@@ -1524,16 +1493,6 @@ bootstrapPersistentStorage();
                     if (navigator.mediaSession && !audio.paused) {
                         navigator.mediaSession.playbackState = 'playing';
                     }
-                    
-                    // 针对iOS PWA锁屏的特殊处理
-                    if (isIOSPWA && document.visibilityState === 'hidden') {
-                        if (window.solaraAudioGuard && window.solaraAudioGuard.audioCtx) {
-                            if (window.solaraAudioGuard.audioCtx.state === 'suspended') {
-                                window.solaraAudioGuard.audioCtx.resume();
-                            }
-                        }
-                    }
-                    
                     refresh();
                 })();
                 return;
@@ -1949,27 +1908,10 @@ function attemptPaletteApplication() {
 }
 
 function showAlbumCoverPlaceholder() {
-    const placeholderDiv = document.createElement('div');
-    placeholderDiv.innerHTML = '♫';
-    placeholderDiv.style.display = 'flex';
-    placeholderDiv.style.alignItems = 'center';
-    placeholderDiv.style.justifyContent = 'center';
-    placeholderDiv.style.width = '100%';
-    placeholderDiv.style.height = '100%';
-    placeholderDiv.style.fontSize = '48px';
-    placeholderDiv.style.color = '#ffffff';
-    placeholderDiv.style.backgroundColor = 'transparent';
-    placeholderDiv.style.borderRadius = '12px';
-    placeholderDiv.style.fontWeight = 'bold';
-    placeholderDiv.style.letterSpacing = '-2px';
-    dom.albumCover.innerHTML = '';
-    dom.albumCover.appendChild(placeholderDiv);
+    dom.albumCover.innerHTML = PLACEHOLDER_HTML;
     dom.albumCover.classList.remove("loading");
-    state.currentArtworkUrl = null;
-    
-    // 重置动态背景，确保不延续上一首歌的背景色
-    resetDynamicBackground();
-    
+    state.currentArtworkUrl = toAbsoluteUrl('/favicon.png');
+    queueDefaultPalette();
     if (typeof window.__SOLARA_UPDATE_MEDIA_METADATA === 'function') {
         window.__SOLARA_UPDATE_MEDIA_METADATA();
     }
@@ -2386,26 +2328,6 @@ const playModeIcons = {
     "single": "fa-redo",
     "random": "fa-shuffle"
 };
-
-// 获取来源标签
-function getSourceLabel(source) {
-    const sourceMap = {
-        "netease": "网易",
-        "qq": "QQ",
-        "kuwo": "酷我",
-        "kugou": "酷狗",
-        "migu": "咪咕",
-        "baidu": "百度",
-        "xiami": "虾米"
-    };
-    return sourceMap[source] || source;
-}
-
-// 创建来源标签HTML
-function createSourceLabel(source) {
-    const sourceText = getSourceLabel(source);
-    return `<span class="source-label">[${sourceText}]</span>`;
-}
 
 function getActivePlayMode() {
     return state.currentList === "favorite" ? state.favoritePlayMode : state.playMode;
@@ -3178,7 +3100,20 @@ function setupLockScreenInterceptor() {
         }
     });
 
-    // 移除重复的媒体会话控制设置，避免与bindActionHandlersOnce中的设置冲突\n    // 媒体会话控制已在bindActionHandlersOnce函数中正确设置\n
+    // 监听 Media Session 的下一曲/上一曲
+    if ('mediaSession' in navigator) {
+        const actionHandlers = [['nexttrack', 'playNext'], ['previoustrack', 'playPrevious']];
+        actionHandlers.forEach(([action, globalFn]) => {
+            try {
+                navigator.mediaSession.setActionHandler(action, () => {
+                    console.log(`🔒 锁屏 MediaSession: ${action}`);
+                    if (window[globalFn]) window[globalFn]();
+                });
+            } catch(e) {}
+        });
+    }
+}
+
 // 确保在初始化时调用它
 // 请在 window.addEventListener("load", ...) 之前调用
 setupLockScreenInterceptor();
@@ -3725,11 +3660,11 @@ function setupInteractions() {
     });
 
     // 额外的直接事件监听器作为备用
-    // 移除了阻止事件传播的代码以避免影响其他交互
     document.addEventListener("click", (e) => {
         if (e.target.id === "loadMoreBtn" || e.target.closest("#loadMoreBtn")) {
             debugLog("备用事件监听器触发");
             e.preventDefault();
+            e.stopPropagation();
             loadMoreResults();
         }
     });
@@ -3823,12 +3758,7 @@ function setupInteractions() {
                             player.play().catch(e => {
                                 console.log('🔄 解锁后播放失败:', e);
                             });
-                            
-                            // 调用音频修复函数
-                            setTimeout(() => {
-                                fixAudioOutputIfNeeded();
-                            }, 100);
-                        }, 100);
+                        }, 50);
                     }
                 }
             }, 500);
@@ -4125,25 +4055,8 @@ function updateCurrentSongInfo(song, options = {}) {
     if (!loadArtwork) {
         if (updateBackground) {
             dom.albumCover.classList.add("loading");
-            const placeholderDiv = document.createElement('div');
-            placeholderDiv.innerHTML = '♫';
-            placeholderDiv.style.display = 'flex';
-            placeholderDiv.style.alignItems = 'center';
-            placeholderDiv.style.justifyContent = 'center';
-            placeholderDiv.style.width = '100%';
-            placeholderDiv.style.height = '100%';
-            placeholderDiv.style.fontSize = '48px';
-            placeholderDiv.style.color = '#ffffff';
-            placeholderDiv.style.backgroundColor = 'transparent';
-            placeholderDiv.style.borderRadius = '12px';
-            placeholderDiv.style.fontWeight = 'bold';
-            placeholderDiv.style.letterSpacing = '-2px';
-            dom.albumCover.innerHTML = '';
-            dom.albumCover.appendChild(placeholderDiv);
+            dom.albumCover.innerHTML = PLACEHOLDER_HTML;
             state.currentArtworkUrl = null;
-            
-            // 重置动态背景，确保不延续上一首歌的背景色
-            resetDynamicBackground();
         }
         return Promise.resolve();
     }
@@ -4353,13 +4266,7 @@ function createSearchResultItem(song, index) {
 
     const title = document.createElement("div");
     title.className = "search-result-title";
-    
-    // 创建包含来源标签的标题
-    const sourceLabel = createSourceLabel(song.source || 'netease');
-    const titleWithSource = document.createElement("div");
-    titleWithSource.innerHTML = `${sourceLabel} ${song.name || "未知歌曲"}`;
-    
-    title.appendChild(titleWithSource);
+    title.textContent = song.name || "未知歌曲";
 
     const artist = document.createElement("div");
     artist.className = "search-result-artist";
@@ -4791,68 +4698,42 @@ async function playSearchResult(index) {
     const song = state.searchResults[index];
     if (!song) return;
 
-    // 带重试机制的播放
-    const maxRetries = 3;
-    let retryCount = 0;
-    
-    while (retryCount <= maxRetries) {
-        try {
-            // 立即隐藏搜索结果，显示播放界面
-            hideSearchResults();
-            dom.searchInput.value = "";
-            if (isMobileView) {
-                closeMobileSearch();
-            }
-
-            // 检查歌曲是否已在播放列表中
-            const existingIndex = state.playlistSongs.findIndex(s => s.id === song.id && s.source === song.source);
-
-            if (existingIndex !== -1) {
-                // 如果歌曲已存在，直接播放
-                state.currentTrackIndex = existingIndex;
-                state.currentPlaylist = "playlist";
-                state.currentList = "playlist";
-            } else {
-                // 如果歌曲不存在，添加到播放列表
-                state.playlistSongs.push(song);
-                state.currentTrackIndex = state.playlistSongs.length - 1;
-                state.currentPlaylist = "playlist";
-                state.currentList = "playlist";
-            }
-
-            // 更新播放列表显示
-            renderPlaylist();
-
-            // 播放歌曲
-            const success = await playSong(song);
-            if (success) {
-                updatePlayModeUI();
-                showNotification(`正在播放: ${song.name}`);
-                return; // 播放成功，退出重试循环
-            }
-        } catch (error) {
-            console.error(`播放搜索结果失败 (尝试 ${retryCount + 1}/${maxRetries + 1}):`, error);
+    try {
+        // 立即隐藏搜索结果，显示播放界面
+        hideSearchResults();
+        dom.searchInput.value = "";
+        if (isMobileView) {
+            closeMobileSearch();
         }
-        
-        retryCount++;
-        
-        if (retryCount <= maxRetries) {
-            // 如果还有重试机会，等待一段时间再试
-            showNotification(`正在重试播放 (${retryCount}/${maxRetries})...`, "info");
-            await new Promise(resolve => setTimeout(resolve, 1000)); // 等待1秒再重试
+
+        // 检查歌曲是否已在播放列表中
+        const existingIndex = state.playlistSongs.findIndex(s => s.id === song.id && s.source === song.source);
+
+        if (existingIndex !== -1) {
+            // 如果歌曲已存在，直接播放
+            state.currentTrackIndex = existingIndex;
+            state.currentPlaylist = "playlist";
+            state.currentList = "playlist";
+        } else {
+            // 如果歌曲不存在，添加到播放列表
+            state.playlistSongs.push(song);
+            state.currentTrackIndex = state.playlistSongs.length - 1;
+            state.currentPlaylist = "playlist";
+            state.currentList = "playlist";
         }
-    }
-    
-    // 如果所有重试都失败，自动播放下一首
-    if (retryCount > maxRetries) {
-        showNotification(`${song.name} 播放失败，自动播放下一首`, "error");
-        console.log(`搜索结果 ${song.name} 重试 ${maxRetries} 次后仍然失败，自动播放下一首`);
-        
-        // 立即执行下一首，不需要延迟
-        // 使用队列方式确保函数执行完成
-        setTimeout(() => {
-            playNext();
-        }, 0); // 使用0延迟以确保当前函数完成执行
+
+        // 更新播放列表显示
+        renderPlaylist();
+
+        // 播放歌曲
+        await playSong(song);
+        updatePlayModeUI();
+
+        showNotification(`正在播放: ${song.name}`);
+
+    } catch (error) {
+        console.error("播放失败:", error);
+        showNotification("播放失败，请稍后重试", "error");
     }
 }
 
@@ -5175,7 +5056,7 @@ function renderPlaylist() {
         const songKey = getSongKey(song) || `playlist-${index}`;
         return `
         <div class="playlist-item" data-index="${index}" role="button" tabindex="0" aria-label="播放 ${song.name}" data-favorite-key="${songKey}">
-            ${createSourceLabel(song.source || 'netease')} ${song.name} - ${artistValue}
+            ${song.name} - ${artistValue}
             <button class="playlist-item-favorite action-btn favorite favorite-toggle" type="button" data-playlist-action="favorite" data-index="${index}" data-favorite-key="${songKey}" title="收藏" aria-label="收藏">
                 <i class="fa-regular fa-heart"></i>
             </button>
@@ -5438,7 +5319,7 @@ function renderFavorites() {
         const songKey = getSongKey(song) || `favorite-${index}`;
         return `
         <div class="playlist-item${isCurrent ? " current" : ""}" data-index="${index}" role="button" tabindex="0" aria-label="播放 ${song.name}" data-favorite-key="${songKey}">
-            ${createSourceLabel(song.source || 'netease')} ${song.name} - ${artistValue}
+            ${song.name} - ${artistValue}
             <button class="favorite-item-action favorite-item-action--add" type="button" data-favorite-action="add" data-index="${index}" title="添加到播放列表" aria-label="添加到播放列表">
                 <i class="fas fa-plus"></i>
             </button>
@@ -5538,45 +5419,17 @@ async function playFavoriteSong(index) {
     state.currentList = "favorite";
     state.currentPlaylist = "favorites";
 
-    // 带重试机制的播放
-    const maxRetries = 3;
-    let retryCount = 0;
-    
-    while (retryCount <= maxRetries) {
-        try {
-            const success = await playSong(song);
-            if (success) {
-                updateFavoriteHighlight();
-                updatePlayModeUI();
-                saveFavoriteState();
-                if (isMobileView) {
-                    closeMobilePanel();
-                }
-                return; // 播放成功，退出重试循环
-            }
-        } catch (error) {
-            console.error(`播放收藏歌曲失败 (尝试 ${retryCount + 1}/${maxRetries + 1}):`, error);
+    try {
+        await playSong(song);
+        updateFavoriteHighlight();
+        updatePlayModeUI();
+        saveFavoriteState();
+        if (isMobileView) {
+            closeMobilePanel();
         }
-        
-        retryCount++;
-        
-        if (retryCount <= maxRetries) {
-            // 如果还有重试机会，等待一段时间再试
-            showNotification(`正在重试播放 (${retryCount}/${maxRetries})...`, "info");
-            await new Promise(resolve => setTimeout(resolve, 1000)); // 等待1秒再重试
-        }
-    }
-    
-    // 如果所有重试都失败，自动播放下一首
-    if (retryCount > maxRetries) {
-        showNotification(`${song.name} 播放失败，自动播放下一首`, "error");
-        console.log(`收藏歌曲 ${song.name} 重试 ${maxRetries} 次后仍然失败，自动播放下一首`);
-        
-        // 立即执行下一首，不需要延迟
-        // 使用队列方式确保函数执行完成
-        setTimeout(() => {
-            playNext();
-        }, 0); // 使用0延迟以确保当前函数完成执行
+    } catch (error) {
+        console.error("播放收藏歌曲失败:", error);
+        showNotification("播放收藏歌曲失败", "error");
     }
 }
 
@@ -5845,44 +5698,16 @@ async function playPlaylistSong(index) {
     state.currentPlaylist = "playlist";
     state.currentList = "playlist";
 
-    // 带重试机制的播放
-    const maxRetries = 3;
-    let retryCount = 0;
-    
-    while (retryCount <= maxRetries) {
-        try {
-            const success = await playSong(song);
-            if (success) {
-                updatePlaylistHighlight();
-                updatePlayModeUI();
-                if (isMobileView) {
-                    closeMobilePanel();
-                }
-                return; // 播放成功，退出重试循环
-            }
-        } catch (error) {
-            console.error(`播放失败 (尝试 ${retryCount + 1}/${maxRetries + 1}):`, error);
+    try {
+        await playSong(song);
+        updatePlaylistHighlight();
+        updatePlayModeUI();
+        if (isMobileView) {
+            closeMobilePanel();
         }
-        
-        retryCount++;
-        
-        if (retryCount <= maxRetries) {
-            // 如果还有重试机会，等待一段时间再试
-            showNotification(`正在重试播放 (${retryCount}/${maxRetries})...`, "info");
-            await new Promise(resolve => setTimeout(resolve, 1000)); // 等待1秒再重试
-        }
-    }
-    
-    // 如果所有重试都失败，自动播放下一首
-    if (retryCount > maxRetries) {
-        showNotification(`${song.name} 播放失败，自动播放下一首`, "error");
-        console.log(`歌曲 ${song.name} 重试 ${maxRetries} 次后仍然失败，自动播放下一首`);
-        
-        // 立即执行下一首，不需要延迟
-        // 使用队列方式确保函数执行完成
-        setTimeout(() => {
-            playNext();
-        }, 0); // 使用0延迟以确保当前函数完成执行
+    } catch (error) {
+        console.error("播放失败:", error);
+        showNotification("播放失败，请稍后重试", "error");
     }
 }
 
@@ -5979,52 +5804,12 @@ async function playSong(song, options = {}) {
     const isIOSPWA = isIOS && isPWA;
     const isLockScreen = document.visibilityState === 'hidden';
     
-    // ⚠️ 新增：创建修正版歌曲对象
-    const fixedSong = { ...song };
-    
-    // 平台特定的ID修正
-    if (song.source === "kuwo") {
-        // 优先使用酷我特有ID
-        if (song.kw_id && song.kw_id !== song.id) {
-            if (state.debugMode) console.log("酷我音乐：使用 kw_id", song.kw_id);
-            fixedSong.id = song.kw_id;
-        } else if (song.rid && song.rid !== song.id) {
-            if (state.debugMode) console.log("酷我音乐：使用 rid", song.rid);
-            fixedSong.id = song.rid;
-        }
-    }
-    
-    if (song.source === "qq") {
-        // 优先使用QQ音乐特有ID
-        if (song.songmid && song.songmid !== song.id) {
-            if (state.debugMode) console.log("QQ音乐：使用 songmid", song.songmid);
-            fixedSong.id = song.songmid;
-        } else if (song.mid && song.mid !== song.id) {
-            if (state.debugMode) console.log("QQ音乐：使用 mid", song.mid);
-            fixedSong.id = song.mid;
-        }
-    }
-    
-    if (state.debugMode) console.log(`🎵 准备播放: ${song.name} (锁屏: ${isLockScreen})`);
-
-    // ⚠️ 调试日志（仅在调试模式下启用）
-    if (state.debugMode) {
-        console.group(`🎵 播放调试: ${song.name} (${song.source})`);
-        console.log("歌曲对象:", song);
-        console.log("可用ID字段:", {
-            id: song.id,
-            kw_id: song.kw_id,
-            rid: song.rid,
-            songmid: song.songmid,
-            mid: song.mid
-        });
-        console.groupEnd();
-    }
+    console.log(`🎵 准备播放: ${song.name} (锁屏: ${isLockScreen})`);
 
     try {
         if (state._isPlayingSong) return false;
         state._isPlayingSong = true;
-        state.currentSong = fixedSong;
+        state.currentSong = song;
         const player = dom.audioPlayer;
 
         // 1. 启动守护 (关键：只要是 iOS PWA 就启动，不管是否锁屏，防止切歌间隙被杀)
@@ -6034,7 +5819,7 @@ async function playSong(song, options = {}) {
         }
 
         // 2. 抢占锁屏信息 (防止上一首结束后控件清空)
-        updateMediaMetadataForLockScreen(fixedSong);
+        updateMediaMetadataForLockScreen(song);
 
         // 3. 暂停旧音频并保存音量
         let safeVolume = player.volume;
@@ -6048,20 +5833,10 @@ async function playSong(song, options = {}) {
 
         // 4. 构建防缓存 URL
         const quality = state.playbackQuality || '320';
-        let rawUrl = API.getSongUrl(fixedSong, quality);
+        let rawUrl = API.getSongUrl(song, quality);
         if (!rawUrl.startsWith('http')) rawUrl = new URL(rawUrl, window.location.origin).href;
         const separator = rawUrl.includes('?') ? '&' : '?';
         const streamUrl = `${rawUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
-        
-        // 仅在调试模式下输出详细信息
-        if (state.debugMode) {
-            console.log(`播放 ${song.source} 歌曲:`, {
-                歌名: song.name,
-                原始ID: song.id,
-                修正ID: fixedSong.id,
-                播放URL: rawUrl
-            });
-        }
         
         // 5. 柔性切换 (Soft Switch)
         player.removeAttribute('crossOrigin');
@@ -6110,40 +5885,34 @@ async function playSong(song, options = {}) {
             state.isPlaying = true;
             updatePlayPauseButton();
             if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
-        
+
             // 给一点点缓冲
-            await new Promise(r => setTimeout(r, 20)); // 减少延迟
-            
+            await new Promise(r => setTimeout(r, 50));
+
             try {
                 // 尝试播放
-                const playPromise = player.play();
-                if (state.debugMode) console.log('✅ 播放指令已发出');
-            
+                await player.play();
+                console.log('✅ 播放指令已发出');
+
                 // ⚡️⚡️ [核心修复 1] 硬件通道强制握手 ⚡️⚡️
                 // 在 iOS 锁屏下，有时候 Audio 元素状态是 playing，但硬件通道没打开。
                 // 我们通过快速切换 muted 状态来“惊醒”音频守护进程。
                 if (isIOS) {
                     setTimeout(() => {
-                        const originalVolume = player.volume;
                         player.muted = true;
-                        player.volume = Math.max(0.01, safeVolume); // 设置最小音量避免完全静音
-                                
+                        player.volume = safeVolume;
                         setTimeout(() => {
                             player.muted = false; // 这一刻，声音应该出来了
-                            player.volume = originalVolume; // 恢复原始音量
-                            if (state.debugMode) console.log('🔊 硬件通道强制握手完成');
-                        }, 30); // 减少静音时间
-                    }, 50); // 减少延迟
+                            console.log('🔊 硬件通道强制握手完成');
+                        }, 50); // 50ms 的静音闪烁
+                    }, 100);
                 }
-                        
-                // 等待播放Promise结果
-                await playPromise;
-                        
+                
                 // ⚡️⚡️ [核心修复 2] 延迟关闭守护进程 ⚡️⚡️
                 // 不要立即关闭！让 AudioContext 再跑 3 秒，和新歌重叠一会儿。
                 // 这就像接力赛，两人同跑一段距离再松手，防止掉棒。
                 if (isIOSPWA && window.solaraAudioGuard) {
-                    if (state.debugMode) console.log('⏳ 守护进程将在 3 秒后退出...');
+                    console.log('⏳ 守护进程将在 3 秒后退出...');
                     setTimeout(() => {
                         if (!player.paused) { // 只有还在播放才关闭
                             window.solaraAudioGuard.stop();
@@ -6151,34 +5920,9 @@ async function playSong(song, options = {}) {
                         }
                     }, 3000);
                 }
-                        
-                // 确保音频上下文处于活跃状态（特别是在锁屏切换时）
-                if (isIOSPWA && window.solaraAudioGuard && window.solaraAudioGuard.audioCtx) {
-                    if (window.solaraAudioGuard.audioCtx.state === 'suspended') {
-                        try {
-                            await window.solaraAudioGuard.audioCtx.resume();
-                            if (state.debugMode) console.log('🔓 音频上下文已恢复');
-                        } catch (ctxError) {
-                            console.warn('音频上下文恢复失败:', ctxError);
-                        }
-                    }
-                }
-                        
-                // 针对iOS PWA锁屏切换的特殊处理：确保音频输出正常
-                if (isIOSPWA && document.visibilityState === 'hidden') {
-                    setTimeout(() => {
-                        fixAudioOutputIfNeeded();
-                                            
-                        // 额外的锁屏音频管理
-                        if (window.solaraAudioGuard && typeof window.solaraAudioGuard.start === 'function') {
-                            window.solaraAudioGuard.start();
-                            if (state.debugMode) console.log('🛡️ 锁屏音频守护已启动');
-                        }
-                    }, 100); // 减少延迟
-                }
-                                    
+                
                 // 再次刷新锁屏信息，确保 metadata 没被系统清空
-                setTimeout(() => updateMediaMetadataForLockScreen(song), 300); // 减少延迟
+                setTimeout(() => updateMediaMetadataForLockScreen(song), 500);
 
             } catch (error) {
                 console.warn('⚠️ 播放受阻，尝试强力修复:', error);
@@ -6187,7 +5931,6 @@ async function playSong(song, options = {}) {
                     player.muted = true;
                     await player.play();
                     player.muted = false;
-                    return true; // 如果兜底成功，返回true
                 } catch (e) {
                     state.isPlaying = false;
                     updatePlayPauseButton();
@@ -6195,7 +5938,6 @@ async function playSong(song, options = {}) {
                     if (isIOSPWA && window.solaraAudioGuard) {
                         setTimeout(() => window.solaraAudioGuard.stop(), 2000);
                     }
-                    return false; // 播放失败，返回false
                 }
             }
         } else {
@@ -6216,97 +5958,6 @@ async function playSong(song, options = {}) {
         return false;
     } finally {
         state._isPlayingSong = false;
-    }
-}
-
-// 修复：iOS音频兼容性函数 - 优化最新iOS版本的音频播放
-function optimizeIOSAudio() {
-    const player = dom.audioPlayer;
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-    
-    if (isIOS && player) {
-        // 为iOS设备设置额外的音频兼容性属性
-        player.setAttribute('x5-playsinline', 'true');
-        player.setAttribute('x5-video-player-type', 'h5');
-        player.setAttribute('x5-video-player-fullscreen', 'false');
-        
-        // 尝试创建一个音频上下文以确保音频功能可用
-        if (typeof AudioContext !== 'undefined' || typeof webkitAudioContext !== 'undefined') {
-            try {
-                const AudioContext = window.AudioContext || window.webkitAudioContext;
-                const audioCtx = new AudioContext();
-                
-                // iOS 15+ 需要先暂停再恢复才能激活音频上下文
-                if (audioCtx.state === 'suspended') {
-                    audioCtx.resume().then(() => {
-                        console.log('✅ iOS音频上下文已激活');
-                    }).catch(e => {
-                        console.warn('⚠️ iOS音频上下文激活失败:', e);
-                    });
-                }
-                
-                // 创建一个短时音频节点来激活音频引擎
-                const oscillator = audioCtx.createOscillator();
-                const gainNode = audioCtx.createGain();
-                
-                oscillator.connect(gainNode);
-                gainNode.connect(audioCtx.destination);
-                
-                oscillator.start();
-                setTimeout(() => {
-                    oscillator.stop();
-                    audioCtx.close();
-                }, 100); // 100ms后停止，避免产生声音
-                
-            } catch (e) {
-                console.warn('⚠️ 创建音频上下文失败:', e);
-            }
-        }
-    }
-}
-
-// 修复：音频输出修复函数 - 专门解决iOS PWA锁屏无声问题
-function fixAudioOutputIfNeeded() {
-    const player = dom.audioPlayer;
-    const isIOSPWA = /iPad|iPhone|iPod/.test(navigator.userAgent) && 
-                    (window.navigator.standalone === true || 
-                    window.matchMedia('(display-mode: standalone)').matches);
-    
-    if (isIOSPWA && player && player.src && !player.paused) {
-        console.log('🔧 检测到iOS PWA播放状态，执行音频修复...');
-        
-        // 检查是否有音频上下文
-        if (window.solaraAudioGuard && window.solaraAudioGuard.audioCtx) {
-            if (window.solaraAudioGuard.audioCtx.state === 'suspended') {
-                window.solaraAudioGuard.audioCtx.resume()
-                    .then(() => console.log('✅ 音频上下文已恢复'))
-                    .catch(e => console.warn('❌ 音频上下文恢复失败:', e));
-            }
-        }
-        
-        // 尝试通过调整音量来激活音频
-        const originalVolume = player.volume;
-        
-        // 短暂静音再恢复，以激活音频通道
-        player.muted = true;
-        setTimeout(() => {
-            player.volume = Math.max(0.001, originalVolume); // 确保音量不为0
-            player.muted = false;
-            
-            // 如果当前没有播放，尝试播放
-            if (player.paused) {
-                player.play().catch(e => {
-                    console.warn('尝试播放失败:', e);
-                });
-            }
-            
-            // 恢复原始音量
-            setTimeout(() => {
-                player.volume = originalVolume;
-            }, 100);
-            
-            console.log('🔊 音频输出修复完成');
-        }, 50);
     }
 }
 
@@ -6538,41 +6189,13 @@ async function playOnlineSong(index) {
     state.currentPlaylist = "online";
     state.currentList = "playlist";
 
-    // 带重试机制的播放
-    const maxRetries = 3;
-    let retryCount = 0;
-    
-    while (retryCount <= maxRetries) {
-        try {
-            const success = await playSong(song);
-            if (success) {
-                updateOnlineHighlight();
-                updatePlayModeUI();
-                return; // 播放成功，退出重试循环
-            }
-        } catch (error) {
-            console.error(`播放失败 (尝试 ${retryCount + 1}/${maxRetries + 1}):`, error);
-        }
-        
-        retryCount++;
-        
-        if (retryCount <= maxRetries) {
-            // 如果还有重试机会，等待一段时间再试
-            showNotification(`正在重试播放 (${retryCount}/${maxRetries})...`, "info");
-            await new Promise(resolve => setTimeout(resolve, 1000)); // 等待1秒再重试
-        }
-    }
-    
-    // 如果所有重试都失败，自动播放下一首
-    if (retryCount > maxRetries) {
-        showNotification(`${song.name} 播放失败，自动播放下一首`, "error");
-        console.log(`在线歌曲 ${song.name} 重试 ${maxRetries} 次后仍然失败，自动播放下一首`);
-        
-        // 立即执行下一首，不需要延迟
-        // 使用队列方式确保函数执行完成
-        setTimeout(() => {
-            playNext();
-        }, 0); // 使用0延迟以确保当前函数完成执行
+    try {
+        await playSong(song);
+        updateOnlineHighlight();
+        updatePlayModeUI();
+    } catch (error) {
+        console.error("播放失败:", error);
+        showNotification("播放失败，请稍后重试", "error");
     }
 }
 
@@ -6590,16 +6213,11 @@ function updateOnlineHighlight() {
 }
 
 const EXPLORE_RADAR_GENRES = [
-    "热歌",
-    "新歌",
-    "经典",
-    "欧美",
-    "日韩",
+    "流行",
+    "排行榜",
+    "每日排行榜",
+    "每日排行",
     "民谣",
-    "古风",
-    "说唱",
-    "抖音热歌",
-    "影视金曲",
 ];
 
 function pickRandomExploreGenre() {
@@ -6610,7 +6228,7 @@ function pickRandomExploreGenre() {
     return EXPLORE_RADAR_GENRES[index];
 }
 
-const EXPLORE_RADAR_SOURCES = ["netease", "kuwo", "qq"];
+const EXPLORE_RADAR_SOURCES = ["netease"];
 
 function pickRandomExploreSource() {
     if (!Array.isArray(EXPLORE_RADAR_SOURCES) || EXPLORE_RADAR_SOURCES.length === 0) {
@@ -6647,99 +6265,25 @@ async function exploreOnlineMusic() {
     try {
         setLoadingState(true);
 
-        // 从三个可靠平台中搜索真实榜单
         const randomGenre = pickRandomExploreGenre();
-        const sources = EXPLORE_RADAR_SOURCES; // netease, kuwo, qq
-        let allResults = [];
-        
-        // 为每个平台使用不同的搜索关键词，寻找真实榜单
-        const genrePerSource = {};
-        for (let i = 0; i < sources.length; i++) {
-            // 为每个平台分配不同的关键词
-            const genreIndex = Math.floor(Math.random() * EXPLORE_RADAR_GENRES.length);
-            genrePerSource[sources[i]] = EXPLORE_RADAR_GENRES[genreIndex];
-        }
-        
-        // 并行搜索所有平台
-        const searchPromises = sources.map(async (source) => {
-            const genreForSource = genrePerSource[source];
-            try {
-                debugLog(`探索雷达在 ${source} 平台搜索真实榜单: ${genreForSource}`);
-                const results = await API.search(genreForSource, source, 5, 1); // 搜索5首以获得更好的榜单代表性
-                
-                // 过滤结果，优先保留高质量、真实的榜单歌曲
-                const filteredResults = results.filter(song => {
-                    // 检查是否是标题党（歌名包含搜索关键词）
-                    const isKeywordInTitle = song.name.includes(genreForSource);
-                    
-                    // 检查是否是榜单相关的标题党
-                    const isRankingRelated = song.name.toLowerCase().includes('榜单') || 
-                                            song.name.toLowerCase().includes('排行') ||
-                                            song.name.toLowerCase().includes('top') ||
-                                            song.name.toLowerCase().includes('chart');
-                    
-                    // 检查是否是专辑名包含关键词（通常是标题党）
-                    const isAlbumKeyword = song.album && song.album.includes(genreForSource);
-                    
-                    // 保留不是标题党的歌曲（更可能是真实的榜单歌曲）
-                    // 但对一些真实榜单关键词（如"新歌"、"热歌"）可以稍微放宽标准
-                    const isRealCategory = ['新歌', '热歌', '经典', '欧美', '日韩', '民谣', '古风', '说唱', '影视金曲'].includes(genreForSource);
-                    
-                    if (isRealCategory) {
-                        // 对真实分类关键词，允许少量标题党，但避免纯榜单相关
-                        return !(isRankingRelated && !isKeywordInTitle);
-                    } else {
-                        // 对其他关键词，严格过滤标题党
-                        return !isKeywordInTitle && !isRankingRelated && !isAlbumKeyword;
-                    }
-                });
-                
-                return { source, results: filteredResults, success: true };
-            } catch (error) {
-                debugLog(`${source} 平台搜索失败:`, error.message);
-                return { source, results: [], success: false };
-            }
-        });
-        
-        const searchResults = await Promise.all(searchPromises);
-        
-        // 合并所有成功的搜索结果
-        for (const result of searchResults) {
-            if (result.success && Array.isArray(result.results)) {
-                allResults = allResults.concat(result.results.map(song => ({
-                    ...song,
-                    source: song.source || result.source,
-                    lyric_id: song.lyric_id || song.id,
-                    pic_id: song.pic_id || song.id || "",
-                    url_id: song.url_id || song.id,
-                })));
-            }
-        }
-        
-        if (!Array.isArray(allResults) || allResults.length === 0) {
-            showNotification("探索雷达：未找到符合要求的榜单歌曲", "info");
-            debugLog(`探索雷达未找到符合要求的榜单歌曲，关键词：${randomGenre}`);
+        const source = pickRandomExploreSource();
+        const results = await API.search(randomGenre, source, 10, 1);
+
+        if (!Array.isArray(results) || results.length === 0) {
+            showNotification("探索雷达：未找到歌曲", "error");
+            debugLog(`探索雷达未找到歌曲，关键词：${randomGenre}，音源：${source}`);
             return;
         }
 
-        // 随机打乱结果，避免总是优先显示某个平台的歌曲
-        for (let i = allResults.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [allResults[i], allResults[j]] = [allResults[j], allResults[i]];
-        }
-        
-        // 取前8首高质量歌曲
-        const selectedResults = allResults.slice(0, 8);
-        
-        const normalizedSongs = selectedResults.map((song) => ({
+        const normalizedSongs = results.map((song) => ({
             id: song.id,
             name: song.name,
             artist: Array.isArray(song.artist) ? song.artist.join(" / ") : (song.artist || "未知艺术家"),
             album: song.album || "",
-            source: song.source || song.platform || "netease", // 使用正确的源
+            source: song.source || source,
             lyric_id: song.lyric_id || song.id,
-            pic_id: song.pic_id || song.id || "",
-            url_id: song.url_id || song.id,
+            pic_id: song.pic_id || song.pic || "",
+            url_id: song.url_id,
         }));
 
         const existingSongs = Array.isArray(state.playlistSongs) ? state.playlistSongs.slice() : [];
@@ -6786,8 +6330,8 @@ async function exploreOnlineMusic() {
             }
         }
 
-        showNotification(`探索雷达：新增${appendedSongs.length}首歌曲`);
-        debugLog(`探索雷达加载成功，关键词：${randomGenre}，音源：${EXPLORE_RADAR_SOURCES.join(',')}，新增歌曲数：${appendedSongs.length}`);
+        showNotification(`探索雷达：新增${appendedSongs.length}首 ${randomGenre} 歌曲`);
+        debugLog(`探索雷达加载成功，关键词：${randomGenre}，音源：${source}，新增歌曲数：${appendedSongs.length}`);
 
         const shouldAutoplay = existingSongs.length === 0 && state.playlistSongs.length > 0;
         if (shouldAutoplay) {
@@ -7258,23 +6802,17 @@ function showNotification(message, type = "success") {
 async function exterminateServiceWorkers() {
     if (!('serviceWorker' in navigator)) return;
     try {
-        // 使用异步清理，避免阻塞主线程
-        navigator.serviceWorker.getRegistrations().then(regs => {
-            if (regs.length > 0) {
-                console.warn(`⚠️ 清除 ${regs.length} 个僵尸SW`);
-                regs.forEach(r => r.unregister());
-            }
-        });
-        
+        const regs = await navigator.serviceWorker.getRegistrations();
+        if (regs.length > 0) {
+            console.warn(`⚠️ 清除 ${regs.length} 个僵尸SW`);
+            await Promise.all(regs.map(r => r.unregister()));
+        }
         if ('caches' in window) {
-            caches.keys().then(keys => {
-                // 清理所有包含 sw 或 workbox 的缓存
-                keys.forEach(k => {
-                    if (k.includes('sw') || k.includes('workbox') || k.includes('precache')) {
-                        caches.delete(k);
-                    }
-                });
-            });
+            const keys = await caches.keys();
+            // 清理所有包含 sw 或 workbox 的缓存
+            for (const k of keys) {
+                if (k.includes('sw') || k.includes('workbox') || k.includes('precache')) await caches.delete(k);
+            }
         }
     } catch (e) { console.error('清理失败:', e); }
 }
@@ -7285,117 +6823,38 @@ async function exterminateServiceWorkers() {
 function removeLoadingMask() {
     const mask = document.getElementById('app-loading-mask');
     if (mask) {
-        mask.style.opacity = '0'; // 立即设为透明
-        mask.style.pointerEvents = 'none';
-        mask.style.transition = 'opacity 0.3s ease'; // 添加淡出效果
+        mask.classList.add('loaded'); // 触发CSS淡出
+        mask.style.pointerEvents = 'none'; // 确保点击穿透
         setTimeout(() => {
             if (mask.parentNode) mask.parentNode.removeChild(mask);
-        }, 300); // 缩短到300ms
+        }, 600);
     }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    // 1. 立即清理僵尸进程（异步执行，不阻塞页面加载）
-    setTimeout(() => exterminateServiceWorkers(), 10);
+    // 1. 立即清理僵尸进程
+    exterminateServiceWorkers();
     
     // 2. 初始化播放器
     const player = dom.audioPlayer;
     if (player) {
         player.removeAttribute('crossOrigin');
-        player.preload = "none"; // 优化加载速度，只在需要时加载
+        player.preload = "none";
         player.setAttribute('playsinline', '');
         player.setAttribute('webkit-playsinline', '');
-        
-        // 添加iOS兼容性属性
-        if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
-            player.setAttribute('x5-playsinline', 'true');
-            player.setAttribute('x5-video-player-type', 'h5');
-            player.setAttribute('x5-video-player-fullscreen', 'false');
-        }
         
         // 监控是否静音
         player.addEventListener('volumechange', () => {
              if(player.muted || player.volume === 0) console.warn('⚠️ 播放器变为静音状态');
         });
+        
+        player.addEventListener('canplaythrough', () => { player.preload = "auto"; }, { once: true });
     }
     
     // 3. 🚀 关键：JS加载完毕立即移除遮罩
-    // 减少延迟，更快移除遮罩
-    setTimeout(removeLoadingMask, 10); // 更快移除遮罩
-    
-    // 4. 优化iOS音频兼容性
-    if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
-        setTimeout(optimizeIOSAudio, 50); // 更快执行
-    }
+    // 稍微延迟一点点，确保 CSS 渲染完成，避免界面闪烁
+    setTimeout(removeLoadingMask, 100);
 });
 
 // 作为兜底，如果 load 事件触发（所有资源加载完），也尝试移除
-window.addEventListener('load', () => {
-    setTimeout(removeLoadingMask, 50); // 更快移除遮罩
-    
-    // 在load事件后再次检查iOS音频兼容性
-    if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
-        setTimeout(optimizeIOSAudio, 100); // 更快执行
-    }
-});
-
-// 添加到文件最后，setupInteractions函数之后
-window.solaraDebug = {
-    // 测试酷我音乐
-    testKuwoPlay: async function(songId = "22886210") {
-        const testSong = {
-            id: songId,
-            kw_id: songId,
-            rid: songId,
-            name: "测试酷我歌曲",
-            artist: "测试歌手",
-            source: "kuwo"
-        };
-        
-        if (state.debugMode) console.log("🔧 测试酷我播放:", testSong);
-        
-        const url = API.getSongUrl(testSong, "320");
-        if (state.debugMode) console.log("生成的URL:", url);
-        
-        // 测试链接是否有效
-        try {
-            const response = await fetch(url, { method: 'HEAD' });
-            if (state.debugMode) {
-                console.log("链接测试结果:", {
-                    状态: response.status,
-                    重定向: response.redirected,
-                    文件大小: response.headers.get('content-length'),
-                    类型: response.headers.get('content-type')
-                });
-            }
-            
-            if (response.ok) {
-                if (state.debugMode) console.log("✅ 链接有效，尝试播放...");
-                return await playSong(testSong);
-            }
-        } catch (error) {
-            console.error("❌ 链接测试失败:", error);
-        }
-    },
-    
-    // 检查当前歌曲ID
-    checkCurrentSong: function() {
-        if (!state.currentSong) {
-            if (state.debugMode) console.log("当前没有播放的歌曲");
-            return;
-        }
-        
-        if (state.debugMode) {
-            console.log("当前歌曲详情:", {
-                平台: state.currentSong.source,
-                歌名: state.currentSong.name,
-                ID字段: {
-                    id: state.currentSong.id,
-                    kw_id: state.currentSong.kw_id,
-                    rid: state.currentSong.rid,
-                    songmid: state.currentSong.songmid
-                }
-            });
-        }
-    }
-};
+window.addEventListener('load', () => setTimeout(removeLoadingMask, 200));
