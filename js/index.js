@@ -6213,7 +6213,6 @@ function updateOnlineHighlight() {
 }
 
 const EXPLORE_RADAR_GENRES = [
-    "流行",
     "排行榜",
     "每日排行榜",
     "每日排行",
