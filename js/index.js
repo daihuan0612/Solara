@@ -811,17 +811,34 @@ const API = {
                 throw new Error("搜索结果格式错误");
             }
 
-            return data.data.results.map(song => ({
-                id: song.id,
-                name: song.name,
-                artist: song.artist,
-                album: song.album,
-                source: song.platform || source,
-                // 使用正确的ID作为封面、歌词和URL的标识
-                pic_id: song.pic_id || song.id,
-                url_id: song.url_id || song.id,
-                lyric_id: song.lyric_id || song.id,
-            }));
+            return data.data.results.map(song => {
+                const result = {
+                    id: song.id,
+                    name: song.name,
+                    artist: song.artist,
+                    album: song.album,
+                    source: song.platform || source,
+                    // 使用正确的ID作为封面、歌词和URL的标识
+                    pic_id: song.pic_id || song.id,
+                    url_id: song.url_id || song.id,
+                    lyric_id: song.lyric_id || song.id,
+                };
+                
+                // ⚠️ 新增：为不同平台添加特殊ID字段
+                if (source === "kuwo") {
+                    // 酷我音乐特有ID字段
+                    result.kw_id = song.kw_id || song.id;
+                    result.rid = song.rid || song.id;
+                }
+                
+                if (source === "qq") {
+                    // QQ音乐特有ID字段
+                    result.songmid = song.songmid || song.mid || song.id;
+                    result.mid = song.mid || song.id;
+                }
+                
+                return result;
+            });
         } catch (error) {
             debugLog(`API错误: ${error.message}`);
             throw error;
@@ -855,7 +872,7 @@ const API = {
     },
 
     getSongUrl: (song, quality = "320") => {
-        // 根据API文档，quality参数需要映射为128k, 192k, 320k, flac
+        // 质量映射（保持原样）
         const qualityMap = {
             "128": "128k",
             "192": "192k",
@@ -863,31 +880,18 @@ const API = {
             "999": "flac"
         };
         
-        // 处理MP3选项，返回默认的MP3质量
         if (quality === "mp3") {
             quality = "320";
         }
         
-        // 确保使用有效的音质映射，支持192k
         const validQuality = quality in qualityMap ? quality : "320";
         const br = qualityMap[validQuality];
         
-        // 构建API URL，支持不同类型的请求
-        // 为酷我音乐添加额外参数以提高兼容性
+        // ⚠️ 修改：简化URL，移除平台特定参数
         const source = song.source || "netease";
-        const baseUrl = `${API.baseUrl}/api/?source=${source}&id=${song.id}&type=url&br=${br}`;
         
-        // 酷我音乐可能需要额外的参数来提高兼容性
-        if (source === "kuwo") {
-            return `${baseUrl}&needNewCode=1`;
-        }
-        
-        // QQ音乐可能需要额外的参数来提高兼容性
-        if (source === "qq") {
-            return `${baseUrl}&platform=20&format=json`;
-        }
-        
-        return baseUrl;
+        // 所有平台使用统一格式（根据API文档）
+        return `${API.baseUrl}/api/?source=${source}&id=${song.id}&type=url&br=${br}`;
     },
 
     getLyric: (song) => {
@@ -3176,20 +3180,7 @@ function setupLockScreenInterceptor() {
         }
     });
 
-    // 监听 Media Session 的下一曲/上一曲
-    if ('mediaSession' in navigator) {
-        const actionHandlers = [['nexttrack', 'playNext'], ['previoustrack', 'playPrevious']];
-        actionHandlers.forEach(([action, globalFn]) => {
-            try {
-                navigator.mediaSession.setActionHandler(action, () => {
-                    console.log(`🔒 锁屏 MediaSession: ${action}`);
-                    if (window[globalFn]) window[globalFn]();
-                });
-            } catch(e) {}
-        });
-    }
-}
-
+    // 移除重复的媒体会话控制设置，避免与bindActionHandlersOnce中的设置冲突\n    // 媒体会话控制已在bindActionHandlersOnce函数中正确设置\n
 // 确保在初始化时调用它
 // 请在 window.addEventListener("load", ...) 之前调用
 setupLockScreenInterceptor();
@@ -5990,12 +5981,50 @@ async function playSong(song, options = {}) {
     const isIOSPWA = isIOS && isPWA;
     const isLockScreen = document.visibilityState === 'hidden';
     
+    // ⚠️ 新增：创建修正版歌曲对象
+    const fixedSong = { ...song };
+    
+    // 平台特定的ID修正
+    if (song.source === "kuwo") {
+        // 优先使用酷我特有ID
+        if (song.kw_id && song.kw_id !== song.id) {
+            console.log("酷我音乐：使用 kw_id", song.kw_id);
+            fixedSong.id = song.kw_id;
+        } else if (song.rid && song.rid !== song.id) {
+            console.log("酷我音乐：使用 rid", song.rid);
+            fixedSong.id = song.rid;
+        }
+    }
+    
+    if (song.source === "qq") {
+        // 优先使用QQ音乐特有ID
+        if (song.songmid && song.songmid !== song.id) {
+            console.log("QQ音乐：使用 songmid", song.songmid);
+            fixedSong.id = song.songmid;
+        } else if (song.mid && song.mid !== song.id) {
+            console.log("QQ音乐：使用 mid", song.mid);
+            fixedSong.id = song.mid;
+        }
+    }
+    
     console.log(`🎵 准备播放: ${song.name} (锁屏: ${isLockScreen})`);
+
+    // ⚠️ 调试日志
+    console.group(`🎵 播放调试: ${song.name} (${song.source})`);
+    console.log("歌曲对象:", song);
+    console.log("可用ID字段:", {
+        id: song.id,
+        kw_id: song.kw_id,
+        rid: song.rid,
+        songmid: song.songmid,
+        mid: song.mid
+    });
+    console.groupEnd();
 
     try {
         if (state._isPlayingSong) return false;
         state._isPlayingSong = true;
-        state.currentSong = song;
+        state.currentSong = fixedSong;
         const player = dom.audioPlayer;
 
         // 1. 启动守护 (关键：只要是 iOS PWA 就启动，不管是否锁屏，防止切歌间隙被杀)
@@ -6005,7 +6034,7 @@ async function playSong(song, options = {}) {
         }
 
         // 2. 抢占锁屏信息 (防止上一首结束后控件清空)
-        updateMediaMetadataForLockScreen(song);
+        updateMediaMetadataForLockScreen(fixedSong);
 
         // 3. 暂停旧音频并保存音量
         let safeVolume = player.volume;
@@ -6019,10 +6048,17 @@ async function playSong(song, options = {}) {
 
         // 4. 构建防缓存 URL
         const quality = state.playbackQuality || '320';
-        let rawUrl = API.getSongUrl(song, quality);
+        let rawUrl = API.getSongUrl(fixedSong, quality);
         if (!rawUrl.startsWith('http')) rawUrl = new URL(rawUrl, window.location.origin).href;
         const separator = rawUrl.includes('?') ? '&' : '?';
         const streamUrl = `${rawUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
+        
+        console.log(`播放 ${song.source} 歌曲:`, {
+            歌名: song.name,
+            原始ID: song.id,
+            修正ID: fixedSong.id,
+            播放URL: rawUrl
+        });
         
         // 5. 柔性切换 (Soft Switch)
         player.removeAttribute('crossOrigin');
@@ -6129,7 +6165,7 @@ async function playSong(song, options = {}) {
                 if (isIOSPWA && document.visibilityState === 'hidden') {
                     setTimeout(() => {
                         fixAudioOutputIfNeeded();
-                                    
+                                            
                         // 额外的锁屏音频管理
                         if (window.solaraAudioGuard && typeof window.solaraAudioGuard.start === 'function') {
                             window.solaraAudioGuard.start();
@@ -6137,7 +6173,7 @@ async function playSong(song, options = {}) {
                         }
                     }, 100); // 减少延迟
                 }
-                            
+                                    
                 // 再次刷新锁屏信息，确保 metadata 没被系统清空
                 setTimeout(() => updateMediaMetadataForLockScreen(song), 300); // 减少延迟
 
@@ -7299,3 +7335,60 @@ window.addEventListener('load', () => {
         setTimeout(optimizeIOSAudio, 100); // 更快执行
     }
 });
+
+// 添加到文件最后，setupInteractions函数之后
+window.solaraDebug = {
+    // 测试酷我音乐
+    testKuwoPlay: async function(songId = "22886210") {
+        const testSong = {
+            id: songId,
+            kw_id: songId,
+            rid: songId,
+            name: "测试酷我歌曲",
+            artist: "测试歌手",
+            source: "kuwo"
+        };
+        
+        console.log("🔧 测试酷我播放:", testSong);
+        
+        const url = API.getSongUrl(testSong, "320");
+        console.log("生成的URL:", url);
+        
+        // 测试链接是否有效
+        try {
+            const response = await fetch(url, { method: 'HEAD' });
+            console.log("链接测试结果:", {
+                状态: response.status,
+                重定向: response.redirected,
+                文件大小: response.headers.get('content-length'),
+                类型: response.headers.get('content-type')
+            });
+            
+            if (response.ok) {
+                console.log("✅ 链接有效，尝试播放...");
+                return await playSong(testSong);
+            }
+        } catch (error) {
+            console.error("❌ 链接测试失败:", error);
+        }
+    },
+    
+    // 检查当前歌曲ID
+    checkCurrentSong: function() {
+        if (!state.currentSong) {
+            console.log("当前没有播放的歌曲");
+            return;
+        }
+        
+        console.log("当前歌曲详情:", {
+            平台: state.currentSong.source,
+            歌名: state.currentSong.name,
+            ID字段: {
+                id: state.currentSong.id,
+                kw_id: state.currentSong.kw_id,
+                rid: state.currentSong.rid,
+                songmid: state.currentSong.songmid
+            }
+        });
+    }
+};
