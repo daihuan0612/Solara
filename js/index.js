@@ -855,6 +855,8 @@ const API = {
     },
 
     getSongUrl: (song, quality = "320") => {
+        console.log('🎵 getSongUrl调用:', song, '质量:', quality);
+        
         // 根据API文档，quality参数需要映射为128k, 192k, 320k, flac
         const qualityMap = {
             "128": "128k",
@@ -870,11 +872,16 @@ const API = {
         }
         
         // 确保使用有效的音质映射，支持192k和flac
+        console.log('📊 qualityMap:', qualityMap, 'quality:', quality, 'quality in qualityMap:', quality in qualityMap);
         const validQuality = quality in qualityMap ? quality : "320";
         const br = qualityMap[validQuality];
         
+        console.log('🔄 质量映射:', quality, '->', validQuality, '->', br);
+        
         // 构建API URL，支持不同类型的请求
-        return `${API.baseUrl}/api/?source=${song.source || "netease"}&id=${song.id}&type=url&br=${br}`;
+        const url = `${API.baseUrl}/api/?source=${song.source || "netease"}&id=${song.id}&type=url&br=${br}`;
+        console.log('🌐 生成的URL:', url);
+        return url;
     },
 
     getLyric: (song) => {
@@ -4736,6 +4743,7 @@ function displaySearchResults(newItems, options = {}) {
 // 显示质量选择菜单
 function showQualityMenu(event, index, type) {
     event.stopPropagation();
+    console.log('🍽️ showQualityMenu调用:', index, type);
 
     // 移除现有的质量菜单
     const existingMenu = document.querySelector(".dynamic-quality-menu");
@@ -4746,9 +4754,10 @@ function showQualityMenu(event, index, type) {
     // 创建新的质量菜单
     const menu = document.createElement("div");
     menu.className = "dynamic-quality-menu";
+    // 将'999'改为'flac'，确保传递正确的质量参数
     menu.innerHTML = `
         <div class="quality-option" onclick="downloadWithQuality(event, ${index}, '${type}', 'mp3')">MP3音质</div>
-        <div class="quality-option" onclick="downloadWithQuality(event, ${index}, '${type}', '999')">无损音质</div>
+        <div class="quality-option" onclick="downloadWithQuality(event, ${index}, '${type}', 'flac')">无损音质</div>
     `;
 
     // 设置菜单位置
@@ -4761,6 +4770,7 @@ function showQualityMenu(event, index, type) {
 
     // 添加到body
     document.body.appendChild(menu);
+    console.log('🍽️ 质量菜单已创建，HTML:', menu.innerHTML);
 
     // 点击其他地方关闭菜单
     setTimeout(() => {
