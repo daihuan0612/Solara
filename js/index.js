@@ -3377,6 +3377,7 @@ function setupInteractions() {
     dom.audioPlayer.addEventListener("play", updatePlayPauseButton);
     dom.audioPlayer.addEventListener("pause", updatePlayPauseButton);
     dom.audioPlayer.addEventListener("volumechange", onAudioVolumeChange);
+    dom.audioPlayer.addEventListener("error", handleAudioError);
 
     dom.progressBar.addEventListener("input", handleProgressInput);
     dom.progressBar.addEventListener("change", handleProgressChange);
@@ -4070,7 +4071,6 @@ function updateCurrentSongInfo(song, options = {}) {
         // 直接使用图片URL，不通过JSON解析
         debugLog(`直接使用封面URL: ${picUrl}`);
         
-        const img = new Image();
         const preferredImageUrl = preferHttpsUrl(picUrl);
         const absoluteImageUrl = toAbsoluteUrl(preferredImageUrl);
         
@@ -4081,28 +4081,69 @@ function updateCurrentSongInfo(song, options = {}) {
             }
         }
         
-        img.crossOrigin = "anonymous";
-        img.onload = () => {
-            if (state.currentSong !== song) {
-                return;
-            }
-            if (updateBackground) {
-                setAlbumCoverImage(preferredImageUrl);
-                // 优化：总是立即应用调色板，加快视觉效果
-                scheduleDeferredPaletteUpdate(preferredImageUrl, { immediate: true });
-            }
+        // 针对QQ音乐和酷我音乐的封面加载优化
+        const isSlowSource = song.source === 'qq' || song.source === 'kuwo';
+        const loadTimeout = isSlowSource ? 8000 : 3000;
+        
+        // 优化图片加载，添加超时处理和重试机制
+        const loadImageWithTimeout = (url, timeout) => {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                let timeoutId;
+                
+                img.crossOrigin = "anonymous";
+                
+                img.onload = () => {
+                    clearTimeout(timeoutId);
+                    resolve(img);
+                };
+                
+                img.onerror = () => {
+                    clearTimeout(timeoutId);
+                    reject(new Error('Image load failed'));
+                };
+                
+                // 设置超时
+                timeoutId = setTimeout(() => {
+                    img.src = ''; // 取消图片加载
+                    reject(new Error(`Image load timed out after ${timeout}ms`));
+                }, timeout);
+                
+                img.src = url;
+            });
         };
-        img.onerror = () => {
-            if (state.currentSong !== song) {
-                return;
-            }
-            if (updateBackground) {
-                cancelDeferredPaletteUpdate();
-                showAlbumCoverPlaceholder();
+        
+        // 尝试加载图片，带重试机制
+        const loadImage = async () => {
+            const maxRetries = isSlowSource ? 2 : 1;
+            let retryCount = 0;
+            
+            while (retryCount < maxRetries) {
+                try {
+                    await loadImageWithTimeout(preferredImageUrl, loadTimeout);
+                    
+                    if (state.currentSong === song && updateBackground) {
+                        setAlbumCoverImage(preferredImageUrl);
+                        // 优化：总是立即应用调色板，加快视觉效果
+                        scheduleDeferredPaletteUpdate(preferredImageUrl, { immediate: true });
+                    }
+                    return;
+                } catch (error) {
+                    retryCount++;
+                    debugLog(`封面加载失败，重试 ${retryCount}/${maxRetries}: ${error.message}`);
+                    
+                    // 最后一次尝试失败，显示占位符
+                    if (retryCount >= maxRetries) {
+                        if (state.currentSong === song && updateBackground) {
+                            cancelDeferredPaletteUpdate();
+                            showAlbumCoverPlaceholder();
+                        }
+                    }
+                }
             }
         };
         
-        img.src = preferredImageUrl;
+        loadImage();
     } else {
         cancelDeferredPaletteUpdate();
         if (updateBackground) {
@@ -5831,12 +5872,20 @@ async function playSong(song, options = {}) {
             await new Promise(r => setTimeout(r, 30));
         }
 
-        // 4. 构建防缓存 URL
+        // 4. 构建音频 URL
         const quality = state.playbackQuality || '320';
         let rawUrl = API.getSongUrl(song, quality);
         if (!rawUrl.startsWith('http')) rawUrl = new URL(rawUrl, window.location.origin).href;
+        
+        // 所有音乐源都添加防缓存参数，确保获得最新的音频文件
         const separator = rawUrl.includes('?') ? '&' : '?';
         const streamUrl = `${rawUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
+        
+        console.log('🎵 构建音频 URL:', {
+            source: song.source,
+            originalUrl: rawUrl,
+            finalUrl: streamUrl
+        });
         
         // 5. 柔性切换 (Soft Switch)
         player.removeAttribute('crossOrigin');
@@ -5852,13 +5901,71 @@ async function playSong(song, options = {}) {
         player.preload = 'auto';
         player.load();
 
-        // 6. 快速等待加载 (超时时间缩短，防止卡死)
+        // 6. 优化酷我音乐的加载逻辑，处理长时间响应
+        const loadTimeout = song.source === 'kuwo' ? 10000 : 3000;
+        console.log(`⏳ 等待音频加载，超时时间: ${loadTimeout}ms`);
+        
+        // 针对酷我音乐的预加载优化
+        if (song.source === 'kuwo') {
+            console.log('🔍 酷我音乐：启用预加载优化');
+            // 尝试提前获取音频头信息，不阻塞主线程
+            fetch(streamUrl, { method: 'HEAD' })
+                .then(response => {
+                    console.log('📋 酷我音乐头信息:', {
+                        contentType: response.headers.get('content-type'),
+                        contentLength: response.headers.get('content-length')
+                    });
+                })
+                .catch(error => {
+                    console.warn('⚠️ 获取酷我音乐头信息失败:', error);
+                });
+        }
+        
         await new Promise((resolve) => {
             let resolved = false;
-            // 3秒超时，防止网络卡顿时按钮一直点不动
-            const timer = setTimeout(() => { if(!resolved) { resolved=true; resolve(); } }, 3000);
-            const done = () => { if(!resolved) { resolved=true; clearTimeout(timer); resolve(); } };
+            let loadStartTime = Date.now();
+            
+            // 设置不同的超时时间，酷我音乐需要更长时间
+            const timer = setTimeout(() => {
+                if(!resolved) {
+                    resolved=true;
+                    const elapsed = Date.now() - loadStartTime;
+                    console.warn(`⏱️  音频加载超时，实际等待: ${elapsed}ms，继续执行`);
+                    resolve();
+                }
+            }, loadTimeout);
+            
+            const done = (event) => {
+                if(!resolved) {
+                    resolved=true;
+                    clearTimeout(timer);
+                    const elapsed = Date.now() - loadStartTime;
+                    if (event && event.type === 'error') {
+                        console.error('❌ 音频加载错误:', {
+                            eventType: event.type,
+                            errorCode: player.error ? player.error.code : 'unknown',
+                            errorMessage: player.error ? player.error.message : 'unknown',
+                            elapsedTime: elapsed
+                        });
+                    } else {
+                        console.log(`✅ 音频加载完成，耗时: ${elapsed}ms，事件类型: ${event ? event.type : 'unknown'}`);
+                    }
+                    resolve();
+                }
+            };
+            
+            // 添加更多加载事件监听，确保不错过任何状态变化
+            player.addEventListener('canplaythrough', done, { once: true });
             player.addEventListener('canplay', done, { once: true });
+            player.addEventListener('loadeddata', done, { once: true });
+            player.addEventListener('loadedmetadata', done, { once: true });
+            player.addEventListener('loadstart', () => {
+                console.log('🚀 音频开始加载');
+            }, { once: true });
+            player.addEventListener('progress', () => {
+                const buffered = player.buffered.length > 0 ? player.buffered.end(0) : 0;
+                console.log(`📊 音频加载进度: ${buffered.toFixed(2)}s`);
+            });
             player.addEventListener('error', done, { once: true });
         });
 
@@ -6032,6 +6139,37 @@ function scheduleDeferredSongAssets(song, playPromise) {
 }
 
 // 修复：自动播放下一首 (带状态重置)
+function handleAudioError(event) {
+    const player = event.target;
+    console.error('🎵 音频播放错误:', {
+        errorCode: player.error.code,
+        errorMessage: player.error.message,
+        currentSong: state.currentSong,
+        audioUrl: state.currentAudioUrl
+    });
+    
+    // 针对酷我音乐的特殊处理
+    if (state.currentSong && state.currentSong.source === 'kuwo') {
+        console.error('🔍 酷我音乐播放失败，尝试直接使用 API 链接重新播放...');
+        // 尝试重新构建音频 URL，可能需要调整 API 参数
+        try {
+            const quality = state.playbackQuality || '320';
+            const audioUrl = API.getSongUrl(state.currentSong, quality);
+            console.log('🔄 重新尝试酷我音乐 URL:', audioUrl);
+            player.src = audioUrl;
+            player.load();
+            player.play();
+        } catch (retryError) {
+            console.error('❌ 酷我音乐重新播放也失败:', retryError);
+        }
+    }
+    
+    // 重置播放状态
+    state.isPlaying = false;
+    updatePlayPauseButton();
+    state._isPlayingSong = false;
+}
+
 function autoPlayNext() {
     console.log('🔄 触发自动连播...');
     
