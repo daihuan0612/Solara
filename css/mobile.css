@@ -9,16 +9,7 @@ body.mobile-view {
     overflow: hidden;
     touch-action: pan-y;
     overscroll-behavior: none;
-}
-
-body.mobile-view.dark-mode {
-    background: radial-gradient(120% 140% at 50% 0%, #1b1d24 0%, #0d1018 70%, #05070c 100%);
-    color: #f2f5f9;
-}
-
-body.mobile-view {
     margin: 0;
-    min-height: var(--mobile-vh, 100dvh);
     display: flex;
     justify-content: center;
     align-items: stretch;
@@ -32,6 +23,11 @@ body.mobile-view {
     --mobile-ring-inner-radius: clamp(280px, 70vw, 520px);
     --mobile-ring-feather: clamp(120px, 24vw, 280px);
     --mobile-ring-vertical-shift: calc((env(safe-area-inset-top, 0px) * 0.5) - 24px);
+}
+
+body.mobile-view.dark-mode {
+    background: radial-gradient(120% 140% at 50% 0%, #1b1d24 0%, #0d1018 70%, #05070c 100%);
+    color: #f2f5f9;
 }
 
 body.mobile-view .background-stage {
@@ -1181,7 +1177,8 @@ body.mobile-view .search-area .search-results {
 }
 
 body.mobile-view .search-results-toolbar {
-    width: 100%;
+    width: min(100%, 400px);
+    margin: 0 auto;
     padding-top: 8px;
 }
 
@@ -1191,22 +1188,8 @@ body.mobile-view .import-selected-btn {
 }
 
 body.mobile-view .search-results-list {
-    width: 100%;
-}
-
-body.mobile-view .search-area > :not(.mobile-close-btn) {
     width: min(100%, 400px);
-    align-self: center;
-}
-
-body.mobile-view .search-area > :not(.mobile-close-btn) {
-    width: min(100%, 400px);
-    align-self: center;
-}
-
-body.mobile-view .search-area > :not(.mobile-close-btn) {
-    width: min(100%, 400px);
-    align-self: center;
+    margin: 0 auto;
 }
 
 body.mobile-view .search-area > :not(.mobile-close-btn) {
@@ -1245,6 +1228,11 @@ body.mobile-view .search-btn {
     background: rgba(0, 0, 0, 0.12);
     color: #2c3e50;
     border: none;
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 18px;
 }
 
 body.mobile-view.dark-mode .search-container {
@@ -1267,21 +1255,13 @@ body.mobile-view.dark-mode .search-btn {
     color: #ffffff;
 }
 
-body.mobile-view .search-btn {
-    display: inline-flex;
-    justify-content: center;
-    align-items: center;
-    gap: 8px;
-    padding: 12px 18px;
-}
-
 body.mobile-view .search-results {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
     width: min(100%, 400px);
-    margin: 0;
-    padding: 0;
+    margin: 0 auto;
+    padding: 0 16px;
     border: none;
 }
 
