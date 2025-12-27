@@ -1197,6 +1197,44 @@ body.mobile-view .search-results {
     gap: 12px;
 }
 
+/* 搜索结果区域滚动条样式 - 浅色模式 */
+body.mobile-view .search-results::-webkit-scrollbar {
+    width: 6px;
+}
+
+body.mobile-view .search-results::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.05);
+    border-radius: 3px;
+}
+
+body.mobile-view .search-results::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 3px;
+}
+
+body.mobile-view .search-results::-webkit-scrollbar-thumb:hover {
+    background: var(--primary-color);
+}
+
+/* 搜索结果区域滚动条样式 - 深色模式 */
+body.mobile-view.dark-mode .search-results::-webkit-scrollbar {
+    width: 6px;
+}
+
+body.mobile-view.dark-mode .search-results::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 3px;
+}
+
+body.mobile-view.dark-mode .search-results::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.4);
+    border-radius: 3px;
+}
+
+body.mobile-view.dark-mode .search-results::-webkit-scrollbar-thumb:hover {
+    background: var(--primary-color);
+}
+
 body.mobile-view .search-results-toolbar {
     width: 100%;
     padding-top: 0;
