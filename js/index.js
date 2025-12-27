@@ -1938,7 +1938,9 @@ function showAlbumCoverPlaceholder() {
 function setAlbumCoverImage(url) {
     const safeUrl = toAbsoluteUrl(preferHttpsUrl(url));
     state.currentArtworkUrl = safeUrl;
-    dom.albumCover.innerHTML = `<img src="${safeUrl}" alt="专辑封面">`;
+    // 移除crossorigin属性，因为有些服务器可能不支持CORS
+    // 保留referrerpolicy="no-referrer"以保护隐私并解决某些跨域问题
+    dom.albumCover.innerHTML = `<img src="${safeUrl}" alt="专辑封面" referrerpolicy="no-referrer">`;
     dom.albumCover.classList.remove("loading");
     if (typeof window.__SOLARA_UPDATE_MEDIA_METADATA === 'function') {
         window.__SOLARA_UPDATE_MEDIA_METADATA();
@@ -1950,6 +1952,12 @@ loadStoredPalettes();
 // 本地取色逻辑：使用 Canvas API 从图片中提取颜色
 function getLocalPalette(imageUrl) {
     return new Promise((resolve, reject) => {
+        // 检查图片URL是否来自QQ音乐，如果是则直接返回null，避免跨域问题
+        if (imageUrl.includes('music-dl.sayqz.com') || imageUrl.includes('y.qq.com')) {
+            resolve(null);
+            return;
+        }
+        
         const img = new Image();
         img.crossOrigin = "anonymous";
         img.onload = () => {
@@ -1974,8 +1982,16 @@ function getLocalPalette(imageUrl) {
                 canvas.height = height;
                 ctx.drawImage(img, 0, 0, width, height);
                 
-                // 获取像素数据
-                const imageData = ctx.getImageData(0, 0, width, height);
+                // 获取像素数据，处理可能的跨域错误
+                let imageData;
+                try {
+                    imageData = ctx.getImageData(0, 0, width, height);
+                } catch (crossOriginError) {
+                    console.warn("跨域图片无法提取颜色，使用默认调色板:", crossOriginError);
+                    resolve(null);
+                    return;
+                }
+                
                 const data = imageData.data;
                 
                 // 简单的颜色提取：计算平均颜色
@@ -2028,10 +2044,12 @@ function getLocalPalette(imageUrl) {
                 
                 resolve(palette);
             } catch (error) {
-                reject(error);
+                console.warn("取色失败，使用默认调色板:", error);
+                resolve(null);
             }
         };
         img.onerror = () => {
+            console.warn("图片加载失败，使用默认调色板");
             resolve(null);
         };
         img.src = imageUrl;
@@ -4174,7 +4192,7 @@ function updateCurrentSongInfo(song, options = {}) {
                 const img = new Image();
                 let timeoutId;
                 
-                img.crossOrigin = "anonymous";
+                // 移除crossOrigin属性，避免跨域问题
                 
                 img.onload = () => {
                     clearTimeout(timeoutId);
@@ -4183,6 +4201,7 @@ function updateCurrentSongInfo(song, options = {}) {
                 
                 img.onerror = () => {
                     clearTimeout(timeoutId);
+                    // 直接拒绝，不尝试no-cors模式，因为我们不需要访问图片数据
                     reject(new Error('Image load failed'));
                 };
                 
