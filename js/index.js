@@ -6923,7 +6923,7 @@ async function downloadSong(song, quality = null) {
         const finalQuality = quality || state.playbackQuality || '320';
         showNotification(`正在获取 ${song.name} 下载地址...`, 'info');
 
-        // 1. 获取直接下载链接
+        // 1. 获取下载链接
         const downloadUrl = API.getSongUrl(song, finalQuality);
         if (!downloadUrl) {
             throw new Error('无法获取链接');
@@ -6942,94 +6942,25 @@ async function downloadSong(song, quality = null) {
         const fileName = `${songName} - ${artistName}.${fileExtension}`;
         console.log('📁 最终文件名:', fileName);
 
-        // 3. 处理下载
-        if (fileExtension === 'flac') {
-            // 无损格式：使用blob下载，防止直接播放
-            showNotification(`正在准备 ${song.name} 无损音频下载...`, 'info');
-            
-            // 获取文件数据，添加跨域支持和超时处理
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 30000);
-            
-            let response;
-            try {
-                // 尝试使用cors模式
-                response = await fetch(downloadUrl, {
-                    mode: 'cors',
-                    cache: 'no-cache',
-                    signal: controller.signal
-                });
-                
-                clearTimeout(timeoutId);
-                
-                if (!response.ok) {
-                    throw new Error(`下载失败: ${response.status} - ${response.statusText}`);
-                }
-            } catch (fetchError) {
-                clearTimeout(timeoutId);
-                console.error('❌ 无损文件cors模式fetch失败:', fetchError);
-                
-                // 如果是跨域错误，尝试直接使用a标签下载
-                console.log('🔄 尝试直接使用a标签下载无损文件');
-                
-                // 直接使用a标签下载，不使用blob，虽然可能会在新窗口播放，但总比下载失败好
-                const link = document.createElement('a');
-                link.href = downloadUrl;
-                link.download = fileName; // 设置下载文件名
-                link.rel = 'noopener noreferrer'; // 添加安全属性
-                link.target = '_blank'; // 新窗口打开
-                
-                // 触发下载
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-                
-                showNotification(`${song.name} 无损音频下载已开始...`, 'success');
-                console.log('✅ 无损文件直接下载流程完成');
-                return;
-            }
-            
-            // 继续使用blob下载
-            const blob = await response.blob();
-            console.log('📦 获取到无损blob，大小:', blob.size, '类型:', blob.type);
-            
-            // 创建blob URL
-            const blobUrl = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = blobUrl;
-            a.download = fileName; // 设置下载文件名
-            a.rel = 'noopener noreferrer'; // 添加安全属性
-            
-            // 触发下载
-            document.body.appendChild(a);
-            a.click();
-            
-            // 清理
-            setTimeout(() => {
-                document.body.removeChild(a);
-                URL.revokeObjectURL(blobUrl);
-            }, 1000);
-        } else {
-            // MP3格式：使用直接链接下载，确保IDM可以拦截
-            const link = document.createElement('a');
-            link.href = downloadUrl;
-            link.download = fileName; // 设置下载文件名
-            link.rel = 'noopener noreferrer'; // 添加安全属性
-            link.target = '_blank'; // 新窗口打开，这是最不容易被拦截的方式
-            
-            // 触发下载
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        }
+        // 3. 简单的跳转下载，参考7.4版本的实现
+        // 创建一个临时链接
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.target = '_blank'; // 新窗口打开，这是最不容易被拦截的方式
+        link.download = fileName; // 设置下载文件名，虽然有些浏览器可能忽略
         
-        showNotification(`${song.name} 音频下载已开始...`, 'success');
+        // 4. 触发下载
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        // 5. 显示通知，提示用户如果变成播放请按Ctrl+S保存
+        showNotification(`已弹出 ${song.name} 下载窗口 (如果变成了播放，请按 Ctrl+S 保存)`, 'success');
         console.log('✅ 下载流程完成');
 
     } catch (error) {
         console.error('❌ 下载出错:', error);
-        console.error('❌ 错误堆栈:', error.stack);
-        showNotification(`获取下载地址失败: ${error.message}`, 'error');
+        showNotification('获取下载地址失败', 'error');
     }
 }
 
