@@ -1,6 +1,6 @@
-const API_BASE_URL = "https://music-api.gdstudio.xyz/api.php";
+const API_BASE_URL = "https://music-dl.sayqz.com/api";
 const KUWO_HOST_PATTERN = /(^|\.)kuwo\.cn$/i;
-const SAFE_RESPONSE_HEADERS = ["content-type", "cache-control", "accept-ranges", "content-length", "content-range", "etag", "last-modified", "expires"];
+const SAFE_RESPONSE_HEADERS = ["content-type", "cache-control", "accept-ranges", "content-length", "content-range", "etag", "last-modified", "expires", "x-source-switch"];
 
 function createCorsHeaders(init?: Headers): Headers {
   const headers = new Headers();
@@ -84,7 +84,7 @@ async function proxyKuwoAudio(targetUrl: string, request: Request): Promise<Resp
 }
 
 async function proxyApiRequest(url: URL, request: Request): Promise<Response> {
-  const apiUrl = new URL(API_BASE_URL);
+  const apiUrl = new URL(API_BASE_URL, "https://music-dl.sayqz.com");
   url.searchParams.forEach((value, key) => {
     if (key === "target" || key === "callback") {
       return;
@@ -92,14 +92,10 @@ async function proxyApiRequest(url: URL, request: Request): Promise<Response> {
     apiUrl.searchParams.set(key, value);
   });
 
-  if (!apiUrl.searchParams.has("types")) {
-    return new Response("Missing types", { status: 400 });
-  }
-
   const upstream = await fetch(apiUrl.toString(), {
     headers: {
       "User-Agent": request.headers.get("User-Agent") ?? "Mozilla/5.0",
-      "Accept": "application/json",
+      "Accept": request.headers.get("Accept") ?? "application/json",
     },
   });
 
@@ -129,6 +125,16 @@ export async function onRequest({ request }: { request: Request }): Promise<Resp
 
   if (target) {
     return proxyKuwoAudio(target, request);
+  }
+
+  const pathname = url.pathname;
+
+  if (pathname === "/status" || pathname === "/health") {
+    return proxyApiRequest(url, request);
+  }
+
+  if (pathname.startsWith("/stats")) {
+    return proxyApiRequest(url, request);
   }
 
   return proxyApiRequest(url, request);
