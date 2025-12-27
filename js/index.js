@@ -4803,7 +4803,8 @@ async function downloadWithQuality(event, index, type, quality) {
     }
 
     try {
-        await downloadSong(song, quality);
+        // 7.4版本逻辑：忽略quality参数，直接使用固定质量
+        await downloadSong(song);
     } catch (error) {
         console.error("下载失败:", error);
         showNotification("下载失败，请稍后重试", "error");
@@ -6895,107 +6896,50 @@ function scrollToCurrentLyric(element, containerOverride) {
 // ============================================================
 // 最终稳妥版下载函数：直链跳转 (放弃重命名，保证成功率)
 // ============================================================
-async function downloadSong(song, quality = null) {
+async function downloadSong(song) {
     try {
-        // 使用传入的质量参数，如果没有则使用当前播放质量
-        const finalQuality = quality || state.playbackQuality || '320';
+        // 7.4版本逻辑：MP3直接使用320质量，不接受质量参数
+        const quality = '320'; // 固定使用320质量，与7.4版本一致
         showNotification(`正在获取 ${song.name} 下载地址...`, 'info');
 
         // 1. 获取下载链接
-        const songUrl = API.getSongUrl(song, finalQuality);
-        if (!songUrl) {
+        const downloadUrl = API.getSongUrl(song, quality);
+        if (!downloadUrl) {
             throw new Error('无法获取链接');
         }
-        console.log('🔗 原始链接:', songUrl);
+        console.log('🔗 原始链接:', downloadUrl);
 
-        // 2. 生成文件名
-        const artistName = Array.isArray(song.artist) ? song.artist.join(', ') : (song.artist || '未知艺术家');
-        const songName = song.name || '未知歌曲';
-        // 根据质量确定文件扩展名
-        let fileExtension = 'mp3';
-        if (finalQuality === '999' || finalQuality === 'flac') {
-            fileExtension = 'flac';
-        }
-        // 按照用户要求的格式：歌曲名 - 艺术家.扩展名
-        const fileName = `${songName} - ${artistName}.${fileExtension}`;
+        // 2. 生成文件名，完全按照7.4版本的格式
+        const fileName = `${song.artist} - ${song.name}.mp3`;
         console.log('📁 最终文件名:', fileName);
 
-        // 3. 特殊处理MP3格式，绕过IDM自动拦截
-        if (fileExtension === 'mp3') {
-            // 使用XMLHttpRequest替代fetch，尝试绕过IDM的自动拦截
-            showNotification(`正在准备 ${song.name} MP3音频下载...`, 'info');
-            
-            const xhr = new XMLHttpRequest();
-            xhr.open('GET', songUrl, true);
-            xhr.responseType = 'blob';
-            
-            xhr.onload = function() {
-                if (xhr.status === 200) {
-                    const blob = xhr.response;
-                    console.log('📦 获取到MP3 blob，大小:', blob.size, '类型:', blob.type);
-                    
-                    // 创建自定义blob，修改MIME类型为application/octet-stream，防止IDM拦截
-                    const customBlob = new Blob([blob], { type: 'application/octet-stream' });
-                    
-                    // 创建下载链接
-                    const blobUrl = URL.createObjectURL(customBlob);
-                    const a = document.createElement('a');
-                    a.href = blobUrl;
-                    a.download = fileName;
-                    
-                    // 触发下载
-                    document.body.appendChild(a);
-                    a.click();
-                    
-                    // 清理
-                    setTimeout(() => {
-                        document.body.removeChild(a);
-                        URL.revokeObjectURL(blobUrl);
-                    }, 1000);
-                    
-                    showNotification(`${song.name} MP3音频下载已开始...`, 'success');
-                    console.log('✅ MP3下载流程完成');
-                } else {
-                    throw new Error(`下载失败: ${xhr.status}`);
-                }
-            };
-            
-            xhr.onerror = function() {
-                throw new Error('网络错误');
-            };
-            
-            xhr.send();
+        // 3. 移除target="_blank"，使用更适合隐私模式的下载方式
+        // 同时保持IDM能正确拦截
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = fileName; // 设置下载文件名
+        link.rel = 'noopener noreferrer'; // 添加安全属性
+        
+        // 4. 触发下载
+        document.body.appendChild(link);
+        
+        // 使用更可靠的方式触发点击
+        if (typeof link.click === 'function') {
+            link.click();
         } else {
-            // 无损格式使用正常的blob下载
-            showNotification(`正在准备 ${song.name} 无损音频下载...`, 'info');
-            
-            const response = await fetch(songUrl);
-            if (!response.ok) {
-                throw new Error(`下载失败: ${response.status}`);
-            }
-            
-            const blob = await response.blob();
-            console.log('📦 获取到无损blob，大小:', blob.size, '类型:', blob.type);
-            
-            // 创建blob URL
-            const blobUrl = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = blobUrl;
-            a.download = fileName;
-            
-            // 触发下载
-            document.body.appendChild(a);
-            a.click();
-            
-            // 清理
-            setTimeout(() => {
-                document.body.removeChild(a);
-                URL.revokeObjectURL(blobUrl);
-            }, 1000);
-            
-            showNotification(`${song.name} 无损音频下载已开始...`, 'success');
-            console.log('✅ 无损下载流程完成');
+            // 兼容性处理
+            const clickEvent = new MouseEvent('click', {
+                view: window,
+                bubbles: true,
+                cancelable: true
+            });
+            link.dispatchEvent(clickEvent);
         }
+        
+        document.body.removeChild(link);
+        
+        showNotification(`${song.name} 音频下载已开始...`, 'success');
+        console.log('✅ 下载流程完成');
 
     } catch (error) {
         console.error('❌ 下载出错:', error);
