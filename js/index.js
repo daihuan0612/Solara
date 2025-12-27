@@ -6913,14 +6913,30 @@ async function downloadSong(song, quality = null) {
         const finalQuality = quality || state.playbackQuality || '320';
         showNotification(`正在获取 ${song.name} 下载地址...`, 'info');
 
-        // 1. 获取下载链接
-        const downloadUrl = API.getSongUrl(song, finalQuality);
-        if (!downloadUrl) {
+        // 1. 获取API端点URL
+        const apiUrl = API.getSongUrl(song, finalQuality);
+        if (!apiUrl) {
             throw new Error('无法获取链接');
         }
-        console.log('🔗 原始链接:', downloadUrl);
+        console.log('🔗 API端点:', apiUrl);
 
-        // 2. 生成文件名，处理artist为数组的情况
+        // 2. 调用API获取实际的文件下载链接
+        const apiResponse = await fetch(apiUrl);
+        if (!apiResponse.ok) {
+            throw new Error(`API调用失败: ${apiResponse.status}`);
+        }
+        const apiData = await apiResponse.json();
+        console.log('📡 API响应:', apiData);
+        
+        // 检查API返回的数据格式
+        if (!apiData || apiData.code !== 200 || !apiData.data || !apiData.data.url) {
+            throw new Error('API返回数据格式错误');
+        }
+        
+        const actualDownloadUrl = apiData.data.url;
+        console.log('🔗 实际下载链接:', actualDownloadUrl);
+
+        // 3. 生成文件名，处理artist为数组的情况
         const artistName = Array.isArray(song.artist) ? song.artist.join(', ') : (song.artist || '未知艺术家');
         const songName = song.name || '未知歌曲';
         // 根据质量确定文件扩展名
@@ -6932,13 +6948,13 @@ async function downloadSong(song, quality = null) {
         const fileName = `${songName} - ${artistName}.${fileExtension}`;
         console.log('📁 最终文件名:', fileName);
 
-        // 3. 处理下载
+        // 4. 处理下载
         if (fileExtension === 'flac') {
             // 无损格式：使用blob下载，防止直接播放
             showNotification(`正在准备 ${song.name} 无损音频下载...`, 'info');
             
             // 获取文件数据
-            const response = await fetch(downloadUrl);
+            const response = await fetch(actualDownloadUrl);
             if (!response.ok) {
                 throw new Error(`下载失败: ${response.status}`);
             }
@@ -6962,9 +6978,9 @@ async function downloadSong(song, quality = null) {
                 URL.revokeObjectURL(blobUrl);
             }, 1000);
         } else {
-            // MP3格式：使用直接链接下载
+            // MP3格式：使用直接链接下载，确保IDM可以拦截
             const link = document.createElement('a');
-            link.href = downloadUrl;
+            link.href = actualDownloadUrl;
             link.download = fileName; // 设置下载文件名
             link.rel = 'noopener noreferrer'; // 添加安全属性
             
