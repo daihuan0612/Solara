@@ -168,10 +168,10 @@ body.background-transitioning .background-stage__layer--transition {
     letter-spacing: 1px; 
 }
 .header .warning { 
-    color: var(--text-secondary-color); 
+    color: rgba(255, 255, 255, 0.8); 
     font-size: 0.9em; 
     margin-top: 10px; 
-    font-style: italic; 
+    font-style: normal; 
 }
 
 /* 搜索区域样式 - 增强动效 */
