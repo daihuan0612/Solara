@@ -1952,7 +1952,12 @@ loadStoredPalettes();
 // 本地取色逻辑：使用 Canvas API 从图片中提取颜色
 function getLocalPalette(imageUrl) {
     return new Promise((resolve, reject) => {
-        // 移除域名限制，允许所有图片取色
+        // 检查图片URL是否来自QQ音乐，如果是则直接返回null，避免跨域问题
+        if (imageUrl.includes('music-dl.sayqz.com') || imageUrl.includes('y.qq.com')) {
+            resolve(null);
+            return;
+        }
+        
         const img = new Image();
         img.crossOrigin = "anonymous";
         img.onload = () => {
@@ -2539,6 +2544,12 @@ function handleVolumeChange(event) {
 
 function handleTimeUpdate() {
     const currentTime = dom.audioPlayer.currentTime || 0;
+    console.log('⏱️ timeupdate事件触发:', {
+        currentTime: currentTime,
+        duration: dom.audioPlayer.duration,
+        paused: dom.audioPlayer.paused,
+        readyState: dom.audioPlayer.readyState
+    });
     
     if (!state.isSeeking) {
         dom.progressBar.value = currentTime;
@@ -3259,9 +3270,7 @@ function setupInteractions() {
             } else if (action === "download") {
                 event.preventDefault();
                 event.stopPropagation();
-                // 直接下载无损音乐，不显示质量菜单
-                const song = state.playlistSongs[index];
-                downloadSong(song, 'flac');
+                showQualityMenu(event, index, "playlist");
             }
         };
 
@@ -3347,9 +3356,7 @@ function setupInteractions() {
             } else if (action === "download") {
                 event.preventDefault();
                 event.stopPropagation();
-                // 直接下载无损音乐，不显示质量菜单
-                const song = state.favoriteSongs[index];
-                downloadSong(song, 'flac');
+                showQualityMenu(event, index, "favorites");
             } else if (action === "remove") {
                 event.preventDefault();
                 event.stopPropagation();
@@ -4458,9 +4465,7 @@ function createSearchResultItem(song, index) {
     downloadButton.innerHTML = '<i class="fas fa-download"></i>';
     downloadButton.addEventListener("click", (event) => {
         event.stopPropagation();
-        // 直接下载无损音乐，不显示质量菜单
-        const song = state.searchResults[index];
-        downloadSong(song, 'flac');
+        showQualityMenu(event, index, "search");
     });
 
     actions.appendChild(favoriteButton);
@@ -4776,10 +4781,12 @@ function showQualityMenu(event, index, type) {
         existingMenu.remove();
     }
 
-    // 创建新的质量菜单，只显示无损音质选项
+    // 创建新的质量菜单
     const menu = document.createElement("div");
     menu.className = "dynamic-quality-menu";
+    // 将'999'改为'flac'，确保传递正确的质量参数
     menu.innerHTML = `
+        <div class="quality-option" onclick="downloadWithQuality(event, ${index}, '${type}', 'mp3')">MP3音质</div>
         <div class="quality-option" onclick="downloadWithQuality(event, ${index}, '${type}', 'flac')">无损音质</div>
     `;
 
@@ -6072,17 +6079,15 @@ async function playSong(song, options = {}) {
             streamUrl = `${rawUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
         }
         
-        // 将音频 URL 转换为 HTTPS，避免混合内容错误
-        const secureStreamUrl = preferHttpsUrl(streamUrl);
-        console.log('🎵 最终使用的安全音频 URL:', secureStreamUrl);
+        console.log('🎵 最终使用的音频 URL:', streamUrl);
         
         // 5. 柔性切换 (Soft Switch)
         player.removeAttribute('crossOrigin');
         player.setAttribute('playsinline', '');
         player.setAttribute('webkit-playsinline', '');
         
-        player.src = secureStreamUrl;
-        state.currentAudioUrl = secureStreamUrl;
+        player.src = streamUrl;
+        state.currentAudioUrl = streamUrl;
         
         // ⚡️ 预备状态：静音并加载
         player.muted = false;
@@ -6914,85 +6919,127 @@ function scrollToCurrentLyric(element, containerOverride) {
 // 最终稳妥版下载函数：支持JSON响应和直接下载
 // ============================================================
 async function downloadSong(song, quality = null) {
-    // 将变量定义移到try块外面，确保在catch块中也能访问
-    const finalQuality = quality || state.playbackQuality || 'flac';
-    const artistName = Array.isArray(song.artist) ? song.artist.join(', ') : (song.artist || '未知艺术家');
-    const songName = song.name || '未知歌曲';
-    let fileExtension = 'mp3';
-    if (finalQuality === '999' || finalQuality === 'flac' || quality === 'flac') {
-        fileExtension = 'flac';
-    }
-    const fileName = `${songName} - ${artistName}.${fileExtension}`;
-    
     try {
-        console.log('🚀 downloadSong函数被调用:', song.name, '质量:', finalQuality);
+        // 恢复质量选择功能，根据不同质量获取不同链接
+        const finalQuality = quality || state.playbackQuality || 'flac';
         showNotification(`正在获取 ${song.name} 下载地址...`, 'info');
-        console.log('📁 最终文件名:', fileName);
 
         // 1. 获取下载链接
-        let apiUrl = API.getSongUrl(song, finalQuality);
-        if (!apiUrl) {
+        const downloadUrl = API.getSongUrl(song, finalQuality);
+        if (!downloadUrl) {
             throw new Error('无法获取链接');
         }
-        
-        // 将API URL转换为HTTPS，避免混合内容错误
-        apiUrl = preferHttpsUrl(apiUrl);
-        console.log('🔗 API下载链接:', apiUrl);
+        console.log('🔗 直接下载链接:', downloadUrl);
 
-        // 2. 使用fetch获取文件内容，处理重定向
-        console.log('📥 正在获取文件内容...');
-        
-        // 使用fetch获取文件内容，设置no-cors模式
-        const response = await fetch(apiUrl, {
-            method: 'GET',
-            mode: 'cors', // 允许跨域请求
-            redirect: 'follow' // 自动跟随重定向
-        });
-        
-        if (!response.ok) {
-            throw new Error(`下载请求失败: ${response.status}`);
+        // 2. 生成文件名，处理artist为数组的情况
+        const artistName = Array.isArray(song.artist) ? song.artist.join(', ') : (song.artist || '未知艺术家');
+        const songName = song.name || '未知歌曲';
+        // 根据质量确定文件扩展名
+        let fileExtension = 'mp3';
+        if (finalQuality === '999' || finalQuality === 'flac') {
+            fileExtension = 'flac';
+        }
+        // 按照用户要求的格式：歌曲名 - 艺术家.扩展名
+        const fileName = `${songName} - ${artistName}.${fileExtension}`;
+        console.log('📁 最终文件名:', fileName);
+
+        // 3. 针对酷我音乐，需要先检查API响应类型
+        if (song.source === 'kuwo') {
+            console.log('🔍 酷我音乐：检查下载API响应类型');
+            try {
+                const response = await fetch(downloadUrl, { method: 'HEAD' });
+                const contentType = response.headers.get('content-type');
+                console.log('📋 酷我音乐下载响应头:', { contentType });
+                
+                // 如果直接返回音频流，使用简单跳转下载
+                if (contentType && contentType.includes('audio/')) {
+                    console.log('🎵 酷我音乐直接返回音频流，使用简单跳转下载');
+                    // 创建一个临时链接
+                    const link = document.createElement('a');
+                    link.href = downloadUrl;
+                    link.target = '_blank'; // 新窗口打开，这是最不容易被拦截的方式
+                    link.download = fileName; // 设置下载文件名
+                    
+                    // 触发下载
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                } else {
+                    console.log('📄 酷我音乐返回非音频流，使用高级下载方式');
+                    // 对于非音频流响应，使用fetch获取实际内容
+                    const downloadResponse = await fetch(downloadUrl);
+                    if (downloadResponse.ok) {
+                        const actualContentType = downloadResponse.headers.get('content-type');
+                        if (actualContentType && actualContentType.includes('application/json')) {
+                            // JSON响应，直接使用API URL作为下载链接，因为服务器会处理实际的下载
+                            console.log('📄 酷我音乐返回JSON响应，使用API URL直接下载');
+                            // 创建一个临时链接
+                            const link = document.createElement('a');
+                            link.href = downloadUrl;
+                            link.target = '_blank'; // 新窗口打开
+                            link.download = fileName; // 设置下载文件名
+                            
+                            // 触发下载
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                        } else {
+                            // 直接的音频流，使用Blob下载
+                            console.log('🎵 酷我音乐返回音频流，使用Blob下载');
+                            const blob = await downloadResponse.blob();
+                            const blobUrl = URL.createObjectURL(blob);
+                            
+                            // 创建一个临时链接
+                            const link = document.createElement('a');
+                            link.href = blobUrl;
+                            link.download = fileName; // 设置下载文件名
+                            
+                            // 触发下载
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                            
+                            // 释放Blob URL
+                            setTimeout(() => {
+                                URL.revokeObjectURL(blobUrl);
+                            }, 100);
+                        }
+                    } else {
+                        throw new Error(`下载请求失败: ${downloadResponse.status}`);
+                    }
+                }
+            } catch (headError) {
+                console.warn('⚠️ 检查酷我音乐下载响应失败，使用默认下载方式:', headError);
+                // 回退到简单跳转下载
+                const link = document.createElement('a');
+                link.href = downloadUrl;
+                link.target = '_blank';
+                link.download = fileName;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            }
+        } else {
+            // 非酷我音乐，使用简单跳转下载
+            console.log('🎵 非酷我音乐，使用简单跳转下载');
+            const link = document.createElement('a');
+            link.href = downloadUrl;
+            link.target = '_blank'; // 新窗口打开，这是最不容易被拦截的方式
+            link.download = fileName; // 设置下载文件名，虽然有些浏览器可能忽略
+            
+            // 触发下载
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
         }
         
-        // 将响应转换为Blob
-        const blob = await response.blob();
-        console.log('📦 文件已转换为Blob，大小:', blob.size, '类型:', blob.type);
-        
-        // 3. 创建Blob URL下载
-        console.log('🌐 正在创建Blob URL...');
-        
-        // 创建Blob URL
-        const blobUrl = URL.createObjectURL(blob);
-        
-        // 创建下载链接
-        const link = document.createElement('a');
-        link.href = blobUrl;
-        link.download = fileName;
-        link.rel = 'noopener noreferrer'; // 安全设置
-        link.style.display = 'none';
-        
-        // 添加到页面
-        document.body.appendChild(link);
-        
-        // 触发下载
-        link.click();
-        
-        // 延迟移除链接和释放Blob URL
-        setTimeout(() => {
-            document.body.removeChild(link);
-            URL.revokeObjectURL(blobUrl);
-            console.log('🗑️ 已移除下载链接并释放Blob URL');
-        }, 10000);
-        
-        console.log('💾 下载已触发');
-        
-        // 4. 显示通知
-        showNotification(`${song.name} 下载已开始`, 'success');
+        // 5. 显示通知，提示用户如果变成播放请按Ctrl+S保存
+        showNotification(`已弹出 ${song.name} 下载窗口 (如果变成了播放，请按 Ctrl+S 保存)`, 'success');
         console.log('✅ 下载流程完成');
 
     } catch (error) {
         console.error('❌ 下载出错:', error);
-        // 显示更有用的错误信息
-        showNotification(`${song.name} 下载失败: ${error.message}`, 'error');
+        showNotification('获取下载地址失败', 'error');
     }
 }
 
