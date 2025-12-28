@@ -4770,12 +4770,10 @@ function showQualityMenu(event, index, type) {
         existingMenu.remove();
     }
 
-    // 创建新的质量菜单
+    // 创建新的质量菜单，只显示无损音质选项
     const menu = document.createElement("div");
     menu.className = "dynamic-quality-menu";
-    // 将'999'改为'flac'，确保传递正确的质量参数
     menu.innerHTML = `
-        <div class="quality-option" onclick="downloadWithQuality(event, ${index}, '${type}', 'mp3')">MP3音质</div>
         <div class="quality-option" onclick="downloadWithQuality(event, ${index}, '${type}', 'flac')">无损音质</div>
     `;
 
@@ -6938,49 +6936,44 @@ async function downloadSong(song, quality = null) {
         apiUrl = preferHttpsUrl(apiUrl);
         console.log('🔗 API下载链接:', apiUrl);
 
-        // 3. 使用iframe下载，避免浏览器直接播放音频
-        console.log('🌐 正在创建下载iframe...');
+        // 3. 使用fetch获取API响应，处理重定向和JSON响应
+        console.log('📥 正在获取API响应...');
         
-        // 创建隐藏的iframe
-        const iframe = document.createElement('iframe');
-        iframe.style.display = 'none';
-        iframe.style.width = '0px';
-        iframe.style.height = '0px';
-        iframe.style.border = 'none';
-        iframe.src = apiUrl;
-        iframe.download = fileName;
+        // 使用fetch获取API响应，设置redirect: 'follow'自动处理重定向
+        const response = await fetch(apiUrl, {
+            method: 'GET',
+            redirect: 'follow' // 自动跟随重定向
+        });
         
-        // 处理iframe加载事件
-        iframe.onload = () => {
-            console.log('📥 iframe加载完成');
-            // 延迟移除iframe
-            setTimeout(() => {
-                document.body.removeChild(iframe);
-                console.log('🗑️ 已移除下载iframe');
-            }, 1000);
-        };
+        if (!response.ok) {
+            throw new Error(`API请求失败: ${response.status}`);
+        }
         
-        // 处理iframe错误
-        iframe.onerror = () => {
-            console.error('❌ iframe加载失败');
-            document.body.removeChild(iframe);
-            // 回退到a标签下载
-            console.log('🔄 回退到a标签下载');
-            const link = document.createElement('a');
-            link.href = apiUrl;
-            link.download = fileName;
-            link.target = '_blank';
-            link.rel = 'noopener noreferrer';
-            link.style.display = 'none';
-            document.body.appendChild(link);
-            link.click();
-            setTimeout(() => {
-                document.body.removeChild(link);
-            }, 500);
-        };
+        // 获取实际的下载URL
+        let actualUrl = response.url;
+        console.log('🔗 实际下载URL:', actualUrl);
+        
+        // 4. 使用a标签下载文件，确保浏览器触发下载动作
+        console.log('🌐 正在创建下载链接...');
+        
+        // 创建下载链接
+        const link = document.createElement('a');
+        link.href = actualUrl;
+        link.download = fileName;
+        link.rel = 'noopener noreferrer'; // 安全设置
+        link.style.display = 'none';
         
         // 添加到页面
-        document.body.appendChild(iframe);
+        document.body.appendChild(link);
+        
+        // 触发下载
+        link.click();
+        
+        // 延迟移除链接
+        setTimeout(() => {
+            document.body.removeChild(link);
+            console.log('🗑️ 已移除下载链接');
+        }, 500);
         
         console.log('💾 下载已触发');
         
@@ -6992,7 +6985,32 @@ async function downloadSong(song, quality = null) {
         console.error('❌ 下载出错:', error);
         // 显示更有用的错误信息
         if (error.name === 'TypeError' && error.message === 'Failed to fetch') {
-            showNotification(`${song.name} 下载失败，可能是由于浏览器CORS限制或扩展拦截，请尝试在新窗口手动保存`, 'error');
+            // fetch失败，回退到直接跳转下载
+            console.log('🔄 fetch失败，回退到直接跳转下载');
+            
+            // 生成下载链接
+            let apiUrl = API.getSongUrl(song, quality || state.playbackQuality || '320');
+            apiUrl = preferHttpsUrl(apiUrl);
+            
+            // 创建下载链接
+            const link = document.createElement('a');
+            link.href = apiUrl;
+            link.target = '_blank'; // 在新窗口打开
+            link.rel = 'noopener noreferrer'; // 安全设置
+            link.style.display = 'none';
+            
+            // 添加到页面并触发下载
+            document.body.appendChild(link);
+            link.click();
+            
+            // 延迟移除链接
+            setTimeout(() => {
+                document.body.removeChild(link);
+            }, 500);
+            
+            // 显示通知
+            showNotification(`${song.name} 下载已触发 (如果变成了播放，请按 Ctrl+S 保存)`, 'success');
+            console.log('✅ 回退下载流程完成');
         } else {
             showNotification(`获取下载地址失败: ${error.message}`, 'error');
         }
