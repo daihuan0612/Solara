@@ -635,7 +635,7 @@ function buildAudioProxyUrl(url) {
 
 const SOURCE_OPTIONS = [
     { value: "netease", label: "网易云音乐" },
-    // { value: "kuwo", label: "酷我音乐" }, // 暂时禁用酷我音乐
+    { value: "kuwo", label: "酷我音乐" },
     { value: "qq", label: "QQ音乐" }
 ];
 
@@ -1945,8 +1945,6 @@ function setAlbumCoverImage(url) {
     if (typeof window.__SOLARA_UPDATE_MEDIA_METADATA === 'function') {
         window.__SOLARA_UPDATE_MEDIA_METADATA();
     }
-    // 触发背景取色功能
-    scheduleDeferredPaletteUpdate(safeUrl);
 }
 
 loadStoredPalettes();
@@ -1954,19 +1952,15 @@ loadStoredPalettes();
 // 本地取色逻辑：使用 Canvas API 从图片中提取颜色
 function getLocalPalette(imageUrl) {
     return new Promise((resolve, reject) => {
-        debugLog(`🎨 开始本地取色，图片 URL: ${imageUrl}`);
-        
-        // 移除跨域限制，允许所有图片进行本地取色
-        // if (imageUrl.includes('music-dl.sayqz.com') || imageUrl.includes('y.qq.com')) {
-        //     resolve(null);
-        //     return;
-        // }
+        // 检查图片URL是否来自QQ音乐，如果是则直接返回null，避免跨域问题
+        if (imageUrl.includes('music-dl.sayqz.com') || imageUrl.includes('y.qq.com')) {
+            resolve(null);
+            return;
+        }
         
         const img = new Image();
-        // 设置crossOrigin属性，允许跨域图片
         img.crossOrigin = "anonymous";
         img.onload = () => {
-            debugLog(`🎨 图片加载成功，开始提取颜色`);
             try {
                 const canvas = document.createElement("canvas");
                 const ctx = canvas.getContext("2d");
@@ -1987,15 +1981,13 @@ function getLocalPalette(imageUrl) {
                 canvas.width = width;
                 canvas.height = height;
                 ctx.drawImage(img, 0, 0, width, height);
-                debugLog(`🎨 Canvas 绘制完成，尺寸: ${width}x${height}`);
                 
                 // 获取像素数据，处理可能的跨域错误
                 let imageData;
                 try {
                     imageData = ctx.getImageData(0, 0, width, height);
-                    debugLog(`🎨 成功获取像素数据，像素数: ${imageData.data.length / 4}`);
                 } catch (crossOriginError) {
-                    debugLog(`⚠️ 跨域图片无法提取颜色: ${crossOriginError.message}`);
+                    console.warn("跨域图片无法提取颜色，使用默认调色板:", crossOriginError);
                     resolve(null);
                     return;
                 }
@@ -2015,7 +2007,6 @@ function getLocalPalette(imageUrl) {
                 }
                 
                 if (count === 0) {
-                    debugLog(`⚠️ 没有找到不透明像素，使用默认调色板`);
                     resolve(null);
                     return;
                 }
@@ -2026,7 +2017,6 @@ function getLocalPalette(imageUrl) {
                 
                 // 创建调色板数据
                 const hex = `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
-                debugLog(`🎨 成功提取颜色: ${hex}`);
                 // 创建非常微妙的渐变，变化幅度很小
                 // 最浅的地方只比主色调浅60%，几乎看不出明显变化
                 const palette = {
@@ -2052,30 +2042,23 @@ function getLocalPalette(imageUrl) {
                     }
                 };
                 
-                debugLog(`🎨 成功创建调色板，开始应用`);
                 resolve(palette);
             } catch (error) {
-                debugLog(`⚠️ 取色失败: ${error.message}`);
                 console.warn("取色失败，使用默认调色板:", error);
                 resolve(null);
             }
         };
-        img.onerror = (error) => {
-            debugLog(`⚠️ 图片加载失败: ${error.message || 'Unknown error'}`);
+        img.onerror = () => {
             console.warn("图片加载失败，使用默认调色板");
             resolve(null);
         };
         img.src = imageUrl;
-        debugLog(`🎨 开始加载图片: ${imageUrl}`);
     });
 }
 
 async function fetchPaletteData(imageUrl, signal) {
-    debugLog(`🎨 开始获取调色板数据，图片 URL: ${imageUrl}`);
-    
     if (paletteCache.has(imageUrl)) {
         const cached = paletteCache.get(imageUrl);
-        debugLog(`🎨 使用缓存的调色板`);
         paletteCache.delete(imageUrl);
         paletteCache.set(imageUrl, cached);
         return cached;
@@ -2085,15 +2068,11 @@ async function fetchPaletteData(imageUrl, signal) {
         // 优先尝试本地取色
         const localPalette = await getLocalPalette(imageUrl);
         if (localPalette) {
-            debugLog(`🎨 本地取色成功，使用提取的调色板`);
             paletteCache.set(imageUrl, localPalette);
             persistPaletteCache();
             return localPalette;
-        } else {
-            debugLog(`🎨 本地取色返回 null，使用默认调色板`);
         }
     } catch (error) {
-        debugLog(`⚠️ 本地取色失败: ${error.message}`);
         console.warn("本地取色失败:", error);
     }
 
@@ -2119,7 +2098,6 @@ async function fetchPaletteData(imageUrl, signal) {
         }
     };
     
-    debugLog(`🎨 使用默认调色板`);
     paletteCache.set(imageUrl, defaultPalette);
     persistPaletteCache();
     return defaultPalette;
@@ -2130,21 +2108,18 @@ async function updateDynamicBackground(imageUrl) {
     const requestId = paletteRequestId;
 
     if (!imageUrl) {
-        debugLog(`🎨 图片 URL 为空，重置动态背景`);
         resetDynamicBackground();
         return;
     }
 
-    debugLog(`🎨 动态背景: 更新至新的图片 ${imageUrl}`);
+    debugLog(`动态背景: 更新至新的图片 ${imageUrl}`);
 
     if (paletteAbortController) {
-        debugLog(`🎨 终止之前的取色请求`);
         paletteAbortController.abort();
         paletteAbortController = null;
     }
 
     if (paletteCache.has(imageUrl)) {
-        debugLog(`🎨 调色板缓存命中，使用缓存的调色板`);
         const cached = paletteCache.get(imageUrl);
         paletteCache.delete(imageUrl);
         paletteCache.set(imageUrl, cached);
@@ -2153,7 +2128,6 @@ async function updateDynamicBackground(imageUrl) {
     }
 
     if (state.currentPaletteImage === imageUrl && state.dynamicPalette) {
-        debugLog(`🎨 已使用该图片的调色板，直接应用`);
         queuePaletteApplication(state.dynamicPalette, imageUrl);
         return;
     }
@@ -2164,32 +2138,25 @@ async function updateDynamicBackground(imageUrl) {
             paletteAbortController.abort();
         }
 
-        debugLog(`🎨 创建新的 AbortController`);
         controller = new AbortController();
         paletteAbortController = controller;
 
-        debugLog(`🎨 开始获取调色板数据`);
         const palette = await fetchPaletteData(imageUrl, controller.signal);
         if (requestId !== paletteRequestId) {
-            debugLog(`🎨 请求已过时，忽略结果`);
             return;
         }
-        debugLog(`🎨 调色板获取成功，开始应用`);
         queuePaletteApplication(palette, imageUrl);
     } catch (error) {
         if (error?.name === "AbortError") {
-            debugLog(`🎨 取色请求被终止`);
             return;
         }
         console.warn("获取动态背景失败:", error);
-        debugLog(`🎨 动态背景加载失败: ${error.message}`);
+        debugLog(`动态背景加载失败: ${error}`);
         if (requestId === paletteRequestId) {
-            debugLog(`🎨 重置动态背景`);
             resetDynamicBackground();
         }
     } finally {
         if (controller && paletteAbortController === controller) {
-            debugLog(`🎨 清理 AbortController`);
             paletteAbortController = null;
         }
     }
@@ -2577,26 +2544,17 @@ function handleVolumeChange(event) {
 
 function handleTimeUpdate() {
     const currentTime = dom.audioPlayer.currentTime || 0;
-    const duration = dom.audioPlayer.duration;
+    console.log('⏱️ timeupdate事件触发:', {
+        currentTime: currentTime,
+        duration: dom.audioPlayer.duration,
+        paused: dom.audioPlayer.paused,
+        readyState: dom.audioPlayer.readyState
+    });
     
     if (!state.isSeeking) {
         dom.progressBar.value = currentTime;
         dom.currentTimeDisplay.textContent = formatTime(currentTime);
-        
-        // 针对酷我音乐的特殊处理：如果duration为0，使用currentTime作为max值
-        let maxValue = Number(dom.progressBar.max);
-        if (state.currentSong && state.currentSong.source === 'kuwo' && duration === 0) {
-            maxValue = Math.max(currentTime + 1, 100); // 确保max值大于currentTime
-            dom.progressBar.max = maxValue;
-            // 更新duration显示为--:--，因为我们不知道总时长
-            dom.durationDisplay.textContent = "--:--";
-        } else if (duration > 0) {
-            // 如果duration可用，更新progressBar.max和durationDisplay
-            dom.progressBar.max = duration;
-            dom.durationDisplay.textContent = formatTime(duration);
-        }
-        
-        updateProgressBarBackground(currentTime, maxValue);
+        updateProgressBarBackground(currentTime, Number(dom.progressBar.max));
     }
 
     syncLyrics();
@@ -2673,18 +2631,9 @@ function stopCurrentTimeMonitor() {
 }
 
 function handleLoadedMetadata() {
-    let duration = dom.audioPlayer.duration || 0;
-    
-    // 针对酷我音乐的特殊处理：如果duration为0，不设置progressBar.max，允许播放器持续更新
-    if (state.currentSong && state.currentSong.source === 'kuwo' && duration === 0) {
-        console.log('🎵 酷我音乐：duration为0，允许动态更新');
-        // 不设置progressBar.max，让它默认是100
-        dom.durationDisplay.textContent = "--:--";
-    } else {
-        dom.progressBar.max = duration;
-        dom.durationDisplay.textContent = formatTime(duration);
-    }
-    
+    const duration = dom.audioPlayer.duration || 0;
+    dom.progressBar.max = duration;
+    dom.durationDisplay.textContent = formatTime(duration);
     const storedTime = state.currentList === "favorite"
         ? state.favoritePlaybackTime
         : state.currentPlaybackTime;
@@ -4244,7 +4193,6 @@ function updateCurrentSongInfo(song, options = {}) {
                 let timeoutId;
                 
                 // 移除crossOrigin属性，避免跨域问题
-                img.referrerpolicy = "no-referrer";
                 
                 img.onload = () => {
                     clearTimeout(timeoutId);
@@ -6060,26 +6008,14 @@ async function playSong(song, options = {}) {
         console.log('🔍 正在获取实际音频流 URL:', rawUrl);
         
         try {
-            // 发送 GET 请求检查 API 响应，处理重定向
-            // 使用 GET 而不是 HEAD，因为有些服务器对 HEAD 和 GET 返回不同的响应
-            const response = await fetch(rawUrl, { method: 'GET', redirect: 'manual' });
+            // 发送 HEAD 请求检查 API 响应，不跟随重定向
+            const response = await fetch(rawUrl, { method: 'HEAD', redirect: 'manual' });
             
             // 处理重定向情况，特别是酷我音乐的 302 重定向
             if (response.status >= 300 && response.status < 400) {
-                let redirectUrl = response.headers.get('location');
+                const redirectUrl = response.headers.get('location');
                 if (redirectUrl) {
                     console.log('🔀 API 返回重定向:', redirectUrl);
-                    // 处理相对重定向 URL
-                    if (!redirectUrl.startsWith('http')) {
-                        const baseUrl = new URL(rawUrl);
-                        redirectUrl = new URL(redirectUrl, baseUrl).href;
-                        console.log('🔀 相对重定向已转换为绝对 URL:', redirectUrl);
-                    }
-                    
-                    // 将重定向 URL 转换为 HTTPS，避免混合内容错误
-                    redirectUrl = preferHttpsUrl(redirectUrl);
-                    console.log('🔒 重定向 URL 已转换为 HTTPS:', redirectUrl);
-                    
                     // 添加防缓存参数到重定向 URL
                     const separator = redirectUrl.includes('?') ? '&' : '?';
                     streamUrl = `${redirectUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
@@ -6096,17 +6032,18 @@ async function playSong(song, options = {}) {
                 
                 // 如果直接返回音频流，就使用该 URL
                 if (contentType && contentType.includes('audio/')) {
-                    console.log('✅ 直接使用 API URL 作为音频源，内容类型:', contentType);
+                    console.log('✅ 直接使用 API URL 作为音频源');
                     // 添加防缓存参数
                     const separator = rawUrl.includes('?') ? '&' : '?';
                     streamUrl = `${rawUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
                 } else {
-                    // 否则，尝试解析响应
-                    const getContentType = response.headers.get('content-type');
+                    // 否则，发送 GET 请求获取完整响应
+                    const getResponse = await fetch(rawUrl);
+                    const getContentType = getResponse.headers.get('content-type');
                     
                     if (getContentType && getContentType.includes('application/json')) {
                         // JSON 响应，尝试解析获取实际 URL
-                        const data = await response.json();
+                        const data = await getResponse.json();
                         console.log('📋 API 返回 JSON 响应:', data);
                         
                         // 根据不同 API 返回格式处理
@@ -6123,6 +6060,12 @@ async function playSong(song, options = {}) {
                             const separator = rawUrl.includes('?') ? '&' : '?';
                             streamUrl = `${rawUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
                         }
+                    } else if (getContentType && getContentType.includes('audio/')) {
+                        // 直接返回音频流，使用该 URL
+                        console.log('✅ 直接返回音频流，使用该 URL');
+                        // 添加防缓存参数
+                        const separator = rawUrl.includes('?') ? '&' : '?';
+                        streamUrl = `${rawUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
                     } else {
                         console.warn('⚠️ 未知的响应类型:', getContentType, '使用原始 URL');
                         const separator = rawUrl.includes('?') ? '&' : '?';
@@ -6136,17 +6079,15 @@ async function playSong(song, options = {}) {
             streamUrl = `${rawUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
         }
         
-        // 将音频 URL 转换为 HTTPS，避免混合内容错误
-        const secureStreamUrl = preferHttpsUrl(streamUrl);
-        console.log('🎵 最终使用的安全音频 URL:', secureStreamUrl);
+        console.log('🎵 最终使用的音频 URL:', streamUrl);
         
         // 5. 柔性切换 (Soft Switch)
         player.removeAttribute('crossOrigin');
         player.setAttribute('playsinline', '');
         player.setAttribute('webkit-playsinline', '');
         
-        player.src = secureStreamUrl;
-        state.currentAudioUrl = secureStreamUrl;
+        player.src = streamUrl;
+        state.currentAudioUrl = streamUrl;
         
         // ⚡️ 预备状态：静音并加载
         player.muted = false;
@@ -7006,88 +6947,47 @@ async function downloadSong(song, quality = null) {
         apiUrl = preferHttpsUrl(apiUrl);
         console.log('🔗 API下载链接:', apiUrl);
 
-        // 3. 使用fetch获取文件内容，然后创建Blob URL，确保浏览器下载
-        console.log('📥 正在获取文件内容...');
-        
-        // 使用fetch获取文件内容
-        const response = await fetch(apiUrl);
-        if (!response.ok) {
-            throw new Error(`下载请求失败: ${response.status}`);
-        }
-        
-        // 将响应转换为Blob
-        const blob = await response.blob();
-        console.log('💾 文件下载完成，Blob大小:', blob.size);
-
-        // 4. 创建Blob URL并触发下载
-        const blobUrl = URL.createObjectURL(blob);
-        console.log('🔗 创建Blob URL:', blobUrl);
+        // 3. 使用a标签直接下载，添加target="_blank"确保在新窗口打开
+        console.log('🌐 正在创建下载链接...');
         
         // 创建下载链接
         const link = document.createElement('a');
-        link.href = blobUrl;
+        link.href = apiUrl;
         link.download = fileName;
+        link.target = '_blank'; // 在新窗口打开，避免被拦截
+        link.rel = 'noopener noreferrer'; // 安全设置
         link.style.display = 'none';
         
-        // 添加到页面并触发点击
+        // 添加到页面
         document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
         
-        // 释放Blob URL
+        // 使用鼠标事件模拟点击，更可靠
+        const clickEvent = new MouseEvent('click', {
+            view: window,
+            bubbles: true,
+            cancelable: true
+        });
+        link.dispatchEvent(clickEvent);
+        
+        // 延迟移除链接，确保下载被触发
         setTimeout(() => {
-            URL.revokeObjectURL(blobUrl);
-            console.log('🗑️ 释放Blob URL:', blobUrl);
-        }, 100);
+            document.body.removeChild(link);
+            console.log('🗑️ 已移除下载链接');
+        }, 500);
         
-        // 5. 显示通知
-        showNotification(`${song.name} 下载已开始`, 'success');
+        console.log('💾 下载已触发');
+        
+        // 4. 显示通知，提供明确的用户指导
+        showNotification(`${song.name} 下载已触发 (如果变成了播放，请按 Ctrl+S 保存)`, 'success');
         console.log('✅ 下载流程完成');
 
     } catch (error) {
         console.error('❌ 下载出错:', error);
-        showNotification('获取下载地址失败', 'error');
-    }
-}
-
-// 移除timeupdate事件的所有日志，确保控制台干净
-function handleTimeUpdate() {
-    const currentTime = dom.audioPlayer.currentTime || 0;
-    const duration = dom.audioPlayer.duration;
-    
-    if (!state.isSeeking) {
-        dom.progressBar.value = currentTime;
-        dom.currentTimeDisplay.textContent = formatTime(currentTime);
-        
-        // 针对酷我音乐的特殊处理：如果duration为0，使用currentTime作为max值
-        let maxValue = Number(dom.progressBar.max);
-        if (state.currentSong && state.currentSong.source === 'kuwo' && duration === 0) {
-            maxValue = Math.max(currentTime + 1, 100); // 确保max值大于currentTime
-            dom.progressBar.max = maxValue;
-            // 更新duration显示为--:--，因为我们不知道总时长
-            dom.durationDisplay.textContent = "--:--";
-        } else if (duration > 0) {
-            // 如果duration可用，更新progressBar.max和durationDisplay
-            dom.progressBar.max = duration;
-            dom.durationDisplay.textContent = formatTime(duration);
-        }
-        
-        updateProgressBarBackground(currentTime, maxValue);
-    }
-
-    syncLyrics();
-
-    if (state.currentList === "favorite") {
-        state.favoritePlaybackTime = currentTime;
-        if (Math.abs(currentTime - state.favoriteLastSavedPlaybackTime) >= 2) {
-            state.favoriteLastSavedPlaybackTime = currentTime;
-            safeSetLocalStorage("favoritePlaybackTime", currentTime.toFixed(1));
-        }
-    } else {
-        state.currentPlaybackTime = currentTime;
-        if (Math.abs(currentTime - state.lastSavedPlaybackTime) >= 2) {
-            state.lastSavedPlaybackTime = currentTime;
-            safeSetLocalStorage("currentPlaybackTime", currentTime.toFixed(1));
+        // 显示更有用的错误信息
+        if (error.name === 'TypeError' && error.message === 'Failed to fetch') {
+            showNotification(`${song.name} 下载失败，可能是由于浏览器CORS限制或扩展拦截，请尝试在新窗口手动保存`, 'error');
+        } else {
+            showNotification(`获取下载地址失败: ${error.message}`, 'error');
         }
     }
 }
