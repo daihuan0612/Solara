@@ -7070,29 +7070,35 @@ async function downloadSong(song, quality = null) {
             showNotification(`正在下载: ${song.name}`, 'success');
             console.log('✅ MP3下载流程完成');
         } 
-        // 对于无损音质，使用改进的下载方式，避免新窗口播放
+        // 对于无损音质，使用iframe方式确保直接下载，避免新窗口
         else if (finalQuality === 'flac' || finalQuality === '999') {
-            console.log('🎵 无损格式：使用特殊处理确保直接下载');
+            console.log('🎵 无损格式：使用iframe方式确保直接下载');
             
-            // 直接使用API URL，但添加更强制的下载属性和类型
-            const link = document.createElement('a');
-            link.href = apiUrl;
-            link.download = fileName;
-            link.type = 'audio/flac'; // 明确指定文件类型
-            link.style.display = 'none';
-            link.rel = 'noopener noreferrer';
-            link.target = '_self'; // 在当前窗口处理，避免新标签
+            // 创建隐藏的iframe来处理下载请求
+            const iframe = document.createElement('iframe');
+            iframe.style.display = 'none';
+            iframe.style.width = '0';
+            iframe.style.height = '0';
+            iframe.style.border = 'none';
+            iframe.style.position = 'absolute';
+            iframe.style.left = '-9999px';
             
-            // 添加更多下载相关属性
-            link.setAttribute('download', fileName);
-            link.setAttribute('data-downloadurl', `audio/flac:${fileName}:${apiUrl}`);
+            // 设置iframe的src为API URL
+            iframe.src = apiUrl;
             
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
+            // 添加到文档
+            document.body.appendChild(iframe);
             
+            // 显示通知
             showNotification(`正在下载: ${song.name} (无损音质)`, 'success');
-            console.log('✅ 无损下载流程完成');
+            console.log('✅ 无损下载流程完成，使用iframe方式');
+            
+            // 一段时间后清理iframe
+            setTimeout(() => {
+                if (iframe.parentNode) {
+                    iframe.parentNode.removeChild(iframe);
+                }
+            }, 5000);
         } 
         // 默认情况
         else {
