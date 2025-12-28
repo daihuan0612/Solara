@@ -1952,12 +1952,7 @@ loadStoredPalettes();
 // 本地取色逻辑：使用 Canvas API 从图片中提取颜色
 function getLocalPalette(imageUrl) {
     return new Promise((resolve, reject) => {
-        // 检查图片URL是否来自QQ音乐，如果是则直接返回null，避免跨域问题
-        if (imageUrl.includes('music-dl.sayqz.com') || imageUrl.includes('y.qq.com')) {
-            resolve(null);
-            return;
-        }
-        
+        // 移除域名限制，允许所有图片取色
         const img = new Image();
         img.crossOrigin = "anonymous";
         img.onload = () => {
@@ -2544,12 +2539,6 @@ function handleVolumeChange(event) {
 
 function handleTimeUpdate() {
     const currentTime = dom.audioPlayer.currentTime || 0;
-    console.log('⏱️ timeupdate事件触发:', {
-        currentTime: currentTime,
-        duration: dom.audioPlayer.duration,
-        paused: dom.audioPlayer.paused,
-        readyState: dom.audioPlayer.readyState
-    });
     
     if (!state.isSeeking) {
         dom.progressBar.value = currentTime;
@@ -6079,15 +6068,17 @@ async function playSong(song, options = {}) {
             streamUrl = `${rawUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
         }
         
-        console.log('🎵 最终使用的音频 URL:', streamUrl);
+        // 将音频 URL 转换为 HTTPS，避免混合内容错误
+        const secureStreamUrl = preferHttpsUrl(streamUrl);
+        console.log('🎵 最终使用的安全音频 URL:', secureStreamUrl);
         
         // 5. 柔性切换 (Soft Switch)
         player.removeAttribute('crossOrigin');
         player.setAttribute('playsinline', '');
         player.setAttribute('webkit-playsinline', '');
         
-        player.src = streamUrl;
-        state.currentAudioUrl = streamUrl;
+        player.src = secureStreamUrl;
+        state.currentAudioUrl = secureStreamUrl;
         
         // ⚡️ 预备状态：静音并加载
         player.muted = false;
@@ -6947,33 +6938,49 @@ async function downloadSong(song, quality = null) {
         apiUrl = preferHttpsUrl(apiUrl);
         console.log('🔗 API下载链接:', apiUrl);
 
-        // 3. 使用a标签直接下载，添加target="_blank"确保在新窗口打开
-        console.log('🌐 正在创建下载链接...');
+        // 3. 使用iframe下载，避免浏览器直接播放音频
+        console.log('🌐 正在创建下载iframe...');
         
-        // 创建下载链接
-        const link = document.createElement('a');
-        link.href = apiUrl;
-        link.download = fileName;
-        link.target = '_blank'; // 在新窗口打开，避免被拦截
-        link.rel = 'noopener noreferrer'; // 安全设置
-        link.style.display = 'none';
+        // 创建隐藏的iframe
+        const iframe = document.createElement('iframe');
+        iframe.style.display = 'none';
+        iframe.style.width = '0px';
+        iframe.style.height = '0px';
+        iframe.style.border = 'none';
+        iframe.src = apiUrl;
+        iframe.download = fileName;
+        
+        // 处理iframe加载事件
+        iframe.onload = () => {
+            console.log('📥 iframe加载完成');
+            // 延迟移除iframe
+            setTimeout(() => {
+                document.body.removeChild(iframe);
+                console.log('🗑️ 已移除下载iframe');
+            }, 1000);
+        };
+        
+        // 处理iframe错误
+        iframe.onerror = () => {
+            console.error('❌ iframe加载失败');
+            document.body.removeChild(iframe);
+            // 回退到a标签下载
+            console.log('🔄 回退到a标签下载');
+            const link = document.createElement('a');
+            link.href = apiUrl;
+            link.download = fileName;
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+            link.style.display = 'none';
+            document.body.appendChild(link);
+            link.click();
+            setTimeout(() => {
+                document.body.removeChild(link);
+            }, 500);
+        };
         
         // 添加到页面
-        document.body.appendChild(link);
-        
-        // 使用鼠标事件模拟点击，更可靠
-        const clickEvent = new MouseEvent('click', {
-            view: window,
-            bubbles: true,
-            cancelable: true
-        });
-        link.dispatchEvent(clickEvent);
-        
-        // 延迟移除链接，确保下载被触发
-        setTimeout(() => {
-            document.body.removeChild(link);
-            console.log('🗑️ 已移除下载链接');
-        }, 500);
+        document.body.appendChild(iframe);
         
         console.log('💾 下载已触发');
         
