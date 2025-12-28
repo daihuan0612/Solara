@@ -1945,6 +1945,8 @@ function setAlbumCoverImage(url) {
     if (typeof window.__SOLARA_UPDATE_MEDIA_METADATA === 'function') {
         window.__SOLARA_UPDATE_MEDIA_METADATA();
     }
+    // 触发背景取色功能
+    scheduleDeferredPaletteUpdate(safeUrl);
 }
 
 loadStoredPalettes();
