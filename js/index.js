@@ -6957,8 +6957,9 @@ async function downloadSong(song, quality = null) {
                     // 创建一个临时链接
                     const link = document.createElement('a');
                     link.href = downloadUrl;
-                    link.target = '_blank'; // 新窗口打开，这是最不容易被拦截的方式
                     link.download = fileName; // 设置下载文件名
+                    link.rel = 'noopener noreferrer'; // 安全设置
+                    link.style.display = 'none';
                     
                     // 触发下载
                     document.body.appendChild(link);
