@@ -2056,7 +2056,7 @@ function getLocalPalette(imageUrl) {
     });
 }
 
-async function fetchPaletteData(imageUrl, signal) {
+async function fetchPaletteData(imageUrl) {
     if (paletteCache.has(imageUrl)) {
         const cached = paletteCache.get(imageUrl);
         paletteCache.delete(imageUrl);
@@ -2065,18 +2065,38 @@ async function fetchPaletteData(imageUrl, signal) {
     }
 
     try {
-        // 优先尝试本地取色
-        const localPalette = await getLocalPalette(imageUrl);
-        if (localPalette) {
-            paletteCache.set(imageUrl, localPalette);
+        // 优先尝试远程API取色
+        const response = await fetch(`/functions/palette?url=${encodeURIComponent(imageUrl)}`, {
+            method: "GET",
+            headers: {
+                "Accept": "application/json"
+            },
+            cache: "no-cache"
+        });
+        
+        if (response.ok) {
+            const remotePalette = await response.json();
+            paletteCache.set(imageUrl, remotePalette);
             persistPaletteCache();
-            return localPalette;
+            return remotePalette;
         }
     } catch (error) {
-        console.warn("本地取色失败:", error);
+        console.warn("远程API取色失败，尝试本地取色:", error);
+        
+        // 远程API失败，尝试本地取色
+        try {
+            const localPalette = await getLocalPalette(imageUrl);
+            if (localPalette) {
+                paletteCache.set(imageUrl, localPalette);
+                persistPaletteCache();
+                return localPalette;
+            }
+        } catch (localError) {
+            console.warn("本地取色也失败:", localError);
+        }
     }
 
-    // 如果本地取色失败，返回默认调色板
+    // 如果所有取色方法都失败，返回默认调色板
     const defaultPalette = {
         gradients: {
             light: {
@@ -2138,27 +2158,21 @@ async function updateDynamicBackground(imageUrl) {
             paletteAbortController.abort();
         }
 
-        controller = new AbortController();
-        paletteAbortController = controller;
-
-        const palette = await fetchPaletteData(imageUrl, controller.signal);
+        // 移除AbortController，因为fetchPaletteData不再需要signal参数
+        
+        const palette = await fetchPaletteData(imageUrl);
         if (requestId !== paletteRequestId) {
             return;
         }
         queuePaletteApplication(palette, imageUrl);
     } catch (error) {
-        if (error?.name === "AbortError") {
-            return;
-        }
         console.warn("获取动态背景失败:", error);
         debugLog(`动态背景加载失败: ${error}`);
         if (requestId === paletteRequestId) {
             resetDynamicBackground();
         }
     } finally {
-        if (controller && paletteAbortController === controller) {
-            paletteAbortController = null;
-        }
+        paletteAbortController = null;
     }
 }
 
