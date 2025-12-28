@@ -7006,66 +7006,56 @@ async function downloadSong(song, quality = null) {
         apiUrl = preferHttpsUrl(apiUrl);
         console.log('🔗 API下载链接:', apiUrl);
 
-        // 3. 使用fetch获取文件内容，禁用自动重定向，避免混合内容错误
-        console.log('📥 正在获取文件内容...');
+        // 3. 使用更可靠的方式处理下载，避免被浏览器拦截
+        console.log('🌐 正在触发下载...');
         
-        // 禁用自动重定向，手动处理
-        const initialResponse = await fetch(apiUrl, { redirect: 'manual' });
+        // 创建一个隐藏的iframe来处理下载，这是最不容易被拦截的方式
+        const iframe = document.createElement('iframe');
+        iframe.style.display = 'none';
+        iframe.src = apiUrl;
+        iframe.setAttribute('referrerpolicy', 'no-referrer');
         
-        let finalResponse;
-        let responseUrl = apiUrl;
+        // 添加到页面
+        document.body.appendChild(iframe);
         
-        // 处理重定向
-        if (initialResponse.status >= 300 && initialResponse.status < 400) {
-            let redirectUrl = initialResponse.headers.get('location');
-            if (redirectUrl) {
-                console.log('🔀 API返回重定向:', redirectUrl);
-                
-                // 将重定向URL转换为HTTPS
-                redirectUrl = preferHttpsUrl(redirectUrl);
-                console.log('🔒 重定向URL已转换为HTTPS:', redirectUrl);
-                
-                // 再次请求转换后的HTTPS URL
-                finalResponse = await fetch(redirectUrl);
-                responseUrl = redirectUrl;
-            } else {
-                finalResponse = initialResponse;
-            }
-        } else {
-            finalResponse = initialResponse;
+        // 监听iframe加载完成或失败
+        let downloadComplete = false;
+        
+        iframe.onload = function() {
+            console.log('📥 iframe下载完成');
+            downloadComplete = true;
+            // 延迟移除iframe
+            setTimeout(() => {
+                document.body.removeChild(iframe);
+                console.log('🗑️ 已移除下载iframe');
+            }, 1000);
+        };
+        
+        iframe.onerror = function() {
+            console.error('❌ iframe下载失败');
+            downloadComplete = true;
+            // 延迟移除iframe
+            setTimeout(() => {
+                document.body.removeChild(iframe);
+                console.log('🗑️ 已移除下载iframe');
+            }, 1000);
+        };
+        
+        // 等待一段时间，确保下载开始
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        
+        // 如果iframe还没有触发加载完成事件，手动移除
+        if (!downloadComplete) {
+            console.log('⏱️ 下载超时，手动移除iframe');
+            document.body.removeChild(iframe);
         }
         
-        if (!finalResponse.ok) {
-            throw new Error(`下载请求失败: ${finalResponse.status}`);
-        }
+        // 跳过Blob处理，因为iframe已经处理了下载
+        const blob = new Blob([], { type: `audio/${fileExtension}` });
+        console.log('💾 下载已触发');
         
-        // 将响应转换为Blob
-        const blob = await finalResponse.blob();
-        console.log('💾 文件下载完成，Blob大小:', blob.size, 'URL:', responseUrl);
-
-        // 4. 创建Blob URL并触发下载
-        const blobUrl = URL.createObjectURL(blob);
-        console.log('🔗 创建Blob URL:', blobUrl);
-        
-        // 创建下载链接
-        const link = document.createElement('a');
-        link.href = blobUrl;
-        link.download = fileName;
-        link.style.display = 'none';
-        
-        // 添加到页面并触发点击
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        
-        // 释放Blob URL
-        setTimeout(() => {
-            URL.revokeObjectURL(blobUrl);
-            console.log('🗑️ 释放Blob URL:', blobUrl);
-        }, 100);
-        
-        // 5. 显示通知
-        showNotification(`${song.name} 下载已开始`, 'success');
+        // 4. 显示通知
+        showNotification(`${song.name} 下载已开始 (如果变成了播放，请按 Ctrl+S 保存)`, 'success');
         console.log('✅ 下载流程完成');
 
     } catch (error) {
