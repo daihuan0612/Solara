@@ -3259,7 +3259,9 @@ function setupInteractions() {
             } else if (action === "download") {
                 event.preventDefault();
                 event.stopPropagation();
-                showQualityMenu(event, index, "playlist");
+                // 直接下载无损音乐，不显示质量菜单
+                const song = state.playlistSongs[index];
+                downloadSong(song, 'flac');
             }
         };
 
@@ -3345,7 +3347,9 @@ function setupInteractions() {
             } else if (action === "download") {
                 event.preventDefault();
                 event.stopPropagation();
-                showQualityMenu(event, index, "favorites");
+                // 直接下载无损音乐，不显示质量菜单
+                const song = state.favoriteSongs[index];
+                downloadSong(song, 'flac');
             } else if (action === "remove") {
                 event.preventDefault();
                 event.stopPropagation();
@@ -4454,7 +4458,9 @@ function createSearchResultItem(song, index) {
     downloadButton.innerHTML = '<i class="fas fa-download"></i>';
     downloadButton.addEventListener("click", (event) => {
         event.stopPropagation();
-        showQualityMenu(event, index, "search");
+        // 直接下载无损音乐，不显示质量菜单
+        const song = state.searchResults[index];
+        downloadSong(song, 'flac');
     });
 
     actions.appendChild(favoriteButton);
