@@ -635,7 +635,7 @@ function buildAudioProxyUrl(url) {
 
 const SOURCE_OPTIONS = [
     { value: "netease", label: "网易云音乐" },
-    { value: "kuwo", label: "酷我音乐" },
+    // { value: "kuwo", label: "酷我音乐" }, // 暂时禁用酷我音乐
     { value: "qq", label: "QQ音乐" }
 ];
 
@@ -1954,11 +1954,11 @@ loadStoredPalettes();
 // 本地取色逻辑：使用 Canvas API 从图片中提取颜色
 function getLocalPalette(imageUrl) {
     return new Promise((resolve, reject) => {
-        // 检查图片URL是否来自QQ音乐，如果是则直接返回null，避免跨域问题
-        if (imageUrl.includes('music-dl.sayqz.com') || imageUrl.includes('y.qq.com')) {
-            resolve(null);
-            return;
-        }
+        // 移除跨域限制，允许所有图片进行本地取色
+        // if (imageUrl.includes('music-dl.sayqz.com') || imageUrl.includes('y.qq.com')) {
+        //     resolve(null);
+        //     return;
+        // }
         
         const img = new Image();
         img.crossOrigin = "anonymous";
