@@ -5997,69 +5997,16 @@ async function playSong(song, options = {}) {
             await new Promise(r => setTimeout(r, 30));
         }
 
-        // 4. 获取实际音频流 URL
+        // 4. 构建防缓存 URL
         const quality = state.playbackQuality || '320';
         let rawUrl = API.getSongUrl(song, quality);
         if (!rawUrl.startsWith('http')) rawUrl = new URL(rawUrl, window.location.origin).href;
         
-        // 针对 QQ 音乐和酷我音乐，需要先获取实际的音频流 URL
-        let streamUrl = rawUrl;
-        console.log('🔍 正在获取实际音频流 URL:', rawUrl);
-        
-        try {
-            // 发送 HEAD 请求检查 API 响应类型
-            const response = await fetch(rawUrl, { method: 'HEAD' });
-            const contentType = response.headers.get('content-type');
-            
-            // 如果直接返回音频流，就使用该 URL
-            if (contentType && contentType.includes('audio/')) {
-                console.log('✅ 直接使用 API URL 作为音频源');
-                // 添加防缓存参数
-                const separator = rawUrl.includes('?') ? '&' : '?';
-                streamUrl = `${rawUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
-            } else {
-                // 否则，发送 GET 请求获取完整响应
-                const getResponse = await fetch(rawUrl);
-                const getContentType = getResponse.headers.get('content-type');
-                
-                if (getContentType && getContentType.includes('application/json')) {
-                    // JSON 响应，尝试解析获取实际 URL
-                    const data = await getResponse.json();
-                    console.log('📋 API 返回 JSON 响应:', data);
-                    
-                    // 根据不同 API 返回格式处理
-                    if (data && data.url) {
-                        streamUrl = data.url;
-                        console.log('✅ 从 JSON 中提取音频 URL:', streamUrl);
-                    } else if (data && data.type === 'media_file') {
-                        // 酷我音乐的 media_file 类型，直接使用 API URL
-                        console.log('✅ 酷我音乐 media_file 类型，直接使用 API URL');
-                        const separator = rawUrl.includes('?') ? '&' : '?';
-                        streamUrl = `${rawUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
-                    } else {
-                        console.warn('⚠️ 无法从 JSON 响应中提取音频 URL，使用原始 URL');
-                        const separator = rawUrl.includes('?') ? '&' : '?';
-                        streamUrl = `${rawUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
-                    }
-                } else if (getContentType && getContentType.includes('audio/')) {
-                    // 直接返回音频流，使用该 URL
-                    console.log('✅ 直接返回音频流，使用该 URL');
-                    // 添加防缓存参数
-                    const separator = rawUrl.includes('?') ? '&' : '?';
-                    streamUrl = `${rawUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
-                } else {
-                    console.warn('⚠️ 未知的响应类型:', getContentType, '使用原始 URL');
-                    const separator = rawUrl.includes('?') ? '&' : '?';
-                    streamUrl = `${rawUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
-                }
-            }
-        } catch (error) {
-            console.warn('⚠️ 获取音频 URL 失败，使用原始 URL:', error);
-            const separator = rawUrl.includes('?') ? '&' : '?';
-            streamUrl = `${rawUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
-        }
-        
-        console.log('🎵 最终使用的音频 URL:', streamUrl);
+        // 简化处理：直接添加防缓存参数，不发送额外的 HEAD 或 GET 请求
+        // 避免 Cloudflare 对 HEAD 请求的特殊处理导致酷我音乐无法使用
+        const separator = rawUrl.includes('?') ? '&' : '?';
+        const streamUrl = `${rawUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
+        console.log('🎵 使用 API URL 作为音频源:', streamUrl);
         
         // 5. 柔性切换 (Soft Switch)
         player.removeAttribute('crossOrigin');
@@ -6075,31 +6022,16 @@ async function playSong(song, options = {}) {
         player.preload = 'auto';
         player.load();
 
-        // 6. 优化酷我音乐的加载逻辑，处理长时间响应
-        const loadTimeout = song.source === 'kuwo' ? 10000 : 3000;
+        // 6. 统一所有音乐源的加载超时时间
+        // 移除酷我音乐的特殊处理，避免Cloudflare对HEAD请求的特殊处理导致问题
+        const loadTimeout = 3000;
         console.log(`⏳ 等待音频加载，超时时间: ${loadTimeout}ms`);
-        
-        // 针对酷我音乐的预加载优化
-        if (song.source === 'kuwo') {
-            console.log('🔍 酷我音乐：启用预加载优化');
-            // 尝试提前获取音频头信息，不阻塞主线程
-            fetch(streamUrl, { method: 'HEAD' })
-                .then(response => {
-                    console.log('📋 酷我音乐头信息:', {
-                        contentType: response.headers.get('content-type'),
-                        contentLength: response.headers.get('content-length')
-                    });
-                })
-                .catch(error => {
-                    console.warn('⚠️ 获取酷我音乐头信息失败:', error);
-                });
-        }
         
         await new Promise((resolve) => {
             let resolved = false;
             let loadStartTime = Date.now();
             
-            // 设置不同的超时时间，酷我音乐需要更长时间
+            // 统一超时时间，不再区分音乐源
             const timer = setTimeout(() => {
                 if(!resolved) {
                     resolved=true;
@@ -6923,95 +6855,19 @@ async function downloadSong(song, quality = null) {
         const fileName = `${songName} - ${artistName}.${fileExtension}`;
         console.log('📁 最终文件名:', fileName);
 
-        // 3. 针对酷我音乐，需要先检查API响应类型
-        if (song.source === 'kuwo') {
-            console.log('🔍 酷我音乐：检查下载API响应类型');
-            try {
-                const response = await fetch(downloadUrl, { method: 'HEAD' });
-                const contentType = response.headers.get('content-type');
-                console.log('📋 酷我音乐下载响应头:', { contentType });
-                
-                // 如果直接返回音频流，使用简单跳转下载
-                if (contentType && contentType.includes('audio/')) {
-                    console.log('🎵 酷我音乐直接返回音频流，使用简单跳转下载');
-                    // 创建一个临时链接
-                    const link = document.createElement('a');
-                    link.href = downloadUrl;
-                    link.target = '_blank'; // 新窗口打开，这是最不容易被拦截的方式
-                    link.download = fileName; // 设置下载文件名
-                    
-                    // 触发下载
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                } else {
-                    console.log('📄 酷我音乐返回非音频流，使用高级下载方式');
-                    // 对于非音频流响应，使用fetch获取实际内容
-                    const downloadResponse = await fetch(downloadUrl);
-                    if (downloadResponse.ok) {
-                        const actualContentType = downloadResponse.headers.get('content-type');
-                        if (actualContentType && actualContentType.includes('application/json')) {
-                            // JSON响应，直接使用API URL作为下载链接，因为服务器会处理实际的下载
-                            console.log('📄 酷我音乐返回JSON响应，使用API URL直接下载');
-                            // 创建一个临时链接
-                            const link = document.createElement('a');
-                            link.href = downloadUrl;
-                            link.target = '_blank'; // 新窗口打开
-                            link.download = fileName; // 设置下载文件名
-                            
-                            // 触发下载
-                            document.body.appendChild(link);
-                            link.click();
-                            document.body.removeChild(link);
-                        } else {
-                            // 直接的音频流，使用Blob下载
-                            console.log('🎵 酷我音乐返回音频流，使用Blob下载');
-                            const blob = await downloadResponse.blob();
-                            const blobUrl = URL.createObjectURL(blob);
-                            
-                            // 创建一个临时链接
-                            const link = document.createElement('a');
-                            link.href = blobUrl;
-                            link.download = fileName; // 设置下载文件名
-                            
-                            // 触发下载
-                            document.body.appendChild(link);
-                            link.click();
-                            document.body.removeChild(link);
-                            
-                            // 释放Blob URL
-                            setTimeout(() => {
-                                URL.revokeObjectURL(blobUrl);
-                            }, 100);
-                        }
-                    } else {
-                        throw new Error(`下载请求失败: ${downloadResponse.status}`);
-                    }
-                }
-            } catch (headError) {
-                console.warn('⚠️ 检查酷我音乐下载响应失败，使用默认下载方式:', headError);
-                // 回退到简单跳转下载
-                const link = document.createElement('a');
-                link.href = downloadUrl;
-                link.target = '_blank';
-                link.download = fileName;
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-            }
-        } else {
-            // 非酷我音乐，使用简单跳转下载
-            console.log('🎵 非酷我音乐，使用简单跳转下载');
-            const link = document.createElement('a');
-            link.href = downloadUrl;
-            link.target = '_blank'; // 新窗口打开，这是最不容易被拦截的方式
-            link.download = fileName; // 设置下载文件名，虽然有些浏览器可能忽略
-            
-            // 触发下载
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        }
+        // 3. 统一使用简单跳转下载，不再区分音乐源
+        // 简化处理：直接使用API URL进行下载，不发送额外的HEAD或GET请求
+        // 避免Cloudflare对HEAD请求的特殊处理导致酷我音乐无法使用
+        console.log('🎵 使用简单跳转下载方式');
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.target = '_blank'; // 新窗口打开，这是最不容易被拦截的方式
+        link.download = fileName; // 设置下载文件名
+        
+        // 触发下载
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
         
         // 5. 显示通知，提示用户如果变成播放请按Ctrl+S保存
         showNotification(`已弹出 ${song.name} 下载窗口 (如果变成了播放，请按 Ctrl+S 保存)`, 'success');
