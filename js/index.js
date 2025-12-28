@@ -646,7 +646,9 @@ function normalizeSource(value) {
 
 const QUALITY_OPTIONS = [
     { value: "mp3", label: "MP3音质", description: "自动选择" },
-    { value: "999", label: "无损音质", description: "FLAC" }
+    { value: "999", label: "无损音质", description: "FLAC" },
+    { value: "flac", label: "无损音质", description: "FLAC" },
+    { value: "flac24bit", label: "Hi-Res音质", description: "FLAC24bit" }
 ];
 
 function normalizeQuality(value) {
@@ -867,13 +869,14 @@ const API = {
     getSongUrl: (song, quality = "320") => {
         console.log('🎵 getSongUrl调用:', song, '质量:', quality);
         
-        // 根据API文档，quality参数需要映射为128k, 192k, 320k, flac
+        // 根据API文档，quality参数需要映射为128k, 192k, 320k, flac, flac24bit
         const qualityMap = {
             "128": "128k",
             "192": "192k",
             "320": "320k",
             "999": "flac",
-            "flac": "flac" // 添加flac到qualityMap，确保flac质量参数能正确映射
+            "flac": "flac", // 添加flac到qualityMap，确保flac质量参数能正确映射
+            "flac24bit": "flac24bit" // 添加flac24bit支持
         };
         
         // 处理MP3选项，返回默认的MP3质量
@@ -4888,10 +4891,11 @@ function showQualityMenu(event, index, type) {
     // 创建新的质量菜单
     const menu = document.createElement("div");
     menu.className = "dynamic-quality-menu";
-    // 将'999'改为'flac'，确保传递正确的质量参数
+    // 支持多种音质选项，包括flac24bit
     menu.innerHTML = `
         <div class="quality-option" onclick="downloadWithQuality(event, ${index}, '${type}', 'mp3')">MP3音质</div>
-        <div class="quality-option" onclick="downloadWithQuality(event, ${index}, '${type}', 'flac')">无损音质</div>
+        <div class="quality-option" onclick="downloadWithQuality(event, ${index}, '${type}', 'flac')">无损音质 FLAC</div>
+        <div class="quality-option" onclick="downloadWithQuality(event, ${index}, '${type}', 'flac24bit')">Hi-Res音质 FLAC24bit</div>
     `;
 
     // 设置菜单位置
@@ -7044,11 +7048,14 @@ async function downloadSong(song, quality = null) {
         const songName = song.name || '未知歌曲';
         // 根据质量确定文件扩展名
         let fileExtension = 'mp3';
-        if (finalQuality === '999' || finalQuality === 'flac') {
+        if (finalQuality === '999' || finalQuality === 'flac' || finalQuality === 'flac24bit') {
             fileExtension = 'flac';
         }
         // 按照用户要求的格式：歌曲名 - 艺术家.扩展名
-        const fileName = `${songName} - ${artistName}.${fileExtension}`;
+        // 确保文件名安全，移除特殊字符
+        const safeSongName = songName.replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, ' ');
+        const safeArtistName = artistName.replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, ' ');
+        const fileName = `${safeSongName} - ${safeArtistName}.${fileExtension}`;
         console.log('📁 最终文件名:', fileName);
 
         // 3. 针对不同音质的优化下载策略
@@ -7056,15 +7063,46 @@ async function downloadSong(song, quality = null) {
         
         // 统一所有音质的下载方式，完全复用MP3的成功代码
         console.log('🎵 统一下载方式：复用MP3的成功代码');
+        
+        // 为确保IDM和浏览器都能正确识别文件名，使用代理下载方式处理跨域
         const link = document.createElement('a');
         link.href = apiUrl;
         link.download = fileName;
         link.style.display = 'none';
         link.rel = 'noopener noreferrer';
+        link.target = '_blank';  // 新增：允许在新标签页打开，提高兼容性
         
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
+        
+        // 为确保IDM能捕获下载，延迟一小段时间后尝试第二次触发（如果需要）
+        setTimeout(() => {
+            // 尝试使用fetch方式创建blob URL作为备选方案
+            downloadWithBlobUrl(apiUrl, fileName);
+        }, 100);
+        
+        // 额外的IDM兼容性处理：添加推荐的文件名到URL参数
+        // IDM通常会从URL中提取文件名，所以构造一个包含文件名的URL可能有助于IDM识别
+        setTimeout(() => {
+            // 创建一个带文件名提示的URL，这有助于IDM识别文件名
+            const encodedFileName = encodeURIComponent(fileName);
+            const urlWithFilename = `${apiUrl}&filename=${encodedFileName}`;
+            
+            // 创建一个隐藏的链接，可能有助于某些下载管理器
+            const hiddenLink = document.createElement('a');
+            hiddenLink.href = urlWithFilename;
+            hiddenLink.style.display = 'none';
+            hiddenLink.setAttribute('data-filename', fileName);  // 为下载管理器提供文件名提示
+            document.body.appendChild(hiddenLink);
+            
+            // 延迟清理
+            setTimeout(() => {
+                if (hiddenLink.parentNode) {
+                    hiddenLink.parentNode.removeChild(hiddenLink);
+                }
+            }, 2000);
+        }, 200);
         
         // 根据质量显示不同的通知
         const qualityText = (finalQuality === 'flac' || finalQuality === '999') ? ' (无损音质)' : '';
@@ -7074,6 +7112,80 @@ async function downloadSong(song, quality = null) {
     } catch (error) {
         console.error('❌ 下载出错:', error);
         showNotification('获取下载地址失败', 'error');
+    }
+}
+
+// 通过Blob URL下载，用于处理跨域和IDM兼容性
+async function downloadWithBlobUrl(url, filename) {
+    try {
+        // 使用fetch获取音频数据
+        const response = await fetch(url, {
+            method: 'GET',
+            mode: 'cors',  // 明确指定CORS模式
+            headers: {
+                'Accept': '*/*',
+                // 添加一些常见的请求头来提高兼容性
+                'Accept-Language': navigator.language || 'zh-CN',
+                'Referer': window.location.href,
+                'Origin': window.location.origin,
+            },
+            // 禁用缓存以避免问题
+            cache: 'no-cache'
+        });
+        
+        if (!response.ok) {
+            throw new Error(`下载失败: ${response.status} ${response.statusText}`);
+        }
+        
+        const blob = await response.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        
+        // 创建下载链接
+        const link = document.createElement('a');
+        link.href = blobUrl;
+        link.download = filename;
+        link.style.display = 'none';
+        link.rel = 'noopener noreferrer';
+        
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        // 清理blob URL以释放内存
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);  // 10秒后清理
+        
+        console.log(`✅ Blob URL下载完成，文件名: ${filename}`);
+    } catch (error) {
+        console.warn('Blob URL下载失败，回退到直接链接:', error.message);
+        
+        // 如果Blob方式失败，尝试直接链接方式
+        try {
+            // 使用iframe方式作为备选方案，以处理某些CORS限制
+            const iframe = document.createElement('iframe');
+            iframe.style.display = 'none';
+            iframe.src = url;
+            iframe.setAttribute('download', filename);
+            document.body.appendChild(iframe);
+            
+            // 一段时间后移除iframe以清理DOM
+            setTimeout(() => {
+                if (iframe.parentNode) {
+                    iframe.parentNode.removeChild(iframe);
+                }
+            }, 1000);
+            
+            console.log(`✅ iframe下载触发，文件名: ${filename}`);
+        } catch (fallbackError) {
+            console.error('iframe下载也失败:', fallbackError);
+            
+            // 最后的备选方案：直接打开链接
+            try {
+                window.open(url, '_blank');
+                console.log(`✅ 新窗口打开链接作为最后备选: ${url}`);
+            } catch (openError) {
+                console.error('所有下载方式都失败:', openError);
+            }
+        }
     }
 }
 
