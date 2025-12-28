@@ -7051,22 +7051,70 @@ async function downloadSong(song, quality = null) {
         const fileName = `${songName} - ${artistName}.${fileExtension}`;
         console.log('📁 最终文件名:', fileName);
 
-        // 3. 直接使用API URL作为下载链接，让浏览器处理下载
-        console.log('🎵 使用直接API URL下载方式');
-        const link = document.createElement('a');
-        link.href = apiUrl;
-        link.download = fileName; // 设置下载文件名
-        link.style.display = 'none';
-        link.rel = 'noopener noreferrer'; // 安全设置
-        
-        // 触发下载
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        
-        // 显示成功通知
-        showNotification(`正在下载: ${song.name}`, 'success');
-        console.log('✅ 下载流程完成');
+        // 3. 改进的下载方式：使用fetch获取文件内容并创建Blob URL，确保浏览器触发下载
+        console.log('🎵 使用fetch+blob下载方式确保直接下载');
+        try {
+            // 使用fetch获取文件内容
+            const response = await fetch(apiUrl, {
+                mode: 'cors',
+                headers: {
+                    'Accept': '*/*'
+                }
+            });
+            
+            if (!response.ok) {
+                // 如果fetch失败，回退到直接API URL方式
+                console.warn('⚠️ fetch请求失败，回退到直接API URL方式');
+                const link = document.createElement('a');
+                link.href = apiUrl;
+                link.download = fileName;
+                link.style.display = 'none';
+                link.rel = 'noopener noreferrer';
+                link.target = '_self'; // 在当前窗口处理，避免新标签
+                
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            } else {
+                // fetch成功，创建Blob并下载
+                const blob = await response.blob();
+                const blobUrl = URL.createObjectURL(blob);
+                
+                const link = document.createElement('a');
+                link.href = blobUrl;
+                link.download = fileName;
+                link.style.display = 'none';
+                link.rel = 'noopener noreferrer';
+                
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                
+                // 清理Blob URL
+                setTimeout(() => {
+                    URL.revokeObjectURL(blobUrl);
+                }, 100);
+            }
+            
+            // 显示成功通知
+            showNotification(`正在下载: ${song.name}`, 'success');
+            console.log('✅ 下载流程完成');
+        } catch (error) {
+            // 最终回退方案
+            console.error('❌ 所有下载方式失败，使用最终回退方案:', error);
+            const link = document.createElement('a');
+            link.href = apiUrl;
+            link.download = fileName;
+            link.style.display = 'none';
+            link.rel = 'noopener noreferrer';
+            
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            showNotification(`已触发 ${song.name} 下载 (如果变成了播放，请按 Ctrl+S 保存)`, 'success');
+            console.log('✅ 最终回退方案完成');
+        }
 
     } catch (error) {
         console.error('❌ 下载出错:', error);
