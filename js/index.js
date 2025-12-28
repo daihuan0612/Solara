@@ -6939,30 +6939,22 @@ async function downloadSong(song, quality = null) {
         apiUrl = preferHttpsUrl(apiUrl);
         console.log('🔗 API下载链接:', apiUrl);
 
-        // 2. 使用XMLHttpRequest获取文件内容，确保文件被下载
+        // 2. 使用fetch获取文件内容，处理重定向
         console.log('📥 正在获取文件内容...');
         
-        // 创建Promise包装的XMLHttpRequest
-        const blob = await new Promise((resolve, reject) => {
-            const xhr = new XMLHttpRequest();
-            xhr.open('GET', apiUrl, true);
-            xhr.responseType = 'blob';
-            
-            xhr.onload = function() {
-                if (xhr.status === 200) {
-                    resolve(xhr.response);
-                } else {
-                    reject(new Error(`下载请求失败: ${xhr.status}`));
-                }
-            };
-            
-            xhr.onerror = function() {
-                reject(new Error('网络请求失败'));
-            };
-            
-            xhr.send();
+        // 使用fetch获取文件内容，设置no-cors模式
+        const response = await fetch(apiUrl, {
+            method: 'GET',
+            mode: 'cors', // 允许跨域请求
+            redirect: 'follow' // 自动跟随重定向
         });
         
+        if (!response.ok) {
+            throw new Error(`下载请求失败: ${response.status}`);
+        }
+        
+        // 将响应转换为Blob
+        const blob = await response.blob();
         console.log('📦 文件已转换为Blob，大小:', blob.size, '类型:', blob.type);
         
         // 3. 创建Blob URL下载
@@ -6981,20 +6973,15 @@ async function downloadSong(song, quality = null) {
         // 添加到页面
         document.body.appendChild(link);
         
-        // 使用鼠标事件模拟点击，更可靠
-        const clickEvent = new MouseEvent('click', {
-            view: window,
-            bubbles: true,
-            cancelable: true
-        });
-        link.dispatchEvent(clickEvent);
+        // 触发下载
+        link.click();
         
         // 延迟移除链接和释放Blob URL
         setTimeout(() => {
             document.body.removeChild(link);
             URL.revokeObjectURL(blobUrl);
             console.log('🗑️ 已移除下载链接并释放Blob URL');
-        }, 5000);
+        }, 10000);
         
         console.log('💾 下载已触发');
         
