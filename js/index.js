@@ -1961,7 +1961,8 @@ function getLocalPalette(imageUrl) {
         // }
         
         const img = new Image();
-        img.crossOrigin = "anonymous";
+        // 移除crossOrigin属性，避免跨域问题
+        // img.crossOrigin = "anonymous";
         img.onload = () => {
             try {
                 const canvas = document.createElement("canvas");
