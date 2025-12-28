@@ -7054,54 +7054,22 @@ async function downloadSong(song, quality = null) {
         // 3. 针对不同音质的优化下载策略
         console.log('🎵 优化的下载策略，质量:', finalQuality);
         
-        // 对于MP3，保持当前工作正常的直接API URL方式（用户确认无需修改）
-        if (finalQuality === 'mp3' || finalQuality === '320' || finalQuality === '192' || finalQuality === '128') {
-            console.log('🎵 MP3格式：保持现有工作正常的直接API URL方式');
-            const link = document.createElement('a');
-            link.href = apiUrl;
-            link.download = fileName;
-            link.style.display = 'none';
-            link.rel = 'noopener noreferrer';
-            
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            
-            showNotification(`正在下载: ${song.name}`, 'success');
-            console.log('✅ MP3下载流程完成');
-        } 
-        // 对于无损音质，使用和MP3完全相同的直接API URL方式，确保弹出IDM
-        else if (finalQuality === 'flac' || finalQuality === '999') {
-            console.log('🎵 无损格式：使用和MP3完全相同的直接API URL方式，确保弹出IDM');
-            const link = document.createElement('a');
-            link.href = apiUrl;
-            link.download = fileName;
-            link.style.display = 'none';
-            link.rel = 'noopener noreferrer';
-            
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            
-            showNotification(`正在下载: ${song.name} (无损音质)`, 'success');
-            console.log('✅ 无损下载流程完成，使用和MP3相同的直接API URL方式');
-        } 
-        // 默认情况
-        else {
-            console.log('🎵 默认情况：使用直接API URL方式');
-            const link = document.createElement('a');
-            link.href = apiUrl;
-            link.download = fileName;
-            link.style.display = 'none';
-            link.rel = 'noopener noreferrer';
-            
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            
-            showNotification(`正在下载: ${song.name}`, 'success');
-            console.log('✅ 默认下载流程完成');
-        }
+        // 统一所有音质的下载方式，完全复用MP3的成功代码
+        console.log('🎵 统一下载方式：复用MP3的成功代码');
+        const link = document.createElement('a');
+        link.href = apiUrl;
+        link.download = fileName;
+        link.style.display = 'none';
+        link.rel = 'noopener noreferrer';
+        
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        // 根据质量显示不同的通知
+        const qualityText = (finalQuality === 'flac' || finalQuality === '999') ? ' (无损音质)' : '';
+        showNotification(`正在下载: ${song.name}${qualityText}`, 'success');
+        console.log(`✅ 下载流程完成，文件名: ${fileName}`);
 
     } catch (error) {
         console.error('❌ 下载出错:', error);
