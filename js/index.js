@@ -7006,52 +7006,32 @@ async function downloadSong(song, quality = null) {
         apiUrl = preferHttpsUrl(apiUrl);
         console.log('🔗 API下载链接:', apiUrl);
 
-        // 3. 使用更可靠的方式处理下载，避免被浏览器拦截
-        console.log('🌐 正在触发下载...');
+        // 3. 使用a标签直接下载，这是最可靠的方式
+        console.log('🌐 正在创建下载链接...');
         
-        // 创建一个隐藏的iframe来处理下载，这是最不容易被拦截的方式
-        const iframe = document.createElement('iframe');
-        iframe.style.display = 'none';
-        iframe.src = apiUrl;
-        iframe.setAttribute('referrerpolicy', 'no-referrer');
+        // 创建下载链接
+        const link = document.createElement('a');
+        link.href = apiUrl;
+        link.download = fileName;
+        link.style.display = 'none';
         
         // 添加到页面
-        document.body.appendChild(iframe);
+        document.body.appendChild(link);
         
-        // 监听iframe加载完成或失败
-        let downloadComplete = false;
+        // 使用鼠标事件模拟点击，更可靠
+        const clickEvent = new MouseEvent('click', {
+            view: window,
+            bubbles: true,
+            cancelable: true
+        });
+        link.dispatchEvent(clickEvent);
         
-        iframe.onload = function() {
-            console.log('📥 iframe下载完成');
-            downloadComplete = true;
-            // 延迟移除iframe
-            setTimeout(() => {
-                document.body.removeChild(iframe);
-                console.log('🗑️ 已移除下载iframe');
-            }, 1000);
-        };
+        // 延迟移除链接，确保下载被触发
+        setTimeout(() => {
+            document.body.removeChild(link);
+            console.log('🗑️ 已移除下载链接');
+        }, 500);
         
-        iframe.onerror = function() {
-            console.error('❌ iframe下载失败');
-            downloadComplete = true;
-            // 延迟移除iframe
-            setTimeout(() => {
-                document.body.removeChild(iframe);
-                console.log('🗑️ 已移除下载iframe');
-            }, 1000);
-        };
-        
-        // 等待一段时间，确保下载开始
-        await new Promise(resolve => setTimeout(resolve, 1500));
-        
-        // 如果iframe还没有触发加载完成事件，手动移除
-        if (!downloadComplete) {
-            console.log('⏱️ 下载超时，手动移除iframe');
-            document.body.removeChild(iframe);
-        }
-        
-        // 跳过Blob处理，因为iframe已经处理了下载
-        const blob = new Blob([], { type: `audio/${fileExtension}` });
         console.log('💾 下载已触发');
         
         // 4. 显示通知
