@@ -7070,7 +7070,6 @@ async function downloadSong(song, quality = null) {
         link.download = fileName;
         link.style.display = 'none';
         link.rel = 'noopener noreferrer';
-        link.target = '_blank';  // 新增：允许在新标签页打开，提高兼容性
         
         document.body.appendChild(link);
         link.click();
@@ -7164,7 +7163,6 @@ async function downloadWithBlobUrl(url, filename) {
             const iframe = document.createElement('iframe');
             iframe.style.display = 'none';
             iframe.src = url;
-            iframe.setAttribute('download', filename);
             document.body.appendChild(iframe);
             
             // 一段时间后移除iframe以清理DOM
@@ -7178,13 +7176,8 @@ async function downloadWithBlobUrl(url, filename) {
         } catch (fallbackError) {
             console.error('iframe下载也失败:', fallbackError);
             
-            // 最后的备选方案：直接打开链接
-            try {
-                window.open(url, '_blank');
-                console.log(`✅ 新窗口打开链接作为最后备选: ${url}`);
-            } catch (openError) {
-                console.error('所有下载方式都失败:', openError);
-            }
+            // 不再使用跳转到新窗口播放，而是显示错误信息
+            console.log('所有下载方式都已尝试，如果未下载成功，请复制链接手动下载');
         }
     }
 }
