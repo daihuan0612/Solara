@@ -6131,15 +6131,17 @@ async function playSong(song, options = {}) {
             streamUrl = `${rawUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
         }
         
-        console.log('🎵 最终使用的音频 URL:', streamUrl);
+        // 将音频 URL 转换为 HTTPS，避免混合内容错误
+        const secureStreamUrl = preferHttpsUrl(streamUrl);
+        console.log('🎵 最终使用的安全音频 URL:', secureStreamUrl);
         
         // 5. 柔性切换 (Soft Switch)
         player.removeAttribute('crossOrigin');
         player.setAttribute('playsinline', '');
         player.setAttribute('webkit-playsinline', '');
         
-        player.src = streamUrl;
-        state.currentAudioUrl = streamUrl;
+        player.src = secureStreamUrl;
+        state.currentAudioUrl = secureStreamUrl;
         
         // ⚡️ 预备状态：静音并加载
         player.muted = false;
@@ -6990,61 +6992,31 @@ async function downloadSong(song, quality = null) {
         console.log('📁 最终文件名:', fileName);
 
         // 2. 获取下载链接
-        const apiUrl = API.getSongUrl(song, finalQuality);
+        let apiUrl = API.getSongUrl(song, finalQuality);
         if (!apiUrl) {
             throw new Error('无法获取链接');
         }
+        
+        // 将API URL转换为HTTPS，避免混合内容错误
+        apiUrl = preferHttpsUrl(apiUrl);
         console.log('🔗 API下载链接:', apiUrl);
 
-        // 3. 统一处理所有格式的下载，使用XMLHttpRequest获取文件内容
-        console.log('📥 正在获取文件内容...');
+        // 3. 使用a标签直接下载，避免混合内容错误
+        console.log('🌐 正在触发下载...');
         
-        // 使用Promise封装XMLHttpRequest
-        const blob = await new Promise((resolve, reject) => {
-            const xhr = new XMLHttpRequest();
-            xhr.open('GET', apiUrl, true);
-            xhr.responseType = 'blob';
-            
-            xhr.onload = () => {
-                if (xhr.status === 200) {
-                    resolve(xhr.response);
-                } else {
-                    reject(new Error(`下载请求失败: ${xhr.status}`));
-                }
-            };
-            
-            xhr.onerror = () => {
-                reject(new Error('网络请求失败'));
-            };
-            
-            xhr.send();
-        });
-        
-        console.log('💾 文件下载完成，Blob大小:', blob.size);
-
-        // 4. 创建Blob URL并触发下载
-        const blobUrl = URL.createObjectURL(blob);
-        console.log('🔗 创建Blob URL:', blobUrl);
-        
-        // 创建下载链接
-        const link = document.createElement('a');
-        link.href = blobUrl;
-        link.download = fileName;
-        link.style.display = 'none';
+        // 创建下载链接，使用安全的HTTPS URL
+        const downloadLink = document.createElement('a');
+        downloadLink.href = apiUrl;
+        downloadLink.download = fileName;
+        downloadLink.style.display = 'none';
         
         // 添加到页面并触发点击
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        document.body.appendChild(downloadLink);
+        downloadLink.click();
+        document.body.removeChild(downloadLink);
         
-        // 释放Blob URL
-        setTimeout(() => {
-            URL.revokeObjectURL(blobUrl);
-            console.log('🗑️ 释放Blob URL:', blobUrl);
-        }, 100);
-        
-        // 5. 显示通知
-        showNotification(`${song.name} 下载已开始`, 'success');
+        // 4. 显示通知
+        showNotification(`${song.name} 下载已开始 (如果变成了播放，请按 Ctrl+S 保存)`, 'success');
         console.log('✅ 下载流程完成');
 
     } catch (error) {
