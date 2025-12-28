@@ -7032,12 +7032,31 @@ async function downloadSong(song, quality = null) {
         const finalQuality = quality || state.playbackQuality || 'flac';
         showNotification(`正在获取 ${song.name} 下载地址...`, 'info');
 
-        // 1. 获取下载链接
-        const downloadUrl = API.getSongUrl(song, finalQuality);
-        if (!downloadUrl) {
-            throw new Error('无法获取链接');
+        // 1. 获取API端点URL
+        const apiUrl = API.getSongUrl(song, finalQuality);
+        if (!apiUrl) {
+            throw new Error('无法获取API链接');
         }
-        console.log('🔗 直接下载链接:', downloadUrl);
+        console.log('🔗 API端点URL:', apiUrl);
+        
+        // 2. 调用API获取实际的音频URL
+        console.log('📡 正在请求实际音频URL...');
+        const apiResponse = await fetch(apiUrl);
+        if (!apiResponse.ok) {
+            throw new Error(`API请求失败: ${apiResponse.status}`);
+        }
+        
+        // 3. 解析API返回的实际音频URL
+        let actualDownloadUrl = await apiResponse.text();
+        console.log('📥 API返回的实际音频URL:', actualDownloadUrl);
+        
+        // 4. 将HTTP URL转换为HTTPS，解决混合内容问题
+        if (actualDownloadUrl.startsWith('http://')) {
+            actualDownloadUrl = actualDownloadUrl.replace('http://', 'https://');
+            console.log('🔒 已将HTTP转换为HTTPS:', actualDownloadUrl);
+        }
+        
+        const downloadUrl = actualDownloadUrl;
 
         // 2. 生成文件名，处理artist为数组的情况
         const artistName = Array.isArray(song.artist) ? song.artist.join(', ') : (song.artist || '未知艺术家');
@@ -7136,7 +7155,13 @@ async function downloadSong(song, quality = null) {
         // 使用基于fetch和blob的可靠下载方式
         console.log('🎵 使用fetch+blob下载方式');
         try {
-            const response = await fetch(downloadUrl);
+            // 添加CORS配置，允许跨域请求
+            const response = await fetch(downloadUrl, {
+                mode: 'cors',
+                headers: {
+                    'Accept': '*/*'
+                }
+            });
             if (!response.ok) {
                 throw new Error(`下载请求失败: ${response.status}`);
             }
@@ -7151,6 +7176,7 @@ async function downloadSong(song, quality = null) {
             link.href = blobUrl;
             link.download = fileName; // 设置下载文件名
             link.style.display = 'none';
+            link.rel = 'noopener noreferrer'; // 安全设置
             
             // 触发下载
             document.body.appendChild(link);
@@ -7167,11 +7193,12 @@ async function downloadSong(song, quality = null) {
             console.log('✅ 下载流程完成');
         } catch (fetchError) {
             console.error('❌ fetch下载失败，尝试备用方式:', fetchError);
-            // 备用方式：使用简单跳转下载
+            // 备用方式：使用简单跳转下载，但不使用新标签页
             const link = document.createElement('a');
             link.href = downloadUrl;
             link.download = fileName; // 设置下载文件名
             link.style.display = 'none';
+            link.rel = 'noopener noreferrer'; // 安全设置
             
             // 触发下载
             document.body.appendChild(link);
