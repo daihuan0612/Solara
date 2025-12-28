@@ -635,7 +635,7 @@ function buildAudioProxyUrl(url) {
 
 const SOURCE_OPTIONS = [
     { value: "netease", label: "网易云音乐" },
-    { value: "kuwo", label: "酷我音乐" },
+    // { value: "kuwo", label: "酷我音乐" }, // 酷我音乐功能暂未修复，已禁用
     { value: "qq", label: "QQ音乐" }
 ];
 
@@ -2064,6 +2064,33 @@ async function fetchPaletteData(imageUrl) {
         return cached;
     }
 
+    // 对于酷我音乐的图片，直接返回默认调色板（酷我音乐功能暂未修复）
+    if (imageUrl.includes('kuwo')) {
+        const defaultPalette = {
+            gradients: {
+                light: {
+                    gradient: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)"
+                },
+                dark: {
+                    gradient: "linear-gradient(135deg, #2c3e50 0%, #34495e 100%)"
+                }
+            },
+            tokens: {
+                light: {
+                    primaryColor: "#667eea",
+                    primaryColorDark: "#764ba2"
+                },
+                dark: {
+                    primaryColor: "#3498db",
+                    primaryColorDark: "#2980b9"
+                }
+            }
+        };
+        paletteCache.set(imageUrl, defaultPalette);
+        persistPaletteCache();
+        return defaultPalette;
+    }
+
     try {
         // 优先尝试远程API取色
         const response = await fetch(`/functions/palette?url=${encodeURIComponent(imageUrl)}`, {
@@ -2558,12 +2585,6 @@ function handleVolumeChange(event) {
 
 function handleTimeUpdate() {
     const currentTime = dom.audioPlayer.currentTime || 0;
-    console.log('⏱️ timeupdate事件触发:', {
-        currentTime: currentTime,
-        duration: dom.audioPlayer.duration,
-        paused: dom.audioPlayer.paused,
-        readyState: dom.audioPlayer.readyState
-    });
     
     if (!state.isSeeking) {
         dom.progressBar.value = currentTime;
@@ -2588,7 +2609,8 @@ function handleTimeUpdate() {
     }
 }
 
-// 针对酷我音乐的额外修复：监控currentTime变化
+// 针对酷我音乐的额外修复：监控currentTime变化（已禁用，因为酷我音乐功能暂未修复）
+/*
 let currentTimeMonitor = null;
 function startCurrentTimeMonitor() {
     if (currentTimeMonitor) {
@@ -2596,19 +2618,11 @@ function startCurrentTimeMonitor() {
     }
     
     if (state.currentSong && state.currentSong.source === 'kuwo') {
-        console.log('🎵 酷我音乐：启动currentTime监控');
         let lastCurrentTime = 0;
         let consecutiveSameTime = 0;
         
         currentTimeMonitor = setInterval(() => {
             const currentTime = dom.audioPlayer.currentTime || 0;
-            
-            console.log('⏱️ 酷我音乐currentTime监控:', {
-                currentTime: currentTime,
-                lastCurrentTime: lastCurrentTime,
-                consecutiveSameTime: consecutiveSameTime,
-                paused: dom.audioPlayer.paused
-            });
             
             if (Math.abs(currentTime - lastCurrentTime) < 0.1) {
                 consecutiveSameTime++;
@@ -2618,7 +2632,6 @@ function startCurrentTimeMonitor() {
             
             // 如果连续5次检查currentTime都没有变化，尝试重置播放
             if (consecutiveSameTime >= 5 && !dom.audioPlayer.paused) {
-                console.warn('⚠️ 酷我音乐currentTime连续未变化，尝试重置播放');
                 consecutiveSameTime = 0;
                 
                 // 保存当前进度
@@ -2626,8 +2639,8 @@ function startCurrentTimeMonitor() {
                 
                 // 尝试重置播放
                 dom.audioPlayer.currentTime = Math.max(0, savedTime - 0.5);
-                dom.audioPlayer.play().catch(error => {
-                    console.error('❌ 酷我音乐重置播放失败:', error);
+                dom.audioPlayer.play().catch(() => {
+                    // 忽略播放错误
                 });
             }
             
@@ -2635,12 +2648,14 @@ function startCurrentTimeMonitor() {
         }, 1000);
     }
 }
+*/
 
+// 保留stopCurrentTimeMonitor函数，避免运行时错误
+let currentTimeMonitor = null;
 function stopCurrentTimeMonitor() {
     if (currentTimeMonitor) {
         clearInterval(currentTimeMonitor);
         currentTimeMonitor = null;
-        console.log('🛑 关闭currentTime监控');
     }
 }
 
@@ -4196,8 +4211,8 @@ function updateCurrentSongInfo(song, options = {}) {
             }
         }
         
-        // 针对QQ音乐和酷我音乐的封面加载优化
-        const isSlowSource = song.source === 'qq' || song.source === 'kuwo';
+        // 针对QQ音乐的封面加载优化（酷我音乐已禁用）
+        const isSlowSource = song.source === 'qq';
         const loadTimeout = isSlowSource ? 8000 : 3000;
         
         // 优化图片加载，添加超时处理和重试机制
@@ -6109,11 +6124,12 @@ async function playSong(song, options = {}) {
         player.preload = 'auto';
         player.load();
 
-        // 6. 优化酷我音乐的加载逻辑，处理长时间响应
-        const loadTimeout = song.source === 'kuwo' ? 10000 : 3000;
+        // 6. 设置音频加载超时时间
+        const loadTimeout = 3000; // 统一超时时间，酷我音乐已禁用
         console.log(`⏳ 等待音频加载，超时时间: ${loadTimeout}ms`);
         
-        // 针对酷我音乐的预加载优化
+        // 针对酷我音乐的预加载优化已禁用
+        /*
         if (song.source === 'kuwo') {
             console.log('🔍 酷我音乐：启用预加载优化');
             // 尝试提前获取音频头信息，不阻塞主线程
@@ -6128,6 +6144,7 @@ async function playSong(song, options = {}) {
                     console.warn('⚠️ 获取酷我音乐头信息失败:', error);
                 });
         }
+        */
         
         await new Promise((resolve) => {
             let resolved = false;
@@ -6367,7 +6384,8 @@ function handleAudioError(event) {
         audioUrl: state.currentAudioUrl
     });
     
-    // 针对酷我音乐的特殊处理
+    // 针对酷我音乐的特殊处理已禁用
+    /*
     if (state.currentSong && state.currentSong.source === 'kuwo') {
         console.error('🔍 酷我音乐播放失败，尝试直接使用 API 链接重新播放...');
         // 尝试重新构建音频 URL，可能需要调整 API 参数
@@ -6382,6 +6400,7 @@ function handleAudioError(event) {
             console.error('❌ 酷我音乐重新播放也失败:', retryError);
         }
     }
+    */
     
     // 重置播放状态
     state.isPlaying = false;
@@ -6957,7 +6976,9 @@ async function downloadSong(song, quality = null) {
         const fileName = `${songName} - ${artistName}.${fileExtension}`;
         console.log('📁 最终文件名:', fileName);
 
-        // 3. 针对酷我音乐，需要先检查API响应类型
+        // 3. 针对酷我音乐的特殊处理已禁用
+        /*
+        // 针对酷我音乐，需要先检查API响应类型
         if (song.source === 'kuwo') {
             console.log('🔍 酷我音乐：检查下载API响应类型');
             try {
@@ -7034,19 +7055,20 @@ async function downloadSong(song, quality = null) {
                 link.click();
                 document.body.removeChild(link);
             }
-        } else {
-            // 非酷我音乐，使用简单跳转下载
-            console.log('🎵 非酷我音乐，使用简单跳转下载');
-            const link = document.createElement('a');
-            link.href = downloadUrl;
-            link.target = '_blank'; // 新窗口打开，这是最不容易被拦截的方式
-            link.download = fileName; // 设置下载文件名，虽然有些浏览器可能忽略
-            
-            // 触发下载
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
+            }
         }
+        */
+        // 使用简单跳转下载
+        console.log('🎵 使用简单跳转下载');
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.target = '_blank'; // 新窗口打开，这是最不容易被拦截的方式
+        link.download = fileName; // 设置下载文件名，虽然有些浏览器可能忽略
+        
+        // 触发下载
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
         
         // 5. 显示通知，提示用户如果变成播放请按Ctrl+S保存
         showNotification(`已弹出 ${song.name} 下载窗口 (如果变成了播放，请按 Ctrl+S 保存)`, 'success');
