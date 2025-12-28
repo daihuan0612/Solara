@@ -6075,6 +6075,11 @@ async function playSong(song, options = {}) {
                         redirectUrl = new URL(redirectUrl, baseUrl).href;
                         console.log('🔀 相对重定向已转换为绝对 URL:', redirectUrl);
                     }
+                    
+                    // 将重定向 URL 转换为 HTTPS，避免混合内容错误
+                    redirectUrl = preferHttpsUrl(redirectUrl);
+                    console.log('🔒 重定向 URL 已转换为 HTTPS:', redirectUrl);
+                    
                     // 添加防缓存参数到重定向 URL
                     const separator = redirectUrl.includes('?') ? '&' : '?';
                     streamUrl = `${redirectUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
@@ -7001,18 +7006,42 @@ async function downloadSong(song, quality = null) {
         apiUrl = preferHttpsUrl(apiUrl);
         console.log('🔗 API下载链接:', apiUrl);
 
-        // 3. 使用fetch获取文件内容，然后创建Blob URL，确保浏览器下载
+        // 3. 使用fetch获取文件内容，禁用自动重定向，避免混合内容错误
         console.log('📥 正在获取文件内容...');
         
-        // 使用fetch获取文件内容
-        const response = await fetch(apiUrl);
-        if (!response.ok) {
-            throw new Error(`下载请求失败: ${response.status}`);
+        // 禁用自动重定向，手动处理
+        const initialResponse = await fetch(apiUrl, { redirect: 'manual' });
+        
+        let finalResponse;
+        let responseUrl = apiUrl;
+        
+        // 处理重定向
+        if (initialResponse.status >= 300 && initialResponse.status < 400) {
+            let redirectUrl = initialResponse.headers.get('location');
+            if (redirectUrl) {
+                console.log('🔀 API返回重定向:', redirectUrl);
+                
+                // 将重定向URL转换为HTTPS
+                redirectUrl = preferHttpsUrl(redirectUrl);
+                console.log('🔒 重定向URL已转换为HTTPS:', redirectUrl);
+                
+                // 再次请求转换后的HTTPS URL
+                finalResponse = await fetch(redirectUrl);
+                responseUrl = redirectUrl;
+            } else {
+                finalResponse = initialResponse;
+            }
+        } else {
+            finalResponse = initialResponse;
+        }
+        
+        if (!finalResponse.ok) {
+            throw new Error(`下载请求失败: ${finalResponse.status}`);
         }
         
         // 将响应转换为Blob
-        const blob = await response.blob();
-        console.log('💾 文件下载完成，Blob大小:', blob.size);
+        const blob = await finalResponse.blob();
+        console.log('💾 文件下载完成，Blob大小:', blob.size, 'URL:', responseUrl);
 
         // 4. 创建Blob URL并触发下载
         const blobUrl = URL.createObjectURL(blob);
