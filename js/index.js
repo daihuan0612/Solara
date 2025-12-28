@@ -7051,57 +7051,12 @@ async function downloadSong(song, quality = null) {
         const fileName = `${songName} - ${artistName}.${fileExtension}`;
         console.log('📁 最终文件名:', fileName);
 
-        // 3. 改进的下载方式：使用fetch获取文件内容并创建Blob URL，确保浏览器触发下载
-        console.log('🎵 使用fetch+blob下载方式确保直接下载');
-        try {
-            // 使用fetch获取文件内容
-            const response = await fetch(apiUrl, {
-                mode: 'cors',
-                headers: {
-                    'Accept': '*/*'
-                }
-            });
-            
-            if (!response.ok) {
-                // 如果fetch失败，回退到直接API URL方式
-                console.warn('⚠️ fetch请求失败，回退到直接API URL方式');
-                const link = document.createElement('a');
-                link.href = apiUrl;
-                link.download = fileName;
-                link.style.display = 'none';
-                link.rel = 'noopener noreferrer';
-                link.target = '_self'; // 在当前窗口处理，避免新标签
-                
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-            } else {
-                // fetch成功，创建Blob并下载
-                const blob = await response.blob();
-                const blobUrl = URL.createObjectURL(blob);
-                
-                const link = document.createElement('a');
-                link.href = blobUrl;
-                link.download = fileName;
-                link.style.display = 'none';
-                link.rel = 'noopener noreferrer';
-                
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-                
-                // 清理Blob URL
-                setTimeout(() => {
-                    URL.revokeObjectURL(blobUrl);
-                }, 100);
-            }
-            
-            // 显示成功通知
-            showNotification(`正在下载: ${song.name}`, 'success');
-            console.log('✅ 下载流程完成');
-        } catch (error) {
-            // 最终回退方案
-            console.error('❌ 所有下载方式失败，使用最终回退方案:', error);
+        // 3. 针对不同音质的优化下载策略
+        console.log('🎵 优化的下载策略，质量:', finalQuality);
+        
+        // 对于MP3，保持当前工作正常的直接API URL方式（用户确认无需修改）
+        if (finalQuality === 'mp3' || finalQuality === '320' || finalQuality === '192' || finalQuality === '128') {
+            console.log('🎵 MP3格式：保持现有工作正常的直接API URL方式');
             const link = document.createElement('a');
             link.href = apiUrl;
             link.download = fileName;
@@ -7112,8 +7067,48 @@ async function downloadSong(song, quality = null) {
             link.click();
             document.body.removeChild(link);
             
-            showNotification(`已触发 ${song.name} 下载 (如果变成了播放，请按 Ctrl+S 保存)`, 'success');
-            console.log('✅ 最终回退方案完成');
+            showNotification(`正在下载: ${song.name}`, 'success');
+            console.log('✅ MP3下载流程完成');
+        } 
+        // 对于无损音质，使用改进的下载方式，避免新窗口播放
+        else if (finalQuality === 'flac' || finalQuality === '999') {
+            console.log('🎵 无损格式：使用特殊处理确保直接下载');
+            
+            // 直接使用API URL，但添加更强制的下载属性和类型
+            const link = document.createElement('a');
+            link.href = apiUrl;
+            link.download = fileName;
+            link.type = 'audio/flac'; // 明确指定文件类型
+            link.style.display = 'none';
+            link.rel = 'noopener noreferrer';
+            link.target = '_self'; // 在当前窗口处理，避免新标签
+            
+            // 添加更多下载相关属性
+            link.setAttribute('download', fileName);
+            link.setAttribute('data-downloadurl', `audio/flac:${fileName}:${apiUrl}`);
+            
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            showNotification(`正在下载: ${song.name} (无损音质)`, 'success');
+            console.log('✅ 无损下载流程完成');
+        } 
+        // 默认情况
+        else {
+            console.log('🎵 默认情况：使用直接API URL方式');
+            const link = document.createElement('a');
+            link.href = apiUrl;
+            link.download = fileName;
+            link.style.display = 'none';
+            link.rel = 'noopener noreferrer';
+            
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            showNotification(`正在下载: ${song.name}`, 'success');
+            console.log('✅ 默认下载流程完成');
         }
 
     } catch (error) {
