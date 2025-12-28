@@ -6008,14 +6008,21 @@ async function playSong(song, options = {}) {
         console.log('🔍 正在获取实际音频流 URL:', rawUrl);
         
         try {
-            // 发送 HEAD 请求检查 API 响应，不跟随重定向
-            const response = await fetch(rawUrl, { method: 'HEAD', redirect: 'manual' });
+            // 发送 GET 请求检查 API 响应，处理重定向
+            // 使用 GET 而不是 HEAD，因为有些服务器对 HEAD 和 GET 返回不同的响应
+            const response = await fetch(rawUrl, { method: 'GET', redirect: 'manual' });
             
             // 处理重定向情况，特别是酷我音乐的 302 重定向
             if (response.status >= 300 && response.status < 400) {
-                const redirectUrl = response.headers.get('location');
+                let redirectUrl = response.headers.get('location');
                 if (redirectUrl) {
                     console.log('🔀 API 返回重定向:', redirectUrl);
+                    // 处理相对重定向 URL
+                    if (!redirectUrl.startsWith('http')) {
+                        const baseUrl = new URL(rawUrl);
+                        redirectUrl = new URL(redirectUrl, baseUrl).href;
+                        console.log('🔀 相对重定向已转换为绝对 URL:', redirectUrl);
+                    }
                     // 添加防缓存参数到重定向 URL
                     const separator = redirectUrl.includes('?') ? '&' : '?';
                     streamUrl = `${redirectUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
@@ -6032,18 +6039,17 @@ async function playSong(song, options = {}) {
                 
                 // 如果直接返回音频流，就使用该 URL
                 if (contentType && contentType.includes('audio/')) {
-                    console.log('✅ 直接使用 API URL 作为音频源');
+                    console.log('✅ 直接使用 API URL 作为音频源，内容类型:', contentType);
                     // 添加防缓存参数
                     const separator = rawUrl.includes('?') ? '&' : '?';
                     streamUrl = `${rawUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
                 } else {
-                    // 否则，发送 GET 请求获取完整响应
-                    const getResponse = await fetch(rawUrl);
-                    const getContentType = getResponse.headers.get('content-type');
+                    // 否则，尝试解析响应
+                    const getContentType = response.headers.get('content-type');
                     
                     if (getContentType && getContentType.includes('application/json')) {
                         // JSON 响应，尝试解析获取实际 URL
-                        const data = await getResponse.json();
+                        const data = await response.json();
                         console.log('📋 API 返回 JSON 响应:', data);
                         
                         // 根据不同 API 返回格式处理
@@ -6060,12 +6066,6 @@ async function playSong(song, options = {}) {
                             const separator = rawUrl.includes('?') ? '&' : '?';
                             streamUrl = `${rawUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
                         }
-                    } else if (getContentType && getContentType.includes('audio/')) {
-                        // 直接返回音频流，使用该 URL
-                        console.log('✅ 直接返回音频流，使用该 URL');
-                        // 添加防缓存参数
-                        const separator = rawUrl.includes('?') ? '&' : '?';
-                        streamUrl = `${rawUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
                     } else {
                         console.warn('⚠️ 未知的响应类型:', getContentType, '使用原始 URL');
                         const separator = rawUrl.includes('?') ? '&' : '?';
