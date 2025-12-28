@@ -7070,35 +7070,21 @@ async function downloadSong(song, quality = null) {
             showNotification(`正在下载: ${song.name}`, 'success');
             console.log('✅ MP3下载流程完成');
         } 
-        // 对于无损音质，使用iframe方式确保直接下载，避免新窗口
+        // 对于无损音质，使用和MP3完全相同的直接API URL方式，确保弹出IDM
         else if (finalQuality === 'flac' || finalQuality === '999') {
-            console.log('🎵 无损格式：使用iframe方式确保直接下载');
+            console.log('🎵 无损格式：使用和MP3完全相同的直接API URL方式，确保弹出IDM');
+            const link = document.createElement('a');
+            link.href = apiUrl;
+            link.download = fileName;
+            link.style.display = 'none';
+            link.rel = 'noopener noreferrer';
             
-            // 创建隐藏的iframe来处理下载请求
-            const iframe = document.createElement('iframe');
-            iframe.style.display = 'none';
-            iframe.style.width = '0';
-            iframe.style.height = '0';
-            iframe.style.border = 'none';
-            iframe.style.position = 'absolute';
-            iframe.style.left = '-9999px';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
             
-            // 设置iframe的src为API URL
-            iframe.src = apiUrl;
-            
-            // 添加到文档
-            document.body.appendChild(iframe);
-            
-            // 显示通知
             showNotification(`正在下载: ${song.name} (无损音质)`, 'success');
-            console.log('✅ 无损下载流程完成，使用iframe方式');
-            
-            // 一段时间后清理iframe
-            setTimeout(() => {
-                if (iframe.parentNode) {
-                    iframe.parentNode.removeChild(iframe);
-                }
-            }, 5000);
+            console.log('✅ 无损下载流程完成，使用和MP3相同的直接API URL方式');
         } 
         // 默认情况
         else {
