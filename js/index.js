@@ -4322,9 +4322,10 @@ async function performSearch(isLiveSearch = false) {
         persistLastSearchState();
         debugLog(`搜索完成: 总共显示 ${state.searchResults.length} 个结果`);
 
-        // 如果没有结果，显示提示
+        // 如果没有结果，显示更友好的提示信息
         if (state.searchResults.length === 0) {
-            showNotification("未找到相关歌曲", "error");
+            const platformName = SOURCE_OPTIONS.find(option => option.value === source)?.label || source;
+            showNotification(`${platformName} 未找到相关歌曲，请尝试其他平台或关键词`, "info");
         }
 
     } catch (error) {
@@ -6007,50 +6008,69 @@ async function playSong(song, options = {}) {
         console.log('🔍 正在获取实际音频流 URL:', rawUrl);
         
         try {
-            // 发送 HEAD 请求检查 API 响应类型
-            const response = await fetch(rawUrl, { method: 'HEAD' });
-            const contentType = response.headers.get('content-type');
+            // 发送 HEAD 请求检查 API 响应，不跟随重定向
+            const response = await fetch(rawUrl, { method: 'HEAD', redirect: 'manual' });
             
-            // 如果直接返回音频流，就使用该 URL
-            if (contentType && contentType.includes('audio/')) {
-                console.log('✅ 直接使用 API URL 作为音频源');
-                // 添加防缓存参数
-                const separator = rawUrl.includes('?') ? '&' : '?';
-                streamUrl = `${rawUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
+            // 处理重定向情况，特别是酷我音乐的 302 重定向
+            if (response.status >= 300 && response.status < 400) {
+                const redirectUrl = response.headers.get('location');
+                if (redirectUrl) {
+                    console.log('🔀 API 返回重定向:', redirectUrl);
+                    // 添加防缓存参数到重定向 URL
+                    const separator = redirectUrl.includes('?') ? '&' : '?';
+                    streamUrl = `${redirectUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
+                    console.log('✅ 使用重定向 URL 作为音频源');
+                } else {
+                    // 重定向但没有 location 头，使用原始 URL
+                    console.warn('⚠️ 重定向但没有 location 头，使用原始 URL');
+                    const separator = rawUrl.includes('?') ? '&' : '?';
+                    streamUrl = `${rawUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
+                }
             } else {
-                // 否则，发送 GET 请求获取完整响应
-                const getResponse = await fetch(rawUrl);
-                const getContentType = getResponse.headers.get('content-type');
+                // 非重定向响应，检查内容类型
+                const contentType = response.headers.get('content-type');
                 
-                if (getContentType && getContentType.includes('application/json')) {
-                    // JSON 响应，尝试解析获取实际 URL
-                    const data = await getResponse.json();
-                    console.log('📋 API 返回 JSON 响应:', data);
-                    
-                    // 根据不同 API 返回格式处理
-                    if (data && data.url) {
-                        streamUrl = data.url;
-                        console.log('✅ 从 JSON 中提取音频 URL:', streamUrl);
-                    } else if (data && data.type === 'media_file') {
-                        // 酷我音乐的 media_file 类型，直接使用 API URL
-                        console.log('✅ 酷我音乐 media_file 类型，直接使用 API URL');
-                        const separator = rawUrl.includes('?') ? '&' : '?';
-                        streamUrl = `${rawUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
-                    } else {
-                        console.warn('⚠️ 无法从 JSON 响应中提取音频 URL，使用原始 URL');
-                        const separator = rawUrl.includes('?') ? '&' : '?';
-                        streamUrl = `${rawUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
-                    }
-                } else if (getContentType && getContentType.includes('audio/')) {
-                    // 直接返回音频流，使用该 URL
-                    console.log('✅ 直接返回音频流，使用该 URL');
+                // 如果直接返回音频流，就使用该 URL
+                if (contentType && contentType.includes('audio/')) {
+                    console.log('✅ 直接使用 API URL 作为音频源');
                     // 添加防缓存参数
                     const separator = rawUrl.includes('?') ? '&' : '?';
                     streamUrl = `${rawUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
                 } else {
-                    console.warn('⚠️ 未知的响应类型:', getContentType, '使用原始 URL');
-                    const separator = rawUrl.includes('?') ? '&' : '?';
-                    streamUrl = `${rawUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
+                    // 否则，发送 GET 请求获取完整响应
+                    const getResponse = await fetch(rawUrl);
+                    const getContentType = getResponse.headers.get('content-type');
+                    
+                    if (getContentType && getContentType.includes('application/json')) {
+                        // JSON 响应，尝试解析获取实际 URL
+                        const data = await getResponse.json();
+                        console.log('📋 API 返回 JSON 响应:', data);
+                        
+                        // 根据不同 API 返回格式处理
+                        if (data && data.url) {
+                            streamUrl = data.url;
+                            console.log('✅ 从 JSON 中提取音频 URL:', streamUrl);
+                        } else if (data && data.type === 'media_file') {
+                            // 酷我音乐的 media_file 类型，直接使用 API URL
+                            console.log('✅ 酷我音乐 media_file 类型，直接使用 API URL');
+                            const separator = rawUrl.includes('?') ? '&' : '?';
+                            streamUrl = `${rawUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
+                        } else {
+                            console.warn('⚠️ 无法从 JSON 响应中提取音频 URL，使用原始 URL');
+                            const separator = rawUrl.includes('?') ? '&' : '?';
+                            streamUrl = `${rawUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
+                        }
+                    } else if (getContentType && getContentType.includes('audio/')) {
+                        // 直接返回音频流，使用该 URL
+                        console.log('✅ 直接返回音频流，使用该 URL');
+                        // 添加防缓存参数
+                        const separator = rawUrl.includes('?') ? '&' : '?';
+                        streamUrl = `${rawUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
+                    } else {
+                        console.warn('⚠️ 未知的响应类型:', getContentType, '使用原始 URL');
+                        const separator = rawUrl.includes('?') ? '&' : '?';
+                        streamUrl = `${rawUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
+                    }
                 }
             }
         } catch (error) {
