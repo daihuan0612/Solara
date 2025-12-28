@@ -7133,21 +7133,55 @@ async function downloadSong(song, quality = null) {
             }
         }
         */
-        // 使用简单跳转下载
-        console.log('🎵 使用简单跳转下载');
-        const link = document.createElement('a');
-        link.href = downloadUrl;
-        link.target = '_blank'; // 新窗口打开，这是最不容易被拦截的方式
-        link.download = fileName; // 设置下载文件名，虽然有些浏览器可能忽略
-        
-        // 触发下载
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        
-        // 5. 显示通知，提示用户如果变成播放请按Ctrl+S保存
-        showNotification(`已弹出 ${song.name} 下载窗口 (如果变成了播放，请按 Ctrl+S 保存)`, 'success');
-        console.log('✅ 下载流程完成');
+        // 使用基于fetch和blob的可靠下载方式
+        console.log('🎵 使用fetch+blob下载方式');
+        try {
+            const response = await fetch(downloadUrl);
+            if (!response.ok) {
+                throw new Error(`下载请求失败: ${response.status}`);
+            }
+            
+            // 获取blob数据
+            const blob = await response.blob();
+            // 创建临时URL
+            const blobUrl = URL.createObjectURL(blob);
+            
+            // 创建下载链接
+            const link = document.createElement('a');
+            link.href = blobUrl;
+            link.download = fileName; // 设置下载文件名
+            link.style.display = 'none';
+            
+            // 触发下载
+            document.body.appendChild(link);
+            link.click();
+            
+            // 清理
+            document.body.removeChild(link);
+            setTimeout(() => {
+                URL.revokeObjectURL(blobUrl);
+            }, 100);
+            
+            // 显示成功通知
+            showNotification(`正在下载: ${song.name}`, 'success');
+            console.log('✅ 下载流程完成');
+        } catch (fetchError) {
+            console.error('❌ fetch下载失败，尝试备用方式:', fetchError);
+            // 备用方式：使用简单跳转下载
+            const link = document.createElement('a');
+            link.href = downloadUrl;
+            link.download = fileName; // 设置下载文件名
+            link.style.display = 'none';
+            
+            // 触发下载
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            // 显示通知
+            showNotification(`已触发 ${song.name} 下载 (如果变成了播放，请按 Ctrl+S 保存)`, 'success');
+            console.log('✅ 备用下载流程完成');
+        }
 
     } catch (error) {
         console.error('❌ 下载出错:', error);
