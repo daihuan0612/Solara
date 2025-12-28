@@ -1702,52 +1702,39 @@ function setDocumentGradient(gradient, { immediate = false } = {}) {
     const normalized = (gradient || "").trim();
     const current = (state.currentGradient || "").trim();
     const shouldSkipTransition = immediate || normalized === current;
+    
+    // 获取默认渐变值，确保不会移除必要的背景渐变
+    const isDark = document.body.classList.contains("dark-mode");
+    const defaults = themeDefaults[isDark ? "dark" : "light"];
+    const fallbackGradient = defaults.gradient || "linear-gradient(135deg, #667eea 0%, #764ba2 100%)";
+    const finalGradient = normalized || fallbackGradient;
 
     if (!dom.backgroundTransitionLayer || !dom.backgroundBaseLayer) {
-        if (normalized) {
-            setGlobalThemeProperty("--bg-gradient", normalized);
-            setGlobalThemeProperty("--bg-gradient-next", normalized);
-        } else {
-            removeGlobalThemeProperty("--bg-gradient");
-            removeGlobalThemeProperty("--bg-gradient-next");
-        }
-        state.currentGradient = normalized;
+        setGlobalThemeProperty("--bg-gradient", finalGradient);
+        setGlobalThemeProperty("--bg-gradient-next", finalGradient);
+        state.currentGradient = finalGradient;
         return;
     }
 
     window.clearTimeout(backgroundTransitionTimer);
 
     if (shouldSkipTransition) {
-        if (normalized) {
-            setGlobalThemeProperty("--bg-gradient", normalized);
-            setGlobalThemeProperty("--bg-gradient-next", normalized);
-        } else {
-            removeGlobalThemeProperty("--bg-gradient");
-            removeGlobalThemeProperty("--bg-gradient-next");
-        }
+        setGlobalThemeProperty("--bg-gradient", finalGradient);
+        setGlobalThemeProperty("--bg-gradient-next", finalGradient);
         document.body.classList.remove("background-transitioning");
-        state.currentGradient = normalized;
+        state.currentGradient = finalGradient;
         return;
     }
 
-    if (normalized) {
-        setGlobalThemeProperty("--bg-gradient-next", normalized);
-    } else {
-        removeGlobalThemeProperty("--bg-gradient-next");
-    }
+    setGlobalThemeProperty("--bg-gradient-next", finalGradient);
 
     requestAnimationFrame(() => {
         document.body.classList.add("background-transitioning");
         backgroundTransitionTimer = window.setTimeout(() => {
-            if (normalized) {
-                setGlobalThemeProperty("--bg-gradient", normalized);
-                setGlobalThemeProperty("--bg-gradient-next", normalized);
-            } else {
-                removeGlobalThemeProperty("--bg-gradient");
-                removeGlobalThemeProperty("--bg-gradient-next");
-            }
+            setGlobalThemeProperty("--bg-gradient", finalGradient);
+            setGlobalThemeProperty("--bg-gradient-next", finalGradient);
             document.body.classList.remove("background-transitioning");
-            state.currentGradient = normalized;
+            state.currentGradient = finalGradient;
         }, BACKGROUND_TRANSITION_DURATION);
     });
 }
@@ -1952,17 +1939,20 @@ loadStoredPalettes();
 // 本地取色逻辑：使用 Canvas API 从图片中提取颜色
 function getLocalPalette(imageUrl) {
     return new Promise((resolve, reject) => {
-        // 移除了QQ音乐URL检查，允许所有图片进行本地取色
+        console.log('🎨 开始本地取色，图片URL:', imageUrl);
         
         const img = new Image();
-        // 移除crossOrigin属性，避免跨域问题
+        // 添加crossOrigin属性，确保能获取像素数据
+        img.crossOrigin = "anonymous";
+        
         img.onload = () => {
+            console.log('✅ 图片加载成功，尺寸:', img.width, 'x', img.height);
             try {
                 const canvas = document.createElement("canvas");
                 const ctx = canvas.getContext("2d");
                 
                 // 调整画布大小，缩小图片以提高性能
-                const maxSize = 100;
+                const maxSize = 200;
                 let width = img.width;
                 let height = img.height;
                 
@@ -1976,46 +1966,62 @@ function getLocalPalette(imageUrl) {
                 
                 canvas.width = width;
                 canvas.height = height;
+                
+                // 绘制图片到画布
                 ctx.drawImage(img, 0, 0, width, height);
                 
-                // 获取像素数据，处理可能的跨域错误
+                // 获取像素数据
                 let imageData;
                 try {
                     imageData = ctx.getImageData(0, 0, width, height);
+                    console.log('📊 成功获取像素数据，像素数:', imageData.data.length / 4);
                 } catch (crossOriginError) {
-                    console.warn("跨域图片无法提取颜色，使用改进的跨域兼容方案");
+                    console.warn('❌ 跨域图片无法提取颜色，使用基于URL的颜色生成方案:', crossOriginError.message);
                     
-                    // 跨域图片处理：使用简化的调色板生成方式
-                    // 从图片URL中提取主题色（如果可能）
-                    const fallbackPalette = {
+                    // 基于URL哈希生成主题色，确保同一图片始终生成相同颜色
+                    const hash = Array.from(imageUrl).reduce((acc, char) => {
+                        acc = ((acc << 5) - acc) + char.charCodeAt(0);
+                        return acc & acc;
+                    }, 0);
+                    
+                    // 使用哈希生成一个一致的主题色
+                    const hue = Math.abs(hash % 360);
+                    const saturation = 60 + Math.abs(hash % 20);
+                    const lightness = 65 + Math.abs(hash % 10);
+                    
+                    // 创建基于URL的调色板
+                    const hex = `#${((1 << 24) + ((hue * 0.7) << 16) + ((saturation * 2.55) << 8) + (lightness * 2.55)).toString(16).slice(1)}`;
+                    
+                    const palette = {
                         gradients: {
                             light: {
-                                gradient: "linear-gradient(135deg, #f0f4f8 0%, #e2e8f0 100%)"
+                                gradient: `linear-gradient(135deg, ${hex} 0%, ${hex}bb 50%, ${hex}99 100%)`
                             },
                             dark: {
-                                gradient: "linear-gradient(135deg, #1a202c 0%, #2d3748 100%)"
+                                gradient: `linear-gradient(135deg, ${hex}66 0%, ${hex}55 50%, ${hex}44 100%)`
                             }
                         },
                         tokens: {
                             light: {
-                                primaryColor: "#4299e1",
-                                primaryColorDark: "#3182ce"
+                                primaryColor: hex,
+                                primaryColorDark: hex
                             },
                             dark: {
-                                primaryColor: "#63b3ed",
-                                primaryColorDark: "#4299e1"
+                                primaryColor: hex,
+                                primaryColorDark: hex
                             }
                         }
                     };
-                    resolve(fallbackPalette);
+                    
+                    console.log('🎨 使用URL哈希生成调色板:', hex);
+                    resolve(palette);
                     return;
                 }
                 
                 const data = imageData.data;
                 
-                // 改进的颜色提取：计算平均颜色和主色调
+                // 改进的颜色提取：计算平均颜色
                 let r = 0, g = 0, b = 0, count = 0;
-                const colorMap = new Map();
                 
                 for (let i = 0; i < data.length; i += 4) {
                     const alpha = data[i + 3];
@@ -2024,32 +2030,29 @@ function getLocalPalette(imageUrl) {
                         g += data[i + 1];
                         b += data[i + 2];
                         count++;
-                        
-                        // 统计颜色出现频率
-                        const rgb = `${data[i]},${data[i + 1]},${data[i + 2]}`;
-                        colorMap.set(rgb, (colorMap.get(rgb) || 0) + 1);
                     }
                 }
                 
                 if (count === 0) {
+                    console.warn('⚠️ 没有找到不透明像素，使用默认调色板');
                     // 返回默认调色板
                     const defaultPalette = {
                         gradients: {
                             light: {
-                                gradient: "linear-gradient(135deg, #f0f4f8 0%, #e2e8f0 100%)"
+                                gradient: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)"
                             },
                             dark: {
-                                gradient: "linear-gradient(135deg, #1a202c 0%, #2d3748 100%)"
+                                gradient: "linear-gradient(135deg, #2c3e50 0%, #34495e 100%)"
                             }
                         },
                         tokens: {
                             light: {
-                                primaryColor: "#4299e1",
-                                primaryColorDark: "#3182ce"
+                                primaryColor: "#667eea",
+                                primaryColorDark: "#764ba2"
                             },
                             dark: {
-                                primaryColor: "#63b3ed",
-                                primaryColorDark: "#4299e1"
+                                primaryColor: "#3498db",
+                                primaryColorDark: "#2980b9"
                             }
                         }
                     };
@@ -2062,17 +2065,18 @@ function getLocalPalette(imageUrl) {
                 g = Math.round(g / count);
                 b = Math.round(b / count);
                 
-                // 创建更丰富的调色板
+                // 创建主题色
                 const hex = `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+                console.log('🎨 提取到主题色:', hex);
                 
-                // 创建美观的渐变效果
+                // 创建明显的渐变效果
                 const palette = {
                     gradients: {
                         light: {
-                            gradient: `linear-gradient(135deg, ${hex}f0 0%, ${hex}e0 50%, ${hex}c0 100%)`
+                            gradient: `linear-gradient(135deg, ${hex} 0%, ${hex}cc 50%, ${hex}99 100%)`
                         },
                         dark: {
-                            gradient: `linear-gradient(135deg, ${hex}30 0%, ${hex}40 50%, ${hex}50 100%)`
+                            gradient: `linear-gradient(135deg, ${hex}55 0%, ${hex}66 50%, ${hex}77 100%)`
                         }
                     },
                     tokens: {
@@ -2087,67 +2091,75 @@ function getLocalPalette(imageUrl) {
                     }
                 };
                 
+                console.log('✅ 生成调色板成功');
                 resolve(palette);
             } catch (error) {
-                console.warn("取色失败，使用默认调色板:", error);
+                console.error('❌ 取色处理失败:', error);
                 
                 // 返回备用调色板
                 const fallbackPalette = {
                     gradients: {
                         light: {
-                            gradient: "linear-gradient(135deg, #f0f4f8 0%, #e2e8f0 100%)"
+                            gradient: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)"
                         },
                         dark: {
-                            gradient: "linear-gradient(135deg, #1a202c 0%, #2d3748 100%)"
+                            gradient: "linear-gradient(135deg, #2c3e50 0%, #34495e 100%)"
                         }
                     },
                     tokens: {
                         light: {
-                            primaryColor: "#4299e1",
-                            primaryColorDark: "#3182ce"
+                            primaryColor: "#667eea",
+                            primaryColorDark: "#764ba2"
                         },
                         dark: {
-                            primaryColor: "#63b3ed",
-                            primaryColorDark: "#4299e1"
+                            primaryColor: "#3498db",
+                            primaryColorDark: "#2980b9"
                         }
                     }
                 };
                 resolve(fallbackPalette);
             }
         };
+        
         img.onerror = () => {
-            console.warn("图片加载失败，使用默认调色板");
+            console.error('❌ 图片加载失败，使用默认调色板');
             
             // 返回备用调色板
             const fallbackPalette = {
                 gradients: {
                     light: {
-                        gradient: "linear-gradient(135deg, #f0f4f8 0%, #e2e8f0 100%)"
+                        gradient: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)"
                     },
                     dark: {
-                        gradient: "linear-gradient(135deg, #1a202c 0%, #2d3748 100%)"
+                        gradient: "linear-gradient(135deg, #2c3e50 0%, #34495e 100%)"
                     }
                 },
                 tokens: {
                     light: {
-                        primaryColor: "#4299e1",
-                        primaryColorDark: "#3182ce"
+                        primaryColor: "#667eea",
+                        primaryColorDark: "#764ba2"
                     },
                     dark: {
-                        primaryColor: "#63b3ed",
-                        primaryColorDark: "#4299e1"
+                        primaryColor: "#3498db",
+                        primaryColorDark: "#2980b9"
                     }
                 }
             };
             resolve(fallbackPalette);
         };
+        
         img.src = imageUrl;
+        console.log('📡 开始加载图片...');
     });
 }
 
 async function fetchPaletteData(imageUrl) {
+    console.log('🎨 开始获取调色板，图片URL:', imageUrl);
+    
     if (paletteCache.has(imageUrl)) {
         const cached = paletteCache.get(imageUrl);
+        console.log('📦 使用缓存的调色板');
+        // 更新缓存顺序，将最近使用的放在最后
         paletteCache.delete(imageUrl);
         paletteCache.set(imageUrl, cached);
         return cached;
@@ -2155,6 +2167,7 @@ async function fetchPaletteData(imageUrl) {
 
     // 对于酷我音乐的图片，直接返回默认调色板（酷我音乐功能暂未修复）
     if (imageUrl.includes('kuwo')) {
+        console.log('🎵 酷我音乐图片，使用默认调色板');
         const defaultPalette = {
             gradients: {
                 light: {
@@ -2181,18 +2194,22 @@ async function fetchPaletteData(imageUrl) {
     }
 
     try {
+        console.log('🔍 尝试本地取色');
         // 优先尝试本地取色，本地取色更可靠
         const localPalette = await getLocalPalette(imageUrl);
         if (localPalette) {
+            console.log('✅ 本地取色成功，缓存调色板');
             paletteCache.set(imageUrl, localPalette);
             persistPaletteCache();
             return localPalette;
         }
+        console.warn('⚠️ 本地取色返回空，使用默认调色板');
     } catch (localError) {
-        console.warn("本地取色失败:", localError);
+        console.error('❌ 本地取色异常:', localError);
     }
 
     // 如果本地取色失败，返回默认调色板
+    console.log('📋 使用默认调色板');
     const defaultPalette = {
         gradients: {
             light: {
@@ -2223,52 +2240,41 @@ async function updateDynamicBackground(imageUrl) {
     paletteRequestId += 1;
     const requestId = paletteRequestId;
 
+    console.log('🎭 更新动态背景，图片URL:', imageUrl);
+    debugLog(`动态背景: 更新至新的图片 ${imageUrl}`);
+
     if (!imageUrl) {
+        console.warn('❌ 图片URL为空，重置动态背景');
         resetDynamicBackground();
         return;
     }
 
-    debugLog(`动态背景: 更新至新的图片 ${imageUrl}`);
-
-    if (paletteAbortController) {
-        paletteAbortController.abort();
-        paletteAbortController = null;
-    }
-
-    if (paletteCache.has(imageUrl)) {
-        const cached = paletteCache.get(imageUrl);
-        paletteCache.delete(imageUrl);
-        paletteCache.set(imageUrl, cached);
-        queuePaletteApplication(cached, imageUrl);
-        return;
-    }
-
+    // 如果图片URL与当前相同且已有调色板，直接使用
     if (state.currentPaletteImage === imageUrl && state.dynamicPalette) {
+        console.log('🔄 图片URL相同且已有调色板，直接应用');
         queuePaletteApplication(state.dynamicPalette, imageUrl);
         return;
     }
 
-    let controller = null;
     try {
-        if (paletteAbortController) {
-            paletteAbortController.abort();
-        }
-
-        // 移除AbortController，因为fetchPaletteData不再需要signal参数
-        
+        // 获取或生成调色板
         const palette = await fetchPaletteData(imageUrl);
+        
+        // 检查请求是否已被取消
         if (requestId !== paletteRequestId) {
+            console.log('⏭️ 请求已被取消，跳过应用调色板');
             return;
         }
+        
+        console.log('🎨 应用调色板到背景');
         queuePaletteApplication(palette, imageUrl);
     } catch (error) {
-        console.warn("获取动态背景失败:", error);
+        console.error("❌ 获取动态背景失败:", error);
         debugLog(`动态背景加载失败: ${error}`);
         if (requestId === paletteRequestId) {
+            console.log('🔄 重置动态背景');
             resetDynamicBackground();
         }
-    } finally {
-        paletteAbortController = null;
     }
 }
 
