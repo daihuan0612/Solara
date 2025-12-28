@@ -793,9 +793,15 @@ const API = {
 
                 const text = await response.text();
                 try {
+                    // 检查响应内容是否为空或无效
+                    if (!text || text.trim().length === 0) {
+                        console.warn("响应内容为空，返回null");
+                        return null;
+                    }
                     return JSON.parse(text);
                 } catch (parseError) {
                     console.warn("JSON parse failed, returning raw text", parseError);
+                    // 对于非JSON响应（如音频文件），直接返回原始文本
                     return text;
                 }
             } catch (error) {
@@ -7081,28 +7087,6 @@ async function downloadSong(song, quality = null) {
             downloadWithBlobUrl(apiUrl, fileName);
         }, 100);
         
-        // 额外的IDM兼容性处理：添加推荐的文件名到URL参数
-        // IDM通常会从URL中提取文件名，所以构造一个包含文件名的URL可能有助于IDM识别
-        setTimeout(() => {
-            // 创建一个带文件名提示的URL，这有助于IDM识别文件名
-            const encodedFileName = encodeURIComponent(fileName);
-            const urlWithFilename = `${apiUrl}&filename=${encodedFileName}`;
-            
-            // 创建一个隐藏的链接，可能有助于某些下载管理器
-            const hiddenLink = document.createElement('a');
-            hiddenLink.href = urlWithFilename;
-            hiddenLink.style.display = 'none';
-            hiddenLink.setAttribute('data-filename', fileName);  // 为下载管理器提供文件名提示
-            document.body.appendChild(hiddenLink);
-            
-            // 延迟清理
-            setTimeout(() => {
-                if (hiddenLink.parentNode) {
-                    hiddenLink.parentNode.removeChild(hiddenLink);
-                }
-            }, 2000);
-        }, 200);
-        
         // 根据质量显示不同的通知
         const qualityText = (finalQuality === 'flac' || finalQuality === '999') ? ' (无损音质)' : '';
         showNotification(`正在下载: ${song.name}${qualityText}`, 'success');
@@ -7115,25 +7099,73 @@ async function downloadSong(song, quality = null) {
 }
 
 // 通过Blob URL下载，用于处理跨域和IDM兼容性
-async function downloadWithBlobUrl(url, filename) {
+async function downloadWithBlobUrl(url, filename, redirectCount = 0) {
+    // 限制重定向次数，避免无限循环
+    if (redirectCount > 5) {
+        console.error('重定向次数过多，停止下载');
+        return;
+    }
+    
     try {
         // 使用fetch获取音频数据
         const response = await fetch(url, {
             method: 'GET',
             mode: 'cors',  // 明确指定CORS模式
             headers: {
-                'Accept': '*/*',
+                'Accept': 'audio/*,application/octet-stream,*/*',
                 // 添加一些常见的请求头来提高兼容性
                 'Accept-Language': navigator.language || 'zh-CN',
                 'Referer': window.location.href,
                 'Origin': window.location.origin,
+                'Sec-Fetch-Dest': 'audio',
+                'Sec-Fetch-Mode': 'cors',
             },
             // 禁用缓存以避免问题
             cache: 'no-cache'
         });
         
+        // 检查是否是重定向
+        if (response.status >= 300 && response.status < 400) {
+            const redirectUrl = response.headers.get('Location') || response.headers.get('location');
+            if (redirectUrl) {
+                console.log('发现重定向，使用新的URL:', redirectUrl);
+                return await downloadWithBlobUrl(redirectUrl, filename, redirectCount + 1);
+            }
+        }
+        
         if (!response.ok) {
             throw new Error(`下载失败: ${response.status} ${response.statusText}`);
+        }
+        
+        // 检查响应类型
+        const contentType = response.headers.get('content-type');
+        console.log('响应内容类型:', contentType);
+        
+        // 如果响应是JSON（可能是API错误或重定向信息），需要特殊处理
+        if (contentType && contentType.includes('application/json')) {
+            let jsonData;
+            try {
+                jsonData = await response.json();
+            } catch (jsonError) {
+                console.warn('无法解析JSON响应:', jsonError);
+                // 如果是302重定向但内容是HTML，尝试从headers获取location
+                const location = response.headers.get('Location');
+                if (location) {
+                    console.log('从Location header获取重定向URL:', location);
+                    return await downloadWithBlobUrl(location, filename, redirectCount + 1);
+                }
+                throw new Error('无法解析响应');
+            }
+            
+            console.warn('API返回JSON响应而不是音频文件:', jsonData);
+            
+            // 检查是否有实际的音频URL
+            if (jsonData.url) {
+                console.log('从JSON响应中提取音频URL:', jsonData.url);
+                return await downloadWithBlobUrl(jsonData.url, filename, redirectCount + 1);
+            } else {
+                throw new Error('API返回错误信息而非音频文件');
+            }
         }
         
         const blob = await response.blob();
