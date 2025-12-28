@@ -2546,9 +2546,10 @@ function handleVolumeChange(event) {
 
 function handleTimeUpdate() {
     const currentTime = dom.audioPlayer.currentTime || 0;
+    const duration = dom.audioPlayer.duration;
     console.log('⏱️ timeupdate事件触发:', {
         currentTime: currentTime,
-        duration: dom.audioPlayer.duration,
+        duration: duration,
         paused: dom.audioPlayer.paused,
         readyState: dom.audioPlayer.readyState
     });
@@ -2556,7 +2557,21 @@ function handleTimeUpdate() {
     if (!state.isSeeking) {
         dom.progressBar.value = currentTime;
         dom.currentTimeDisplay.textContent = formatTime(currentTime);
-        updateProgressBarBackground(currentTime, Number(dom.progressBar.max));
+        
+        // 针对酷我音乐的特殊处理：如果duration为0，使用currentTime作为max值
+        let maxValue = Number(dom.progressBar.max);
+        if (state.currentSong && state.currentSong.source === 'kuwo' && duration === 0) {
+            maxValue = Math.max(currentTime + 1, 100); // 确保max值大于currentTime
+            dom.progressBar.max = maxValue;
+            // 更新duration显示为--:--，因为我们不知道总时长
+            dom.durationDisplay.textContent = "--:--";
+        } else if (duration > 0) {
+            // 如果duration可用，更新progressBar.max和durationDisplay
+            dom.progressBar.max = duration;
+            dom.durationDisplay.textContent = formatTime(duration);
+        }
+        
+        updateProgressBarBackground(currentTime, maxValue);
     }
 
     syncLyrics();
@@ -2633,9 +2648,18 @@ function stopCurrentTimeMonitor() {
 }
 
 function handleLoadedMetadata() {
-    const duration = dom.audioPlayer.duration || 0;
-    dom.progressBar.max = duration;
-    dom.durationDisplay.textContent = formatTime(duration);
+    let duration = dom.audioPlayer.duration || 0;
+    
+    // 针对酷我音乐的特殊处理：如果duration为0，不设置progressBar.max，允许播放器持续更新
+    if (state.currentSong && state.currentSong.source === 'kuwo' && duration === 0) {
+        console.log('🎵 酷我音乐：duration为0，允许动态更新');
+        // 不设置progressBar.max，让它默认是100
+        dom.durationDisplay.textContent = "--:--";
+    } else {
+        dom.progressBar.max = duration;
+        dom.durationDisplay.textContent = formatTime(duration);
+    }
+    
     const storedTime = state.currentList === "favorite"
         ? state.favoritePlaybackTime
         : state.currentPlaybackTime;
@@ -4195,6 +4219,7 @@ function updateCurrentSongInfo(song, options = {}) {
                 let timeoutId;
                 
                 // 移除crossOrigin属性，避免跨域问题
+                img.referrerpolicy = "no-referrer";
                 
                 img.onload = () => {
                     clearTimeout(timeoutId);
