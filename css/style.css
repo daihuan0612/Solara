@@ -168,7 +168,7 @@ body.background-transitioning .background-stage__layer--transition {
     letter-spacing: 1px; 
 }
 .header .warning { 
-    color: rgba(255, 255, 255, 0.8); 
+    color: var(--text-color); 
     font-size: 0.9em; 
     margin-top: 10px; 
     font-style: normal; 
