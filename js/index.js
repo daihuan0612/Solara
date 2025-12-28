@@ -6939,12 +6939,41 @@ async function downloadSong(song, quality = null) {
         apiUrl = preferHttpsUrl(apiUrl);
         console.log('🔗 API下载链接:', apiUrl);
 
-        // 2. 使用a标签直接下载
-        console.log('🌐 正在创建下载链接...');
+        // 2. 使用XMLHttpRequest获取文件内容，确保文件被下载
+        console.log('📥 正在获取文件内容...');
+        
+        // 创建Promise包装的XMLHttpRequest
+        const blob = await new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('GET', apiUrl, true);
+            xhr.responseType = 'blob';
+            
+            xhr.onload = function() {
+                if (xhr.status === 200) {
+                    resolve(xhr.response);
+                } else {
+                    reject(new Error(`下载请求失败: ${xhr.status}`));
+                }
+            };
+            
+            xhr.onerror = function() {
+                reject(new Error('网络请求失败'));
+            };
+            
+            xhr.send();
+        });
+        
+        console.log('📦 文件已转换为Blob，大小:', blob.size, '类型:', blob.type);
+        
+        // 3. 创建Blob URL下载
+        console.log('🌐 正在创建Blob URL...');
+        
+        // 创建Blob URL
+        const blobUrl = URL.createObjectURL(blob);
         
         // 创建下载链接
         const link = document.createElement('a');
-        link.href = apiUrl;
+        link.href = blobUrl;
         link.download = fileName;
         link.rel = 'noopener noreferrer'; // 安全设置
         link.style.display = 'none';
@@ -6960,16 +6989,17 @@ async function downloadSong(song, quality = null) {
         });
         link.dispatchEvent(clickEvent);
         
-        // 延迟移除链接
+        // 延迟移除链接和释放Blob URL
         setTimeout(() => {
             document.body.removeChild(link);
-            console.log('🗑️ 已移除下载链接');
-        }, 1000);
+            URL.revokeObjectURL(blobUrl);
+            console.log('🗑️ 已移除下载链接并释放Blob URL');
+        }, 5000);
         
         console.log('💾 下载已触发');
         
-        // 3. 显示通知
-        showNotification(`${song.name} 下载已触发 (如果变成了播放，请按 Ctrl+S 保存)`, 'success');
+        // 4. 显示通知
+        showNotification(`${song.name} 下载已开始`, 'success');
         console.log('✅ 下载流程完成');
 
     } catch (error) {
