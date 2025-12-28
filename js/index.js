@@ -1954,6 +1954,8 @@ loadStoredPalettes();
 // 本地取色逻辑：使用 Canvas API 从图片中提取颜色
 function getLocalPalette(imageUrl) {
     return new Promise((resolve, reject) => {
+        debugLog(`🎨 开始本地取色，图片 URL: ${imageUrl}`);
+        
         // 移除跨域限制，允许所有图片进行本地取色
         // if (imageUrl.includes('music-dl.sayqz.com') || imageUrl.includes('y.qq.com')) {
         //     resolve(null);
@@ -1961,9 +1963,10 @@ function getLocalPalette(imageUrl) {
         // }
         
         const img = new Image();
-        // 移除crossOrigin属性，避免跨域问题
-        // img.crossOrigin = "anonymous";
+        // 设置crossOrigin属性，允许跨域图片
+        img.crossOrigin = "anonymous";
         img.onload = () => {
+            debugLog(`🎨 图片加载成功，开始提取颜色`);
             try {
                 const canvas = document.createElement("canvas");
                 const ctx = canvas.getContext("2d");
@@ -1984,13 +1987,15 @@ function getLocalPalette(imageUrl) {
                 canvas.width = width;
                 canvas.height = height;
                 ctx.drawImage(img, 0, 0, width, height);
+                debugLog(`🎨 Canvas 绘制完成，尺寸: ${width}x${height}`);
                 
                 // 获取像素数据，处理可能的跨域错误
                 let imageData;
                 try {
                     imageData = ctx.getImageData(0, 0, width, height);
+                    debugLog(`🎨 成功获取像素数据，像素数: ${imageData.data.length / 4}`);
                 } catch (crossOriginError) {
-                    console.warn("跨域图片无法提取颜色，使用默认调色板:", crossOriginError);
+                    debugLog(`⚠️ 跨域图片无法提取颜色: ${crossOriginError.message}`);
                     resolve(null);
                     return;
                 }
@@ -2010,6 +2015,7 @@ function getLocalPalette(imageUrl) {
                 }
                 
                 if (count === 0) {
+                    debugLog(`⚠️ 没有找到不透明像素，使用默认调色板`);
                     resolve(null);
                     return;
                 }
@@ -2020,6 +2026,7 @@ function getLocalPalette(imageUrl) {
                 
                 // 创建调色板数据
                 const hex = `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+                debugLog(`🎨 成功提取颜色: ${hex}`);
                 // 创建非常微妙的渐变，变化幅度很小
                 // 最浅的地方只比主色调浅60%，几乎看不出明显变化
                 const palette = {
@@ -2045,23 +2052,30 @@ function getLocalPalette(imageUrl) {
                     }
                 };
                 
+                debugLog(`🎨 成功创建调色板，开始应用`);
                 resolve(palette);
             } catch (error) {
+                debugLog(`⚠️ 取色失败: ${error.message}`);
                 console.warn("取色失败，使用默认调色板:", error);
                 resolve(null);
             }
         };
-        img.onerror = () => {
+        img.onerror = (error) => {
+            debugLog(`⚠️ 图片加载失败: ${error.message || 'Unknown error'}`);
             console.warn("图片加载失败，使用默认调色板");
             resolve(null);
         };
         img.src = imageUrl;
+        debugLog(`🎨 开始加载图片: ${imageUrl}`);
     });
 }
 
 async function fetchPaletteData(imageUrl, signal) {
+    debugLog(`🎨 开始获取调色板数据，图片 URL: ${imageUrl}`);
+    
     if (paletteCache.has(imageUrl)) {
         const cached = paletteCache.get(imageUrl);
+        debugLog(`🎨 使用缓存的调色板`);
         paletteCache.delete(imageUrl);
         paletteCache.set(imageUrl, cached);
         return cached;
@@ -2071,11 +2085,15 @@ async function fetchPaletteData(imageUrl, signal) {
         // 优先尝试本地取色
         const localPalette = await getLocalPalette(imageUrl);
         if (localPalette) {
+            debugLog(`🎨 本地取色成功，使用提取的调色板`);
             paletteCache.set(imageUrl, localPalette);
             persistPaletteCache();
             return localPalette;
+        } else {
+            debugLog(`🎨 本地取色返回 null，使用默认调色板`);
         }
     } catch (error) {
+        debugLog(`⚠️ 本地取色失败: ${error.message}`);
         console.warn("本地取色失败:", error);
     }
 
@@ -2101,6 +2119,7 @@ async function fetchPaletteData(imageUrl, signal) {
         }
     };
     
+    debugLog(`🎨 使用默认调色板`);
     paletteCache.set(imageUrl, defaultPalette);
     persistPaletteCache();
     return defaultPalette;
@@ -2111,18 +2130,21 @@ async function updateDynamicBackground(imageUrl) {
     const requestId = paletteRequestId;
 
     if (!imageUrl) {
+        debugLog(`🎨 图片 URL 为空，重置动态背景`);
         resetDynamicBackground();
         return;
     }
 
-    debugLog(`动态背景: 更新至新的图片 ${imageUrl}`);
+    debugLog(`🎨 动态背景: 更新至新的图片 ${imageUrl}`);
 
     if (paletteAbortController) {
+        debugLog(`🎨 终止之前的取色请求`);
         paletteAbortController.abort();
         paletteAbortController = null;
     }
 
     if (paletteCache.has(imageUrl)) {
+        debugLog(`🎨 调色板缓存命中，使用缓存的调色板`);
         const cached = paletteCache.get(imageUrl);
         paletteCache.delete(imageUrl);
         paletteCache.set(imageUrl, cached);
@@ -2131,6 +2153,7 @@ async function updateDynamicBackground(imageUrl) {
     }
 
     if (state.currentPaletteImage === imageUrl && state.dynamicPalette) {
+        debugLog(`🎨 已使用该图片的调色板，直接应用`);
         queuePaletteApplication(state.dynamicPalette, imageUrl);
         return;
     }
@@ -2141,25 +2164,32 @@ async function updateDynamicBackground(imageUrl) {
             paletteAbortController.abort();
         }
 
+        debugLog(`🎨 创建新的 AbortController`);
         controller = new AbortController();
         paletteAbortController = controller;
 
+        debugLog(`🎨 开始获取调色板数据`);
         const palette = await fetchPaletteData(imageUrl, controller.signal);
         if (requestId !== paletteRequestId) {
+            debugLog(`🎨 请求已过时，忽略结果`);
             return;
         }
+        debugLog(`🎨 调色板获取成功，开始应用`);
         queuePaletteApplication(palette, imageUrl);
     } catch (error) {
         if (error?.name === "AbortError") {
+            debugLog(`🎨 取色请求被终止`);
             return;
         }
         console.warn("获取动态背景失败:", error);
-        debugLog(`动态背景加载失败: ${error}`);
+        debugLog(`🎨 动态背景加载失败: ${error.message}`);
         if (requestId === paletteRequestId) {
+            debugLog(`🎨 重置动态背景`);
             resetDynamicBackground();
         }
     } finally {
         if (controller && paletteAbortController === controller) {
+            debugLog(`🎨 清理 AbortController`);
             paletteAbortController = null;
         }
     }
