@@ -94,12 +94,14 @@
 
     html.login-page-root {
       min-height: var(--mobile-vh, 100dvh);
-      height: auto;
+      height: var(--mobile-vh, 100dvh);
+      overflow: hidden;
     }
 
     html.login-page-root,
     body.login-page {
       overflow-x: hidden;
+      overflow-y: hidden;
     }
 
     /* 修复登录时出现的灰色长条问题 */
@@ -162,11 +164,12 @@
     }
 
     body.login-page.mobile-view {
-      position: static;
+      position: fixed;
       inset: 0;
       width: 100vw;
-      height: var(--mobile-vh, 100dvh);
-      min-height: var(--mobile-vh, 100dvh);
+      height: 100vh;
+      min-height: 100vh;
+      max-height: 100vh;
       padding: calc(env(safe-area-inset-top, 0px) + clamp(18px, 6vw, 32px))
                clamp(18px, 6vw, 32px)
                calc(env(safe-area-inset-bottom, 0px) + clamp(24px, 7vw, 36px));
@@ -174,7 +177,7 @@
       flex-direction: column;
       justify-content: center;
       align-items: center;
-      overflow-y: auto;
+      overflow: hidden;
       background: radial-gradient(circle at 20% 20%, rgba(26, 188, 156, 0.35), transparent 55%),
                   radial-gradient(circle at 80% 0%, rgba(52, 152, 219, 0.28), transparent 50%),
                   #07090f;
@@ -194,7 +197,9 @@
       position: fixed;
       inset: 0;
       width: 100vw;
-      height: var(--mobile-vh, 100vh);
+      height: 100vh;
+      min-height: 100vh;
+      max-height: 100vh;
       max-width: 100vw;
       box-sizing: border-box;
       overflow: hidden;
