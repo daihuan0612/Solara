@@ -484,7 +484,7 @@ body.background-transitioning .background-stage__layer--transition {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 12px 16px;
+    padding: 10px 12px;
     border-radius: 12px;
     cursor: pointer;
     transition: all 0.3s ease;
@@ -496,7 +496,7 @@ body.background-transitioning .background-stage__layer--transition {
     transform: translateY(20px);
     opacity: 0;
     animation: slideInUp 0.4s ease forwards;
-    gap: 14px;
+    gap: 10px;
 }
 
 .search-result-item:nth-child(1) { animation-delay: 0.1s; }
@@ -542,8 +542,8 @@ body.background-transitioning .background-stage__layer--transition {
 }
 
 .search-result-select {
-    width: 26px;
-    height: 26px;
+    width: 22px;
+    height: 22px;
     border-radius: 50%;
     border: 1px solid rgba(255, 255, 255, 0.4);
     background: rgba(255, 255, 255, 0.65);
@@ -554,7 +554,7 @@ body.background-transitioning .background-stage__layer--transition {
     flex-shrink: 0;
     transition: all 0.2s ease;
     cursor: pointer;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.08);
 }
 
 .search-result-select i {
