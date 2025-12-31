@@ -4254,9 +4254,7 @@ function updateCurrentSongInfo(song, options = {}) {
     // 只有在 updateBackground 为 true 时才更新当前歌曲状态
     if (updateBackground) {
         state.currentSong = song;
-        const sourceShortName = getSourceShortName(song.source);
-        const songNameWithSource = sourceShortName ? `[${sourceShortName}] ${song.name}` : song.name;
-        dom.currentSongTitle.textContent = songNameWithSource;
+        dom.currentSongTitle.textContent = song.name;
         updateMobileToolbarTitle();
         updateFavoriteIcons();
 
@@ -4533,8 +4531,7 @@ function createSearchResultItem(song, index) {
 
     const title = document.createElement("div");
     title.className = "search-result-title";
-    const sourceShortName = getSourceShortName(song.source);
-    title.textContent = sourceShortName ? `[${sourceShortName}] ${song.name || "未知歌曲"}` : (song.name || "未知歌曲");
+    title.textContent = song.name || "未知歌曲";
 
     const artist = document.createElement("div");
     artist.className = "search-result-artist";
