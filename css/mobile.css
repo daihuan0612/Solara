@@ -902,7 +902,7 @@ body.mobile-view .playlist-items {
 
 body.mobile-view .playlist-items .playlist-item {
     position: relative;
-    padding: 12px 108px 12px 18px;
+    padding: 10px 85px 10px 12px;
     white-space: normal;
     line-height: 1.35;
     min-height: 0;
@@ -936,43 +936,46 @@ body.mobile-view .playlist-items .playlist-item:hover {
 body.mobile-view .playlist-items .playlist-item .playlist-item-favorite,
 body.mobile-view .playlist-items .playlist-item .playlist-item-download,
 body.mobile-view .playlist-items .playlist-item .playlist-item-remove {
-    width: 28px;
-    height: 28px;
-    border-radius: 8px;
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
     opacity: 1 !important;
     display: flex;
     align-items: center;
     justify-content: center;
     border: 1px solid transparent;
     padding: 0;
-    font-size: 14px;
+    font-size: 12px;
     cursor: pointer;
     transition: all 0.2s ease;
     z-index: 5;
 }
 
 body.mobile-view .playlist-items .playlist-item .playlist-item-favorite {
-    right: 88px;
+    right: 68px;
     background: #ff4d67 !important;
     color: #ffffff !important;
     border-color: rgba(255, 77, 103, 0.6) !important;
-    box-shadow: 0 4px 12px rgba(255, 77, 103, 0.25) !important;
+    box-shadow: 0 3px 8px rgba(255, 77, 103, 0.25) !important;
 }
 
 body.mobile-view .playlist-items .playlist-item .playlist-item-download {
-    right: 48px;
+    right: 38px;
     background: var(--success-color) !important;
     color: #ffffff !important;
     border-color: rgba(46, 204, 113, 0.5) !important;
-    box-shadow: 0 4px 10px rgba(46, 204, 113, 0.2) !important;
+    box-shadow: 0 3px 8px rgba(46, 204, 113, 0.2) !important;
 }
 
 body.mobile-view .playlist-items .playlist-item .playlist-item-remove {
-    right: 12px;
+    right: 8px;
     background: rgba(255, 59, 48, 0.9) !important;
     color: #ffffff !important;
     border-color: rgba(231, 76, 60, 0.5) !important;
-    box-shadow: 0 4px 10px rgba(231, 76, 60, 0.22) !important;
+    box-shadow: 0 3px 8px rgba(231, 76, 60, 0.22) !important;
 }
 
 body.mobile-view .playlist-items .playlist-item:hover .playlist-item-favorite,
@@ -1016,16 +1019,17 @@ body.mobile-view.dark-mode .playlist-items .playlist-item.current {
 }
 
 body.mobile-view .favorites .favorite-item-action {
+    position: absolute;
     opacity: 1 !important;
-    width: 28px;
-    height: 28px;
-    border-radius: 8px;
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
     display: flex;
     align-items: center;
     justify-content: center;
     border: 1px solid transparent;
     padding: 0;
-    font-size: 14px;
+    font-size: 12px;
     cursor: pointer;
     transition: all 0.2s ease;
     z-index: 5;
@@ -1034,24 +1038,27 @@ body.mobile-view .favorites .favorite-item-action {
 }
 
 body.mobile-view .favorites .favorite-item-action--add {
+    right: 68px;
     background: #ff4d67 !important;
     color: #ffffff !important;
     border-color: rgba(255, 77, 103, 0.6) !important;
-    box-shadow: 0 4px 12px rgba(255, 77, 103, 0.25) !important;
+    box-shadow: 0 3px 8px rgba(255, 77, 103, 0.25) !important;
 }
 
 body.mobile-view .favorites .favorite-item-action--download {
+    right: 38px;
     background: var(--success-color) !important;
     color: #ffffff !important;
     border-color: rgba(46, 204, 113, 0.5) !important;
-    box-shadow: 0 4px 10px rgba(46, 204, 113, 0.2) !important;
+    box-shadow: 0 3px 8px rgba(46, 204, 113, 0.2) !important;
 }
 
 body.mobile-view .favorites .favorite-item-action--remove {
+    right: 8px;
     background: rgba(255, 59, 48, 0.9) !important;
     color: #ffffff !important;
     border-color: rgba(231, 76, 60, 0.5) !important;
-    box-shadow: 0 4px 10px rgba(231, 76, 60, 0.22) !important;
+    box-shadow: 0 3px 8px rgba(231, 76, 60, 0.22) !important;
 }
 
 body.mobile-view .favorites .favorite-item-action:hover,
@@ -1077,7 +1084,7 @@ body.mobile-view .favorites .playlist-items .playlist-item:focus-within .favorit
 
 body.mobile-view .favorites .playlist-items .playlist-item {
     position: relative;
-    padding: 12px 108px 12px 18px;
+    padding: 10px 85px 10px 12px;
     white-space: normal;
     line-height: 1.35;
     min-height: 0;
@@ -1185,6 +1192,7 @@ body.mobile-view .search-area .search-results {
     box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.05);
 }
 
+body.mobile-view.dark-mode .search-area .search-container,
 body.mobile-view.dark-mode .search-area .search-results {
     background: rgba(255, 255, 255, 0.08);
     border: 1px solid rgba(255, 255, 255, 0.18);
