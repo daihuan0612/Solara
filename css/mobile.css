@@ -897,9 +897,11 @@ body.mobile-view .lyrics-scroll {
 body.mobile-view .playlist-items {
     display: flex;
     flex-direction: column;
+    overflow: hidden;
 }
 
 body.mobile-view .playlist-items .playlist-item {
+    position: relative;
     padding: 12px 108px 12px 18px;
     white-space: normal;
     line-height: 1.35;
@@ -1074,6 +1076,7 @@ body.mobile-view .favorites .playlist-items .playlist-item:focus-within .favorit
 }
 
 body.mobile-view .favorites .playlist-items .playlist-item {
+    position: relative;
     padding: 12px 108px 12px 18px;
     white-space: normal;
     line-height: 1.35;
