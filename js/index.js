@@ -1951,8 +1951,8 @@ function getLocalPalette(imageUrl) {
         console.log('🎨 开始本地取色，图片URL:', imageUrl);
         
         const img = new Image();
-        // 移除crossOrigin属性，避免跨域问题
-        // 注：这可能导致无法获取像素数据，但我们有fallback方案
+        // 添加crossOrigin属性，确保能获取像素数据
+        img.crossOrigin = "anonymous";
         
         img.onload = () => {
             console.log('✅ 图片加载成功，尺寸:', img.width, 'x', img.height);
@@ -1999,7 +1999,7 @@ function getLocalPalette(imageUrl) {
                     const lightness = 65 + Math.abs(hash % 10);
                     
                     // 创建基于URL的调色板
-                    const hex = `#${((1 << 24) + Math.floor((hue * 0.7) * 2.55) << 16 + Math.floor(saturation * 2.55) << 8 + Math.floor(lightness * 2.55)).toString(16).slice(1)}`;
+                    const hex = `#${((1 << 24) + ((hue * 0.7) << 16) + ((saturation * 2.55) << 8) + (lightness * 2.55)).toString(16).slice(1)}`;
                     
                     const palette = {
                         gradients: {
@@ -2162,38 +2162,6 @@ function getLocalPalette(imageUrl) {
     });
 }
 
-// 获取默认调色板
-function getDefaultPalette(imageUrl = '') {
-    const defaultPalette = {
-        gradients: {
-            light: {
-                gradient: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)"
-            },
-            dark: {
-                gradient: "linear-gradient(135deg, #2c3e50 0%, #34495e 100%)"
-            }
-        },
-        tokens: {
-            light: {
-                primaryColor: "#667eea",
-                primaryColorDark: "#764ba2"
-            },
-            dark: {
-                primaryColor: "#3498db",
-                primaryColorDark: "#2980b9"
-            }
-        }
-    };
-    
-    // 如果提供了图片URL，将默认调色板缓存起来
-    if (imageUrl) {
-        paletteCache.set(imageUrl, defaultPalette);
-        persistPaletteCache();
-    }
-    
-    return defaultPalette;
-}
-
 async function fetchPaletteData(imageUrl) {
     console.log('🎨 开始获取调色板，图片URL:', imageUrl);
     
@@ -2206,18 +2174,33 @@ async function fetchPaletteData(imageUrl) {
         return cached;
     }
 
-    // 获取当前歌曲信息
-    const currentSong = state.currentSong;
-    const songSource = currentSong ? currentSong.source : '';
-    
     // 对于酷我音乐的图片，直接返回默认调色板（酷我音乐功能暂未修复）
     if (imageUrl.includes('kuwo')) {
         console.log('🎵 酷我音乐图片，使用默认调色板');
-        return getDefaultPalette(imageUrl);
+        const defaultPalette = {
+            gradients: {
+                light: {
+                    gradient: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)"
+                },
+                dark: {
+                    gradient: "linear-gradient(135deg, #2c3e50 0%, #34495e 100%)"
+                }
+            },
+            tokens: {
+                light: {
+                    primaryColor: "#667eea",
+                    primaryColorDark: "#764ba2"
+                },
+                dark: {
+                    primaryColor: "#3498db",
+                    primaryColorDark: "#2980b9"
+                }
+            }
+        };
+        paletteCache.set(imageUrl, defaultPalette);
+        persistPaletteCache();
+        return defaultPalette;
     }
-    
-    // 移除对网易云和QQ音乐的取色限制，所有有封面的歌曲都尝试取色
-    console.log(`🎵 ${songSource || '未知来源'}，尝试取色`);
 
     try {
         console.log('🔍 尝试本地取色');
@@ -4297,7 +4280,7 @@ function updateCurrentSongInfo(song, options = {}) {
         dom.albumCover.classList.add("loading");
         const picUrl = API.getPicUrl(song);
         
-        // 直接使用图片URL，API会返回302重定向到实际图片
+        // 直接使用图片URL，不通过JSON解析
         debugLog(`直接使用封面URL: ${picUrl}`);
         
         const preferredImageUrl = preferHttpsUrl(picUrl);
