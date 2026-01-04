@@ -2222,6 +2222,54 @@ async function fetchPaletteData(imageUrl) {
     
     // 移除对网易云和QQ音乐的取色限制，所有有封面的歌曲都尝试取色
     console.log(`🎵 ${songSource || '未知来源'}，尝试取色`);
+    
+    // 对于QQ音乐，使用基于URL哈希的取色方案，确保能取色
+    if (songSource === 'qq') {
+        console.log('🎵 QQ音乐，使用基于URL哈希的取色方案');
+        
+        // 基于URL哈希生成主题色，确保同一图片始终生成相同颜色
+        const hash = Array.from(imageUrl).reduce((acc, char) => {
+            acc = ((acc << 5) - acc) + char.charCodeAt(0);
+            return acc & acc;
+        }, 0);
+        
+        // 使用哈希生成一个一致的主题色
+        const hue = Math.abs(hash % 360);
+        const saturation = 60 + Math.abs(hash % 20);
+        const lightness = 65 + Math.abs(hash % 10);
+        
+        // 创建基于URL的调色板
+        const r = Math.floor((hue * 0.7) * 2.55);
+        const g = Math.floor(saturation * 2.55);
+        const b = Math.floor(lightness * 2.55);
+        const hex = `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+        
+        const palette = {
+            gradients: {
+                light: {
+                    gradient: `linear-gradient(135deg, ${hex} 0%, ${hex}bb 50%, ${hex}99 100%)`
+                },
+                dark: {
+                    gradient: `linear-gradient(135deg, ${hex}66 0%, ${hex}55 50%, ${hex}44 100%)`
+                }
+            },
+            tokens: {
+                light: {
+                    primaryColor: hex,
+                    primaryColorDark: hex
+                },
+                dark: {
+                    primaryColor: hex,
+                    primaryColorDark: hex
+                }
+            }
+        };
+        
+        console.log('🎨 使用URL哈希生成调色板:', hex);
+        paletteCache.set(imageUrl, palette);
+        persistPaletteCache();
+        return palette;
+    }
 
     try {
         console.log('🔍 尝试本地取色');
@@ -4299,9 +4347,9 @@ function updateCurrentSongInfo(song, options = {}) {
     if (song.pic_id || song.id) {
         cancelDeferredPaletteUpdate();
         dom.albumCover.classList.add("loading");
-        const picUrl = API.getPicUrl(song);
+        let picUrl = API.getPicUrl(song);
         
-        // 直接使用图片URL，API会返回302重定向到实际图片
+        // 直接使用API返回的URL，API会返回302重定向到实际图片
         debugLog(`直接使用封面URL: ${picUrl}`);
         
         const preferredImageUrl = preferHttpsUrl(picUrl);
@@ -4317,6 +4365,9 @@ function updateCurrentSongInfo(song, options = {}) {
         // 针对QQ音乐的封面加载优化（酷我音乐已禁用）
         const isSlowSource = song.source === 'qq';
         const loadTimeout = isSlowSource ? 8000 : 3000;
+        
+        // 直接使用图片URL，不通过JSON解析
+        debugLog(`使用封面URL: ${preferredImageUrl}`);
         
         // 优化图片加载，添加超时处理和重试机制
         const loadImageWithTimeout = (url, timeout) => {
