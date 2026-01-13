@@ -3072,9 +3072,6 @@ function buildQualityMenu() {
         `;
     }).join("");
     dom.playerQualityMenu.innerHTML = optionsHtml;
-    if (state.qualityMenuOpen) {
-        schedulePlayerQualityMenuPositionUpdate();
-    }
 }
 
 function isElementNode(value) {
