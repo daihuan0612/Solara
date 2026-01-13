@@ -1621,7 +1621,6 @@ html.mobile-view .favorites .favorite-item-action--remove {
     align-items: center;
     gap: 8px;
     line-height: 1;
-    font-size: 0.9em; /* 适度减小字体大小以节省空间 */
 }
 .controls button#loadOnlineBtn .btn-text i {
     line-height: 1;
@@ -1703,7 +1702,7 @@ html:not(.mobile-view) #playModeBtn {
     grid-area: trailing;
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-end;
     gap: 12px;
     width: 100%;
     flex-wrap: nowrap; /* 防止换行导致的布局错位 */
@@ -1736,7 +1735,6 @@ html:not(.mobile-view) #playModeBtn {
 .control-trailing #loadOnlineBtn {
     margin-left: auto;
     align-self: center; /* 确保与其它元素垂直居中对齐 */
-    font-size: 1em; /* 保持正常字体大小 */
 }
 
 .volume-container {
