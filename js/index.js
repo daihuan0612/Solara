@@ -646,18 +646,24 @@ function normalizeSource(value) {
 
 const QUALITY_OPTIONS = [
     { value: "mp3", label: "MP3音质", description: "自动选择" },
-    { value: "999", label: "无损音质", description: "FLAC" },
     { value: "flac", label: "无损音质", description: "FLAC" },
     { value: "flac24bit", label: "Hi-Res音质", description: "FLAC24bit" }
 ];
 
 function normalizeQuality(value) {
-    // 处理MP3选项，返回默认的MP3质量
-    if (value === "mp3") {
+    if (!value) return "mp3";
+    
+    const valueStr = String(value).trim();
+    
+    if (valueStr === "mp3") {
         return "mp3";
     }
     
-    const match = QUALITY_OPTIONS.find(option => option.value === value);
+    if (valueStr === "999") {
+        return "flac";
+    }
+    
+    const match = QUALITY_OPTIONS.find(option => option.value === valueStr);
     return match ? match.value : "mp3";
 }
 
