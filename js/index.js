@@ -647,7 +647,7 @@ function normalizeSource(value) {
 const QUALITY_OPTIONS = [
     { value: "mp3", label: "MP3音质", description: "自动选择" },
     { value: "flac", label: "无损音质", description: "FLAC" },
-    { value: "flac24bit", label: "Hi-Res音质", description: "FLAC24bit" }
+    { value: "flac24bit", label: "Hi-Res", description: "FLAC24bit" }
 ];
 
 function normalizeQuality(value) {
@@ -4992,7 +4992,7 @@ function showQualityMenu(event, index, type) {
     menu.innerHTML = `
         <div class="quality-option" onclick="downloadWithQuality(event, ${index}, '${type}', 'mp3')">MP3音质</div>
         <div class="quality-option" onclick="downloadWithQuality(event, ${index}, '${type}', 'flac')">无损音质 FLAC</div>
-        <div class="quality-option" onclick="downloadWithQuality(event, ${index}, '${type}', 'flac24bit')">Hi-Res音质 FLAC24bit</div>
+        <div class="quality-option" onclick="downloadWithQuality(event, ${index}, '${type}', 'flac24bit')">Hi-Res FLAC24bit</div>
     `;
 
     // 设置菜单位置
