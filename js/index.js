@@ -1605,6 +1605,9 @@ function schedulePlayerQualityMenuPositionUpdate() {
         cancelPlayerQualityMenuPositionUpdate();
         return;
     }
+    if (qualityMenuPositionLocked) {
+        return;
+    }
     if (qualityMenuPositionFrame !== null) {
         return;
     }
@@ -3252,7 +3255,9 @@ function closePlayerQualityMenu() {
         resetPlayerQualityMenuPosition();
         setQualityAnchorState(qualityMenuAnchor, false);
         qualityMenuAnchor = null;
+        qualityMenuPositionLocked = false;
         releaseFloatingMenuListenersIfIdle();
+        updateQualityLabel();
         return;
     }
 
@@ -3266,7 +3271,9 @@ function closePlayerQualityMenu() {
             return;
         }
         resetPlayerQualityMenuPosition();
+        qualityMenuPositionLocked = false;
         releaseFloatingMenuListenersIfIdle();
+        updateQualityLabel();
     };
 
     const handleTransitionEnd = (event) => {
@@ -3301,6 +3308,7 @@ function handlePlayerQualitySelection(event) {
 }
 
 async function selectPlaybackQuality(quality) {
+    const wasMenuOpen = state.qualityMenuOpen;
     const normalized = normalizeQuality(quality);
     if (normalized === state.playbackQuality) {
         closePlayerQualityMenu();
@@ -3308,7 +3316,6 @@ async function selectPlaybackQuality(quality) {
     }
 
     state.playbackQuality = normalized;
-    updateQualityLabel();
     buildQualityMenu();
     savePlayerState();
     closePlayerQualityMenu();
