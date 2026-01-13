@@ -1621,6 +1621,7 @@ html.mobile-view .favorites .favorite-item-action--remove {
     align-items: center;
     gap: 8px;
     line-height: 1;
+    font-size: 0.85em; /* 减小字体大小以节省空间 */
 }
 .controls button#loadOnlineBtn .btn-text i {
     line-height: 1;
@@ -1703,7 +1704,7 @@ html:not(.mobile-view) #playModeBtn {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 20px;
+    gap: 12px;
     width: 100%;
     flex-wrap: nowrap; /* 防止换行导致的布局错位 */
 }
@@ -1726,7 +1727,7 @@ html:not(.mobile-view) #playModeBtn {
 .audio-tools {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 12px;
     flex-wrap: nowrap; /* 防止工具栏内部换行 */
     justify-content: flex-start;
     flex: 1 0 auto; /* 占用剩余空间但不扩展 */
@@ -1735,6 +1736,7 @@ html:not(.mobile-view) #playModeBtn {
 .control-trailing #loadOnlineBtn {
     margin-left: auto;
     align-self: center; /* 确保与其它元素垂直居中对齐 */
+    font-size: 0.9em; /* 减小字体大小以节省空间 */
 }
 
 .volume-container {
@@ -1798,7 +1800,7 @@ input[type="range"]:active::-moz-range-thumb {
     align-items: center;
     justify-content: center;
     gap: 0;
-    padding: 10px 16px;
+    padding: 10px 14px;
     border-radius: 8px;
     border: 1px solid var(--border-color);
     background: var(--component-bg);
