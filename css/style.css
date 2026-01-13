@@ -1786,6 +1786,8 @@ input[type="range"]:active::-moz-range-thumb {
 
 .player-quality {
     position: relative;
+    min-height: 42px; /* 确保按钮容器有固定高度以防止布局移动 */
+    min-width: 100px; /* 为菜单预留空间 */
 }
 
 .controls .player-quality-btn {
@@ -1831,6 +1833,9 @@ input[type="range"]:active::-moz-range-thumb {
     transition: all 0.2s ease;
     z-index: 100000;
     pointer-events: none;
+    /* 固定最大高度以避免布局波动 */
+    max-height: 200px;
+    overflow-y: auto;
 }
 
 .dark-mode .player-quality-menu {
@@ -1846,12 +1851,20 @@ input[type="range"]:active::-moz-range-thumb {
     pointer-events: auto;
 }
 
+/* 当音质菜单打开时，确保父容器保持固定尺寸 */
+.player-quality.parent-with-open-menu {
+    min-height: 42px;
+    overflow: visible;
+}
+
 .player-quality-menu.floating {
     position: fixed;
     right: auto;
     left: 0;
     top: 0;
     will-change: opacity, transform;
+    /* 确保菜单浮起时原位置仍保留空间 */
+    margin-top: 0 !important;
 }
 
 .player-quality-menu.floating:not(.show) {
