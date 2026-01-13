@@ -3233,6 +3233,12 @@ function openPlayerQualityMenu(anchor) {
     setQualityAnchorState(qualityMenuAnchor, true);
     menu.classList.add("floating");
     menu.classList.remove("show");
+    
+    // 添加CSS类以保持父容器尺寸
+    const parentContainer = menu.closest('.player-quality');
+    if (parentContainer) {
+        parentContainer.classList.add('parent-with-open-menu');
+    }
 
     runWithoutTransition(menu, () => {
         updatePlayerQualityMenuPosition();
@@ -3250,6 +3256,12 @@ function closePlayerQualityMenu() {
     if (!dom.playerQualityMenu) return;
     const menu = dom.playerQualityMenu;
     const wasOpen = state.qualityMenuOpen || menu.classList.contains("show");
+    
+    // 移除CSS类以恢复父容器的正常状态
+    const parentContainer = menu.closest('.player-quality');
+    if (parentContainer) {
+        parentContainer.classList.remove('parent-with-open-menu');
+    }
 
     if (!wasOpen) {
         resetPlayerQualityMenuPosition();
