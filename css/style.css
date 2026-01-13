@@ -1787,8 +1787,10 @@ input[type="range"]:active::-moz-range-thumb {
 
 .player-quality {
     position: relative;
-    min-height: 42px; /* 确保按钮容器有固定高度以防止布局移动 */
+    min-height: 46px; /* 确保按钮容器有固定高度以防止布局移动 */
     flex: 0 0 auto; /* 防止按钮被压缩 */
+    display: flex;
+    align-items: center;
 }
 
 .controls .player-quality-btn {
@@ -1805,9 +1807,10 @@ input[type="range"]:active::-moz-range-thumb {
     font-weight: 500;
     cursor: pointer;
     transition: all 0.2s ease;
-    width: auto;
-    height: auto;
+    min-width: 80px; /* 固定最小宽度以保持一致的按钮尺寸 */
+    height: 40px; /* 固定高度以保持一致的按钮尺寸 */
     box-shadow: none;
+    overflow: hidden;
 }
 
 .controls .player-quality-btn:hover,
@@ -1816,6 +1819,14 @@ input[type="range"]:active::-moz-range-thumb {
     color: var(--primary-color);
     box-shadow: 0 6px 16px rgba(26, 188, 156, 0.25);
     background: var(--component-bg);
+}
+
+/* 确保音质标签文本样式一致 */
+#qualityLabel {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
 }
 
 .player-quality-menu {
