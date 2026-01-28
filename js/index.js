@@ -2178,9 +2178,79 @@ async function fetchPaletteData(imageUrl) {
     const currentSong = state.currentSong;
     const songSource = currentSong ? currentSong.source : '';
     
-    // 对于酷我音乐的图片，直接返回默认调色板（酷我音乐功能暂未修复）
-    if (imageUrl.includes('kuwo')) {
-        console.log('🎵 酷我音乐图片，使用默认调色板');
+    // 对于酷我音乐的图片，尝试从网易云或joox获取同歌曲同演唱者的封面来取色
+    if (imageUrl.includes('kuwo') && currentSong) {
+        console.log('🎵 酷我音乐图片，尝试从其他平台获取封面取色');
+        
+        try {
+            // 尝试从网易云搜索同一首歌曲
+            console.log('🔍 尝试从网易云搜索同一首歌曲');
+            const searchResults = await API.search(
+                `${currentSong.name} ${Array.isArray(currentSong.artist) ? currentSong.artist.join(' ') : currentSong.artist}`,
+                'netease',
+                5,
+                1
+            );
+            
+            // 查找匹配的歌曲
+            const matchedSong = searchResults.find(song => {
+                const songName = song.name || '';
+                const songArtist = song.artist ? (Array.isArray(song.artist) ? song.artist.join(' ') : song.artist) : '';
+                const currentSongName = currentSong.name || '';
+                const currentSongArtist = currentSong.artist ? (Array.isArray(currentSong.artist) ? currentSong.artist.join(' ') : currentSong.artist) : '';
+                
+                // 严格的匹配逻辑：同时匹配歌曲名和艺术家
+                return (songName.includes(currentSongName) || currentSongName.includes(songName)) && 
+                       (songArtist.includes(currentSongArtist) || currentSongArtist.includes(songArtist));
+            });
+            
+            if (matchedSong && matchedSong.pic_id) {
+                console.log('✅ 找到匹配的网易云歌曲，使用其封面取色');
+                const neteasePicUrl = API.getPicUrl({
+                    ...matchedSong,
+                    source: 'netease'
+                });
+                
+                // 递归调用，使用网易云的封面取色
+                return fetchPaletteData(neteasePicUrl);
+            } else {
+                console.log('🔍 尝试从joox搜索同一首歌曲');
+                // 如果网易云没有找到，尝试从joox搜索
+                const jooxResults = await API.search(
+                    `${currentSong.name} ${Array.isArray(currentSong.artist) ? currentSong.artist.join(' ') : currentSong.artist}`,
+                    'joox',
+                    5,
+                    1
+                );
+                
+                // 查找匹配的歌曲
+                const jooxMatchedSong = jooxResults.find(song => {
+                    const songName = song.name || '';
+                    const songArtist = song.artist ? (Array.isArray(song.artist) ? song.artist.join(' ') : song.artist) : '';
+                    const currentSongName = currentSong.name || '';
+                    const currentSongArtist = currentSong.artist ? (Array.isArray(currentSong.artist) ? currentSong.artist.join(' ') : currentSong.artist) : '';
+                    // 严格的匹配逻辑：同时匹配歌曲名和艺术家
+                    return (songName.includes(currentSongName) || currentSongName.includes(songName)) && 
+                           (songArtist.includes(currentSongArtist) || currentSongArtist.includes(songArtist));
+                });
+                
+                if (jooxMatchedSong && jooxMatchedSong.pic_id) {
+                    console.log('✅ 找到匹配的joox歌曲，使用其封面取色');
+                    const jooxPicUrl = API.getPicUrl({
+                        ...jooxMatchedSong,
+                        source: 'joox'
+                    });
+                    
+                    // 递归调用，使用joox的封面取色
+                    return fetchPaletteData(jooxPicUrl);
+                }
+            }
+        } catch (error) {
+            console.warn('❌ 从其他平台获取封面失败:', error);
+        }
+        
+        // 如果都没有找到，才使用默认调色板
+        console.log('🎵 没有找到匹配的歌曲，使用默认调色板');
         return getDefaultPalette(imageUrl);
     }
     
