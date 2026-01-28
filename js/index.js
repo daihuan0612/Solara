@@ -660,7 +660,7 @@ const QUALITY_OPTIONS = [
 
 function normalizeQuality(value) {
     const match = QUALITY_OPTIONS.find(option => option.value === value);
-    return match ? match.value : "320";
+    return match ? match.value : "999";
 }
 
 const savedPlaylistSongs = (() => {
@@ -723,7 +723,7 @@ const savedVolume = (() => {
     if (Number.isFinite(volume)) {
         return Math.min(Math.max(volume, 0), 1);
     }
-    return 0.8;
+    return 1;
 })();
 
 const savedSearchSource = (() => {
@@ -7100,65 +7100,58 @@ function scrollToCurrentLyric(element, containerOverride) {
 // ============================================================
 // 最终稳妥版下载函数：支持JSON响应和直接下载
 // ============================================================
-async function downloadSong(song, quality = null) {
+async function downloadSong(song, quality = "320") {
     try {
-        // 恢复质量选择功能，根据不同质量获取不同链接
-        const finalQuality = quality || state.playbackQuality || 'flac';
-        showNotification(`正在获取 ${song.name} 下载地址...`, 'info');
+        showNotification("正在准备下载...");
 
-        // 1. 获取API端点URL
-        const apiUrl = API.getSongUrl(song, finalQuality);
-        if (!apiUrl) {
-            throw new Error('无法获取API链接');
+        const audioUrl = API.getSongUrl(song, quality);
+        const audioData = await API.fetchJson(audioUrl);
+
+        if (audioData && audioData.url) {
+            const proxiedAudioUrl = buildAudioProxyUrl(audioData.url);
+            const preferredAudioUrl = preferHttpsUrl(audioData.url);
+
+            if (proxiedAudioUrl !== audioData.url) {
+                debugLog(`下载链接已通过代理转换为 HTTPS: ${proxiedAudioUrl}`);
+            } else if (preferredAudioUrl !== audioData.url) {
+                debugLog(`下载链接由 HTTP 升级为 HTTPS: ${preferredAudioUrl}`);
+            }
+
+            const downloadUrl = proxiedAudioUrl || preferredAudioUrl || audioData.url;
+
+            const link = document.createElement("a");
+            link.href = downloadUrl;
+            const preferredExtension = quality === "999" ? "flac" : quality === "740" ? "ape" : "mp3";
+            const fileExtension = (() => {
+                try {
+                    const url = new URL(audioData.url);
+                    const pathname = url.pathname || "";
+                    const match = pathname.match(/\.([a-z0-9]+)$/i);
+                    if (match) {
+                        return match[1];
+                    }
+                } catch (error) {
+                    console.warn("无法从下载链接中解析扩展名:", error);
+                }
+                return preferredExtension;
+            })();
+            const artistName = Array.isArray(song.artist) ? song.artist.join(", ") : (song.artist || "未知艺术家");
+            const songName = song.name || "未知歌曲";
+            const safeSongName = songName.replace(/[<>:\"/\\|?*]/g, '_').replace(/\s+/g, ' ');
+            const safeArtistName = artistName.replace(/[<>:\"/\\|?*]/g, '_').replace(/\s+/g, ' ');
+            link.download = `${safeSongName} - ${safeArtistName}.${fileExtension}`;
+            link.target = "_blank";
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
+            showNotification("下载已开始", "success");
+        } else {
+            throw new Error("无法获取下载地址");
         }
-        console.log('🔗 API端点URL:', apiUrl);
-
-        // 2. 生成文件名，处理artist为数组的情况
-        const artistName = Array.isArray(song.artist) ? song.artist.join(', ') : (song.artist || '未知艺术家');
-        const songName = song.name || '未知歌曲';
-        // 根据质量确定文件扩展名
-        let fileExtension = 'mp3';
-        if (finalQuality === '999' || finalQuality === 'flac' || finalQuality === 'flac24bit') {
-            fileExtension = 'flac';
-        }
-        // 按照用户要求的格式：歌曲名 - 艺术家.扩展名
-        // 确保文件名安全，移除特殊字符
-        const safeSongName = songName.replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, ' ');
-        const safeArtistName = artistName.replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, ' ');
-        const fileName = `${safeSongName} - ${safeArtistName}.${fileExtension}`;
-        console.log('📁 最终文件名:', fileName);
-
-        // 3. 针对不同音质的优化下载策略
-        console.log('🎵 优化的下载策略，质量:', finalQuality);
-        
-        // 统一所有音质的下载方式，完全复用MP3的成功代码
-        console.log('🎵 统一下载方式：复用MP3的成功代码');
-        
-        // 为确保IDM和浏览器都能正确识别文件名，使用代理下载方式处理跨域
-        const link = document.createElement('a');
-        link.href = apiUrl;
-        link.download = fileName;
-        link.style.display = 'none';
-        link.rel = 'noopener noreferrer';
-        
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        
-        // 为确保IDM能捕获下载，延迟一小段时间后尝试第二次触发（如果需要）
-        setTimeout(() => {
-            // 尝试使用fetch方式创建blob URL作为备选方案
-            downloadWithBlobUrl(apiUrl, fileName);
-        }, 100);
-        
-        // 根据质量显示不同的通知
-        const qualityText = (finalQuality === 'flac' || finalQuality === '999') ? ' (无损音质)' : '';
-        showNotification(`正在下载: ${song.name}${qualityText}`, 'success');
-        console.log(`✅ 下载流程完成，文件名: ${fileName}`);
-
     } catch (error) {
-        console.error('❌ 下载出错:', error);
-        showNotification('获取下载地址失败', 'error');
+        console.error("下载失败:", error);
+        showNotification("下载失败，请稍后重试", "error");
     }
 }
 
