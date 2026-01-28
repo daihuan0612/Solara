@@ -2195,13 +2195,12 @@ async function fetchPaletteData(imageUrl) {
             // 查找匹配的歌曲
             const matchedSong = searchResults.find(song => {
                 const songName = song.name || '';
-                const songArtist = song.artist ? (Array.isArray(song.artist) ? song.artist.join(' ') : song.artist) : '';
+                const songArtist = Array.isArray(song.artist) ? song.artist.join(' ') : (song.artist || '');
                 const currentSongName = currentSong.name || '';
-                const currentSongArtist = currentSong.artist ? (Array.isArray(currentSong.artist) ? currentSong.artist.join(' ') : currentSong.artist) : '';
+                const currentSongArtist = Array.isArray(currentSong.artist) ? currentSong.artist.join(' ') : (currentSong.artist || '');
                 
-                // 严格的匹配逻辑：同时匹配歌曲名和艺术家
-                return (songName.includes(currentSongName) || currentSongName.includes(songName)) && 
-                       (songArtist.includes(currentSongArtist) || currentSongArtist.includes(songArtist));
+                // 简单的匹配逻辑：歌曲名和演唱者名都包含在搜索结果中
+                return songName.includes(currentSongName) || currentSongName.includes(songName);
             });
             
             if (matchedSong && matchedSong.pic_id) {
@@ -2226,12 +2225,8 @@ async function fetchPaletteData(imageUrl) {
                 // 查找匹配的歌曲
                 const jooxMatchedSong = jooxResults.find(song => {
                     const songName = song.name || '';
-                    const songArtist = song.artist ? (Array.isArray(song.artist) ? song.artist.join(' ') : song.artist) : '';
                     const currentSongName = currentSong.name || '';
-                    const currentSongArtist = currentSong.artist ? (Array.isArray(currentSong.artist) ? currentSong.artist.join(' ') : currentSong.artist) : '';
-                    // 严格的匹配逻辑：同时匹配歌曲名和艺术家
-                    return (songName.includes(currentSongName) || currentSongName.includes(songName)) && 
-                           (songArtist.includes(currentSongArtist) || currentSongArtist.includes(songArtist));
+                    return songName.includes(currentSongName) || currentSongName.includes(songName);
                 });
                 
                 if (jooxMatchedSong && jooxMatchedSong.pic_id) {
