@@ -920,14 +920,23 @@ const isLockScreen = () => document.visibilityState === 'hidden';
 const shouldUseStealthMode = () => isIOSPWA() && isLockScreen();
 
 // 获取封面图片列表（用于锁屏控制台）
-function getArtworkListForLockScreen(song) {
+async function getArtworkListForLockScreen(song) {
     // 确保使用有效的封面URL，优先顺序：
     // 1. 当前已加载的封面
     // 2. 从歌曲信息获取的封面
     // 3. 应用图标（确保使用绝对路径，避免404）
     let artworkUrl = state.currentArtworkUrl;
     if (!artworkUrl && song.pic_id) {
-        artworkUrl = API.getPicUrl(song);
+        const picUrl = API.getPicUrl(song);
+        try {
+            // 先请求API URL获取JSON对象，提取真正的图片URL
+            const picData = await API.fetchJson(picUrl);
+            if (picData && picData.url) {
+                artworkUrl = picData.url;
+            }
+        } catch (error) {
+            console.warn('获取封面URL失败:', error);
+        }
     }
     // 使用一个可靠的默认图标，确保它存在
     if (!artworkUrl) {
@@ -4094,12 +4103,12 @@ function setupInteractions() {
 // ================================================
 // 隐身模式专用：更新锁屏媒体信息
 // ================================================
-function updateMediaMetadataForStealthMode(song) {
+async function updateMediaMetadataForStealthMode(song) {
     if (!('mediaSession' in navigator)) return;
     
     try {
         // 直接获取封面列表，getArtworkListForLockScreen会处理默认值
-        const artworkList = getArtworkListForLockScreen(song);
+        const artworkList = await getArtworkListForLockScreen(song);
         
         // 更新锁屏媒体信息
         navigator.mediaSession.metadata = new MediaMetadata({
@@ -4317,25 +4326,9 @@ function updateCurrentSongInfo(song, options = {}) {
         dom.albumCover.classList.add("loading");
         let picUrl = API.getPicUrl(song);
         
-        // 直接使用API返回的URL，API会返回302重定向到实际图片
-        debugLog(`直接使用封面URL: ${picUrl}`);
-        
-        const preferredImageUrl = preferHttpsUrl(picUrl);
-        const absoluteImageUrl = toAbsoluteUrl(preferredImageUrl);
-        
-        if (state.currentSong === song) {
-            state.currentArtworkUrl = absoluteImageUrl;
-            if (typeof window.__SOLARA_UPDATE_MEDIA_METADATA === 'function') {
-                window.__SOLARA_UPDATE_MEDIA_METADATA();
-            }
-        }
-        
         // 针对QQ音乐的封面加载优化（酷我音乐已禁用）
         const isSlowSource = song.source === 'qq';
         const loadTimeout = isSlowSource ? 8000 : 3000;
-        
-        // 直接使用图片URL，不通过JSON解析
-        debugLog(`使用封面URL: ${preferredImageUrl}`);
         
         // 优化图片加载，添加超时处理和重试机制
         const loadImageWithTimeout = (url, timeout) => {
@@ -4373,6 +4366,27 @@ function updateCurrentSongInfo(song, options = {}) {
             
             while (retryCount < maxRetries) {
                 try {
+                    // 先请求API URL获取JSON对象，提取真正的图片URL
+                    debugLog(`请求封面API: ${picUrl}`);
+                    const picData = await API.fetchJson(picUrl);
+                    
+                    if (!picData || !picData.url) {
+                        throw new Error('Invalid pic API response');
+                    }
+                    
+                    const actualImageUrl = picData.url;
+                    debugLog(`获取到真正的封面URL: ${actualImageUrl}`);
+                    
+                    const preferredImageUrl = preferHttpsUrl(actualImageUrl);
+                    const absoluteImageUrl = toAbsoluteUrl(preferredImageUrl);
+                    
+                    if (state.currentSong === song) {
+                        state.currentArtworkUrl = absoluteImageUrl;
+                        if (typeof window.__SOLARA_UPDATE_MEDIA_METADATA === 'function') {
+                            window.__SOLARA_UPDATE_MEDIA_METADATA();
+                        }
+                    }
+                    
                     await loadImageWithTimeout(preferredImageUrl, loadTimeout);
                     
                     if (state.currentSong === song && updateBackground) {
@@ -6053,13 +6067,22 @@ function updatePlaylistHighlight() {
 // ================================================ 
 
 // 1. 锁屏元数据更新 
-function updateMediaMetadataForLockScreen(song) { 
+async function updateMediaMetadataForLockScreen(song) { 
     if (!('mediaSession' in navigator)) return; 
     try { 
         let coverUrl = ''; 
         if (song.pic_id || song.id) { 
-            coverUrl = API.getPicUrl(song); 
-            if (coverUrl.startsWith('http://')) coverUrl = coverUrl.replace('http://', 'https://'); 
+            const picUrl = API.getPicUrl(song); 
+            try {
+                // 先请求API URL获取JSON对象，提取真正的图片URL
+                const picData = await API.fetchJson(picUrl);
+                if (picData && picData.url) {
+                    coverUrl = picData.url;
+                    if (coverUrl.startsWith('http://')) coverUrl = coverUrl.replace('http://', 'https://');
+                }
+            } catch (error) {
+                console.warn('获取封面URL失败:', error);
+            }
         } 
         if (!coverUrl) coverUrl = window.location.origin + '/favicon.png'; 
         
