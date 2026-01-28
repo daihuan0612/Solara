@@ -764,6 +764,10 @@ const savedCurrentPlaylist = (() => {
 const API = {
     baseUrl: "/proxy",
 
+    generateSignature: () => {
+        return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+    },
+
     fetchJson: async (url) => {
         try {
             const response = await fetch(url, {
@@ -790,7 +794,8 @@ const API = {
     },
 
     search: async (keyword, source = "netease", count = 20, page = 1) => {
-        const url = `${API.baseUrl}?types=search&source=${source}&name=${encodeURIComponent(keyword)}&count=${count}&pages=${page}`;
+        const signature = API.generateSignature();
+        const url = `${API.baseUrl}?types=search&source=${source}&name=${encodeURIComponent(keyword)}&count=${count}&pages=${page}&s=${signature}`;
 
         try {
             debugLog(`API请求: ${url}`);
@@ -816,9 +821,9 @@ const API = {
     },
 
     getRadarPlaylist: async (playlistId = "3778678", options = {}) => {
+        const signature = API.generateSignature();
         let limit = 50;
         let offset = 0;
-        let source = "netease";
 
         if (typeof options === "number") {
             limit = options;
@@ -831,9 +836,6 @@ const API = {
             if (Number.isFinite(options.offset)) {
                 offset = options.offset;
             }
-            if (typeof options.source === "string") {
-                source = options.source;
-            }
         }
 
         limit = Math.max(1, Math.min(200, Math.trunc(limit)) || 50);
@@ -841,10 +843,10 @@ const API = {
 
         const params = new URLSearchParams({
             types: "playlist",
-            source: source,
             id: playlistId,
             limit: String(limit),
             offset: String(offset),
+            s: signature,
         });
         const url = `${API.baseUrl}?${params.toString()}`;
 
@@ -860,7 +862,7 @@ const API = {
                 id: track.id,
                 name: track.name,
                 artist: Array.isArray(track.ar) ? track.ar.map(artist => artist.name).join(" / ") : "",
-                source: source,
+                source: "netease",
                 lyric_id: track.id,
                 pic_id: track.al?.pic_str || track.al?.pic || track.al?.picUrl || "",
             }));
@@ -871,15 +873,18 @@ const API = {
     },
 
     getSongUrl: (song, quality = "320") => {
-        return `${API.baseUrl}?types=url&source=${song.source || "netease"}&id=${song.id}&br=${quality}`;
+        const signature = API.generateSignature();
+        return `${API.baseUrl}?types=url&id=${song.id}&source=${song.source || "netease"}&br=${quality}&s=${signature}`;
     },
 
     getLyric: (song) => {
-        return `${API.baseUrl}?types=lyric&source=${song.source || "netease"}&id=${song.lyric_id || song.id}`;
+        const signature = API.generateSignature();
+        return `${API.baseUrl}?types=lyric&id=${song.lyric_id || song.id}&source=${song.source || "netease"}&s=${signature}`;
     },
 
     getPicUrl: (song) => {
-        return `${API.baseUrl}?types=pic&source=${song.source || "netease"}&id=${song.pic_id}&size=300`;
+        const signature = API.generateSignature();
+        return `${API.baseUrl}?types=pic&id=${song.pic_id}&source=${song.source || "netease"}&size=300&s=${signature}`;
     }
 };
 
@@ -6268,193 +6273,102 @@ async function playSong(song, options = {}) {
 
         // 4. 获取实际音频流 URL
         const quality = state.playbackQuality || '320';
-        let rawUrl = API.getSongUrl(song, quality);
-        if (!rawUrl.startsWith('http')) rawUrl = new URL(rawUrl, window.location.origin).href;
+        const audioUrl = API.getSongUrl(song, quality);
+        debugLog(`获取音频URL: ${audioUrl}`);
         
-        // 针对 QQ 音乐和酷我音乐，需要先获取实际的音频流 URL
-        let streamUrl = rawUrl;
-        console.log('🔍 正在获取实际音频流 URL:', rawUrl);
+        const audioData = await API.fetchJson(audioUrl);
         
-        try {
-            // 发送 HEAD 请求检查 API 响应，不跟随重定向
-            const response = await fetch(rawUrl, { method: 'HEAD', redirect: 'manual' });
-            
-            // 处理重定向情况，特别是酷我音乐的 302 重定向
-            if (response.status >= 300 && response.status < 400) {
-                const redirectUrl = response.headers.get('location');
-                if (redirectUrl) {
-                    console.log('🔀 API 返回重定向:', redirectUrl);
-                    // 添加防缓存参数到重定向 URL
-                    const separator = redirectUrl.includes('?') ? '&' : '?';
-                    streamUrl = `${redirectUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
-                    console.log('✅ 使用重定向 URL 作为音频源');
-                } else {
-                    // 重定向但没有 location 头，使用原始 URL
-                    console.warn('⚠️ 重定向但没有 location 头，使用原始 URL');
-                    const separator = rawUrl.includes('?') ? '&' : '?';
-                    streamUrl = `${rawUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
-                }
-            } else {
-                // 非重定向响应，检查内容类型
-                const contentType = response.headers.get('content-type');
-                
-                // 如果直接返回音频流，就使用该 URL
-                if (contentType && contentType.includes('audio/')) {
-                    console.log('✅ 直接使用 API URL 作为音频源');
-                    // 添加防缓存参数
-                    const separator = rawUrl.includes('?') ? '&' : '?';
-                    streamUrl = `${rawUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
-                } else {
-                    // 否则，发送 GET 请求获取完整响应
-                    const getResponse = await fetch(rawUrl);
-                    const getContentType = getResponse.headers.get('content-type');
-                    
-                    if (getContentType && getContentType.includes('application/json')) {
-                        // JSON 响应，尝试解析获取实际 URL
-                        const data = await getResponse.json();
-                        console.log('📋 API 返回 JSON 响应:', data);
-                        
-                        // 根据不同 API 返回格式处理
-                        if (data && data.url) {
-                            streamUrl = data.url;
-                            console.log('✅ 从 JSON 中提取音频 URL:', streamUrl);
-                        } else if (data && data.type === 'media_file') {
-                            // 酷我音乐的 media_file 类型，尝试获取实际音频 URL
-                            console.log('🔄 酷我音乐 media_file 类型，尝试获取实际音频 URL');
-                            // 重新发送 GET 请求获取完整响应
-                            const fullResponse = await fetch(rawUrl);
-                            const fullData = await fullResponse.json();
-                            if (fullData && fullData.url) {
-                                streamUrl = fullData.url;
-                                console.log('✅ 从酷我音乐响应中提取音频 URL:', streamUrl);
-                            } else {
-                                console.warn('⚠️ 无法从酷我音乐响应中提取音频 URL，使用原始 URL');
-                                const separator = rawUrl.includes('?') ? '&' : '?';
-                                streamUrl = `${rawUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
-                            }
-                        } else if (song.source === 'joox') {
-                            // JOOX音乐特殊处理
-                            console.log('🔄 JOOX音乐，尝试获取实际音频 URL');
-                            // 重新发送 GET 请求获取完整响应
-                            const fullResponse = await fetch(rawUrl);
-                            const fullData = await fullResponse.json();
-                            if (fullData && fullData.url) {
-                                streamUrl = fullData.url;
-                                console.log('✅ 从 JOOX 响应中提取音频 URL:', streamUrl);
-                            } else {
-                                console.warn('⚠️ 无法从 JOOX 响应中提取音频 URL，使用原始 URL');
-                                const separator = rawUrl.includes('?') ? '&' : '?';
-                                streamUrl = `${rawUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
-                            }
-                        } else {
-                            console.warn('⚠️ 无法从 JSON 响应中提取音频 URL，使用原始 URL');
-                            const separator = rawUrl.includes('?') ? '&' : '?';
-                            streamUrl = `${rawUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
-                        }
-                    } else if (getContentType && getContentType.includes('audio/')) {
-                        // 直接返回音频流，使用该 URL
-                        console.log('✅ 直接返回音频流，使用该 URL');
-                        // 添加防缓存参数
-                        const separator = rawUrl.includes('?') ? '&' : '?';
-                        streamUrl = `${rawUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
-                    } else {
-                        console.warn('⚠️ 未知的响应类型:', getContentType, '使用原始 URL');
-                        const separator = rawUrl.includes('?') ? '&' : '?';
-                        streamUrl = `${rawUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
-                    }
-                }
-            }
-        } catch (error) {
-            console.warn('⚠️ 获取音频 URL 失败，使用原始 URL:', error);
-            const separator = rawUrl.includes('?') ? '&' : '?';
-            streamUrl = `${rawUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
+        if (!audioData || !audioData.url) {
+            throw new Error('无法获取音频播放地址');
         }
         
-        console.log('🎵 最终使用的音频 URL:', streamUrl);
+        const originalAudioUrl = audioData.url;
+        const proxiedAudioUrl = buildAudioProxyUrl(originalAudioUrl);
+        const preferredAudioUrl = preferHttpsUrl(originalAudioUrl);
+        const candidateAudioUrls = Array.from(
+            new Set([proxiedAudioUrl, preferredAudioUrl, originalAudioUrl].filter(Boolean))
+        );
+        
+        const primaryAudioUrl = candidateAudioUrls[0] || originalAudioUrl;
+        
+        if (proxiedAudioUrl && proxiedAudioUrl !== originalAudioUrl) {
+            debugLog(`音频地址已通过代理转换为 HTTPS: ${proxiedAudioUrl}`);
+        } else if (preferredAudioUrl && preferredAudioUrl !== originalAudioUrl) {
+            debugLog(`音频地址由 HTTP 升级为 HTTPS: ${preferredAudioUrl}`);
+        }
+        
+        state.currentSong = song;
+        state.currentAudioUrl = null;
         
         // 5. 柔性切换 (Soft Switch)
         player.removeAttribute('crossOrigin');
         player.setAttribute('playsinline', '');
         player.setAttribute('webkit-playsinline', '');
         
-        player.src = streamUrl;
-        state.currentAudioUrl = streamUrl;
+        let selectedAudioUrl = null;
+        let lastAudioError = null;
+        let usedFallbackAudio = false;
         
-        // ⚡️ 预备状态：静音并加载
+        for (const candidateUrl of candidateAudioUrls) {
+            player.src = candidateUrl;
+            state.currentAudioUrl = candidateUrl;
+            player.load();
+            
+            try {
+                await new Promise((resolve, reject) => {
+                    let resolved = false;
+                    const timer = setTimeout(() => {
+                        if(!resolved) {
+                            resolved = true;
+                            reject(new Error('音频加载超时'));
+                        }
+                    }, 30000);
+                    
+                    const done = (event) => {
+                        if(!resolved) {
+                            resolved = true;
+                            clearTimeout(timer);
+                            if (event && event.type === 'error') {
+                                reject(new Error('音频加载错误'));
+                            } else {
+                                resolve();
+                            }
+                        }
+                    };
+                    
+                    player.addEventListener('canplaythrough', done, { once: true });
+                    player.addEventListener('canplay', done, { once: true });
+                    player.addEventListener('loadeddata', done, { once: true });
+                    player.addEventListener('loadedmetadata', done, { once: true });
+                    player.addEventListener('error', done, { once: true });
+                });
+                selectedAudioUrl = candidateUrl;
+                usedFallbackAudio = candidateUrl !== primaryAudioUrl && candidateAudioUrls.length > 1;
+                break;
+            } catch (error) {
+                lastAudioError = error;
+                console.warn('音频加载异常', error);
+                
+                if (candidateUrl === primaryAudioUrl && candidateAudioUrls.length > 1) {
+                    debugLog('主音频地址加载失败，尝试使用备用地址');
+                }
+            }
+        }
+        
+        if (!selectedAudioUrl) {
+            throw lastAudioError || new Error('音频加载失败');
+        }
+        
+        if (usedFallbackAudio) {
+            debugLog(`已回退至备用音频地址: ${selectedAudioUrl}`);
+            showNotification('主音频加载失败，已切换到备用音源', 'warning');
+        }
+        
+        state.currentAudioUrl = selectedAudioUrl;
+        
+        // ⚡️ 预备状态：确保音量设置正确
         player.muted = false;
         player.volume = safeVolume;
-        player.preload = 'auto';
-        player.load();
-
-        // 6. 设置音频加载超时时间
-        const loadTimeout = 3000; // 统一超时时间，酷我音乐已禁用
-        console.log(`⏳ 等待音频加载，超时时间: ${loadTimeout}ms`);
-        
-        // 针对酷我音乐的预加载优化已禁用
-        /*
-        if (song.source === 'kuwo') {
-            console.log('🔍 酷我音乐：启用预加载优化');
-            // 尝试提前获取音频头信息，不阻塞主线程
-            fetch(streamUrl, { method: 'HEAD' })
-                .then(response => {
-                    console.log('📋 酷我音乐头信息:', {
-                        contentType: response.headers.get('content-type'),
-                        contentLength: response.headers.get('content-length')
-                    });
-                })
-                .catch(error => {
-                    console.warn('⚠️ 获取酷我音乐头信息失败:', error);
-                });
-        }
-        */
-        
-        await new Promise((resolve) => {
-            let resolved = false;
-            let loadStartTime = Date.now();
-            
-            // 设置不同的超时时间，酷我音乐需要更长时间
-            const timer = setTimeout(() => {
-                if(!resolved) {
-                    resolved=true;
-                    const elapsed = Date.now() - loadStartTime;
-                    console.warn(`⏱️  音频加载超时，实际等待: ${elapsed}ms，继续执行`);
-                    resolve();
-                }
-            }, loadTimeout);
-            
-            const done = (event) => {
-                if(!resolved) {
-                    resolved=true;
-                    clearTimeout(timer);
-                    const elapsed = Date.now() - loadStartTime;
-                    if (event && event.type === 'error') {
-                        console.error('❌ 音频加载错误:', {
-                            eventType: event.type,
-                            errorCode: player.error ? player.error.code : 'unknown',
-                            errorMessage: player.error ? player.error.message : 'unknown',
-                            elapsedTime: elapsed
-                        });
-                    } else {
-                        console.log(`✅ 音频加载完成，耗时: ${elapsed}ms，事件类型: ${event ? event.type : 'unknown'}`);
-                    }
-                    resolve();
-                }
-            };
-            
-            // 添加更多加载事件监听，确保不错过任何状态变化
-            player.addEventListener('canplaythrough', done, { once: true });
-            player.addEventListener('canplay', done, { once: true });
-            player.addEventListener('loadeddata', done, { once: true });
-            player.addEventListener('loadedmetadata', done, { once: true });
-            player.addEventListener('loadstart', () => {
-                console.log('🚀 音频开始加载');
-            }, { once: true });
-            player.addEventListener('progress', () => {
-                const buffered = player.buffered.length > 0 ? player.buffered.end(0) : 0;
-                console.log(`📊 音频加载进度: ${buffered.toFixed(2)}s`);
-            });
-            player.addEventListener('error', done, { once: true });
-        });
 
         // 7. 恢复进度
         let targetTime = startTime;
