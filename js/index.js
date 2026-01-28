@@ -4974,12 +4974,15 @@ function showQualityMenu(event, index, type) {
     // 创建新的质量菜单
     const menu = document.createElement("div");
     menu.className = "dynamic-quality-menu";
-    // 支持多种音质选项，包括flac24bit
-    menu.innerHTML = `
-        <div class="quality-option" onclick="downloadWithQuality(event, ${index}, '${type}', 'mp3')">MP3音质</div>
-        <div class="quality-option" onclick="downloadWithQuality(event, ${index}, '${type}', 'flac')">无损音质 FLAC</div>
-        <div class="quality-option" onclick="downloadWithQuality(event, ${index}, '${type}', 'flac24bit')">Hi-Res FLAC24bit</div>
-    `;
+    
+    // 使用QUALITY_OPTIONS常量构建音质菜单
+    const optionsHtml = QUALITY_OPTIONS.map(option => {
+        return `
+            <div class="quality-option" onclick="downloadWithQuality(event, ${index}, '${type}', '${option.value}')">${option.label}${option.description ? ` ${option.description}` : ''}</div>
+        `;
+    }).join("");
+    
+    menu.innerHTML = optionsHtml;
 
     // 设置菜单位置
     const button = event.target.closest("button");
@@ -7143,7 +7146,7 @@ async function downloadSong(song, quality = "320") {
 
             const link = document.createElement("a");
             link.href = downloadUrl;
-            const preferredExtension = quality === "999" ? "flac" : quality === "740" ? "ape" : "mp3";
+            const preferredExtension = quality === "999" || quality === "flac" || quality === "flac24bit" ? "flac" : quality === "740" ? "ape" : "mp3";
             const fileExtension = (() => {
                 try {
                     const url = new URL(audioData.url);
