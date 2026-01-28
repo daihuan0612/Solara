@@ -6319,10 +6319,33 @@ async function playSong(song, options = {}) {
                             streamUrl = data.url;
                             console.log('✅ 从 JSON 中提取音频 URL:', streamUrl);
                         } else if (data && data.type === 'media_file') {
-                            // 酷我音乐的 media_file 类型，直接使用 API URL
-                            console.log('✅ 酷我音乐 media_file 类型，直接使用 API URL');
-                            const separator = rawUrl.includes('?') ? '&' : '?';
-                            streamUrl = `${rawUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
+                            // 酷我音乐的 media_file 类型，尝试获取实际音频 URL
+                            console.log('🔄 酷我音乐 media_file 类型，尝试获取实际音频 URL');
+                            // 重新发送 GET 请求获取完整响应
+                            const fullResponse = await fetch(rawUrl);
+                            const fullData = await fullResponse.json();
+                            if (fullData && fullData.url) {
+                                streamUrl = fullData.url;
+                                console.log('✅ 从酷我音乐响应中提取音频 URL:', streamUrl);
+                            } else {
+                                console.warn('⚠️ 无法从酷我音乐响应中提取音频 URL，使用原始 URL');
+                                const separator = rawUrl.includes('?') ? '&' : '?';
+                                streamUrl = `${rawUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
+                            }
+                        } else if (song.source === 'joox') {
+                            // JOOX音乐特殊处理
+                            console.log('🔄 JOOX音乐，尝试获取实际音频 URL');
+                            // 重新发送 GET 请求获取完整响应
+                            const fullResponse = await fetch(rawUrl);
+                            const fullData = await fullResponse.json();
+                            if (fullData && fullData.url) {
+                                streamUrl = fullData.url;
+                                console.log('✅ 从 JOOX 响应中提取音频 URL:', streamUrl);
+                            } else {
+                                console.warn('⚠️ 无法从 JOOX 响应中提取音频 URL，使用原始 URL');
+                                const separator = rawUrl.includes('?') ? '&' : '?';
+                                streamUrl = `${rawUrl}${separator}_t=${Date.now()}_r=${Math.random().toString(36).substr(2,5)}`;
+                            }
                         } else {
                             console.warn('⚠️ 无法从 JSON 响应中提取音频 URL，使用原始 URL');
                             const separator = rawUrl.includes('?') ? '&' : '?';
