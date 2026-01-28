@@ -625,7 +625,14 @@ function buildAudioProxyUrl(url) {
 
     try {
         const parsedUrl = new URL(url, window.location.href);
-        // 新API返回的URL已经是完整的代理URL，不需要额外处理
+        if (parsedUrl.protocol === "https:") {
+            return parsedUrl.toString();
+        }
+
+        if (parsedUrl.protocol === "http:" && /(^|\.)kuwo\.cn$/i.test(parsedUrl.hostname)) {
+            return `${API.baseUrl}?target=${encodeURIComponent(parsedUrl.toString())}`;
+        }
+
         return parsedUrl.toString();
     } catch (error) {
         console.warn("无法解析音频地址，跳过代理", error);
@@ -635,8 +642,8 @@ function buildAudioProxyUrl(url) {
 
 const SOURCE_OPTIONS = [
     { value: "netease", label: "网易云音乐" },
-    // { value: "kuwo", label: "酷我音乐" }, // 酷我音乐功能暂未修复，已禁用
-    { value: "qq", label: "QQ音乐" }
+    { value: "kuwo", label: "酷我音乐" },
+    { value: "joox", label: "JOOX音乐" }
 ];
 
 function normalizeSource(value) {
@@ -645,26 +652,15 @@ function normalizeSource(value) {
 }
 
 const QUALITY_OPTIONS = [
-    { value: "mp3", label: "MP3音质", description: "自动选择" },
-    { value: "flac", label: "无损音质", description: "FLAC" },
-    { value: "flac24bit", label: "Hi-Res", description: "FLAC24bit" }
+    { value: "128", label: "标准音质", description: "128 kbps" },
+    { value: "192", label: "高品音质", description: "192 kbps" },
+    { value: "320", label: "极高音质", description: "320 kbps" },
+    { value: "999", label: "无损音质", description: "FLAC" }
 ];
 
 function normalizeQuality(value) {
-    if (!value) return "mp3";
-    
-    const valueStr = String(value).trim();
-    
-    if (valueStr === "mp3") {
-        return "mp3";
-    }
-    
-    if (valueStr === "999") {
-        return "flac";
-    }
-    
-    const match = QUALITY_OPTIONS.find(option => option.value === valueStr);
-    return match ? match.value : "mp3";
+    const match = QUALITY_OPTIONS.find(option => option.value === value);
+    return match ? match.value : "320";
 }
 
 const savedPlaylistSongs = (() => {
@@ -764,87 +760,59 @@ const savedCurrentPlaylist = (() => {
     return playlists.includes(stored) ? stored : "playlist";
 })();
 
-// API配置 - 符合TuneHub API规范
+// API配置 - 修复API地址和请求方式
 const API = {
-    baseUrl: "https://music-dl.sayqz.com",
+    baseUrl: "/proxy",
 
-    fetchJson: async (url, options = {}) => {
-        const maxRetries = options.maxRetries || 3;
-        const retryDelay = options.retryDelay || 1000;
-        const timeout = options.timeout || 30000;
-        
-        for (let attempt = 1; attempt <= maxRetries; attempt++) {
-            try {
-                debugLog(`API请求 (尝试 ${attempt}/${maxRetries}): ${url}`);
-                
-                // 添加 timeout 支持
-                const controller = new AbortController();
-                const id = setTimeout(() => controller.abort(), timeout);
-                
-                const response = await fetch(url, {
-                    headers: {
-                        "Accept": "application/json",
-                        ...options.headers,
-                    },
-                    mode: 'cors', // 添加 cors 模式支持
-                    signal: controller.signal,
-                    ...options,
-                });
-                
-                clearTimeout(id); // 清除 timeout
+    generateSignature: () => {
+        return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+    },
 
-                if (!response.ok) {
-                    throw new Error(`Request failed with status ${response.status}`);
-                }
+    fetchJson: async (url) => {
+        try {
+            const response = await fetch(url, {
+                headers: {
+                    "Accept": "application/json",
+                },
+            });
 
-                const text = await response.text();
-                try {
-                    // 检查响应内容是否为空或无效
-                    if (!text || text.trim().length === 0) {
-                        console.warn("响应内容为空，返回null");
-                        return null;
-                    }
-                    return JSON.parse(text);
-                } catch (parseError) {
-                    console.warn("JSON parse failed, returning raw text", parseError);
-                    // 对于非JSON响应（如音频文件），直接返回原始文本
-                    return text;
-                }
-            } catch (error) {
-                debugLog(`API请求失败 (尝试 ${attempt}/${maxRetries}): ${error.message}`);
-                if (attempt < maxRetries) {
-                    debugLog(`等待 ${retryDelay}ms 后重试...`);
-                    await new Promise(resolve => setTimeout(resolve, retryDelay));
-                } else {
-                    console.error("API请求最终失败:", error);
-                    throw error;
-                }
+            if (!response.ok) {
+                throw new Error(`Request failed with status ${response.status}`);
             }
+
+            const text = await response.text();
+            try {
+                return JSON.parse(text);
+            } catch (parseError) {
+                console.warn("JSON parse failed, returning raw text", parseError);
+                return text;
+            }
+        } catch (error) {
+            console.error("API request error:", error);
+            throw error;
         }
     },
 
     search: async (keyword, source = "netease", count = 20, page = 1) => {
-        const url = `${API.baseUrl}/api/?source=${source}&type=search&keyword=${encodeURIComponent(keyword)}&limit=${count}`;
+        const signature = API.generateSignature();
+        const url = `${API.baseUrl}?types=search&source=${source}&name=${encodeURIComponent(keyword)}&count=${count}&pages=${page}&s=${signature}`;
 
         try {
             debugLog(`API请求: ${url}`);
             const data = await API.fetchJson(url);
             debugLog(`API响应: ${JSON.stringify(data).substring(0, 200)}...`);
 
-            if (!data || data.code !== 200 || !Array.isArray(data.data.results)) {
-                throw new Error("搜索结果格式错误");
-            }
+            if (!Array.isArray(data)) throw new Error("搜索结果格式错误");
 
-            return data.data.results.map(song => ({
+            return data.map(song => ({
                 id: song.id,
                 name: song.name,
                 artist: song.artist,
                 album: song.album,
-                source: song.platform || source,
-                // 新API返回的URL已经是完整的API链接，我们需要提取id用于后续请求
-                pic_id: song.id,
-                url_id: song.id,
-                lyric_id: song.id,
+                pic_id: song.pic_id,
+                url_id: song.url_id,
+                lyric_id: song.lyric_id,
+                source: song.source,
             }));
         } catch (error) {
             debugLog(`API错误: ${error.message}`);
@@ -853,12 +821,40 @@ const API = {
     },
 
     getRadarPlaylist: async (playlistId = "3778678", options = {}) => {
-        const url = `${API.baseUrl}/api/?source=netease&id=${playlistId}&type=playlist`;
+        const signature = API.generateSignature();
+
+        let limit = 50;
+        let offset = 0;
+
+        if (typeof options === "number") {
+            limit = options;
+        } else if (options && typeof options === "object") {
+            if (Number.isFinite(options.limit)) {
+                limit = options.limit;
+            } else if (Number.isFinite(options.count)) {
+                limit = options.count;
+            }
+            if (Number.isFinite(options.offset)) {
+                offset = options.offset;
+            }
+        }
+
+        limit = Math.max(1, Math.min(200, Math.trunc(limit)) || 50);
+        offset = Math.max(0, Math.trunc(offset) || 0);
+
+        const params = new URLSearchParams({
+            types: "playlist",
+            id: playlistId,
+            limit: String(limit),
+            offset: String(offset),
+            s: signature,
+        });
+        const url = `${API.baseUrl}?${params.toString()}`;
 
         try {
             const data = await API.fetchJson(url);
-            const tracks = data && data.code === 200 && data.data && Array.isArray(data.data.list)
-                ? data.data.list
+            const tracks = data && data.playlist && Array.isArray(data.playlist.tracks)
+                ? data.playlist.tracks.slice(0, limit)
                 : [];
 
             if (tracks.length === 0) throw new Error("No tracks found");
@@ -866,11 +862,10 @@ const API = {
             return tracks.map(track => ({
                 id: track.id,
                 name: track.name,
-                artist: track.artist || "",
-                album: track.album || "",
+                artist: Array.isArray(track.ar) ? track.ar.map(artist => artist.name).join(" / ") : "",
                 source: "netease",
                 lyric_id: track.id,
-                pic_id: track.id,
+                pic_id: track.al?.pic_str || track.al?.pic || track.al?.picUrl || "",
             }));
         } catch (error) {
             console.error("API request failed:", error);
@@ -879,56 +874,18 @@ const API = {
     },
 
     getSongUrl: (song, quality = "320") => {
-        console.log('🎵 getSongUrl调用:', song, '质量:', quality);
-        
-        // 根据API文档，quality参数需要映射为128k, 192k, 320k, flac, flac24bit
-        const qualityMap = {
-            "128": "128k",
-            "192": "192k",
-            "320": "320k",
-            "999": "flac",
-            "flac": "flac", // 添加flac到qualityMap，确保flac质量参数能正确映射
-            "flac24bit": "flac24bit" // 添加flac24bit支持
-        };
-        
-        // 处理MP3选项，返回默认的MP3质量
-        if (quality === "mp3") {
-            quality = "320";
-        }
-        
-        // 确保使用有效的音质映射，支持192k和flac
-        console.log('📊 qualityMap:', qualityMap, 'quality:', quality, 'quality in qualityMap:', quality in qualityMap);
-        const validQuality = quality in qualityMap ? quality : "320";
-        const br = qualityMap[validQuality];
-        
-        console.log('🔄 质量映射:', quality, '->', validQuality, '->', br);
-        
-        // 构建API URL，支持不同类型的请求
-        const url = `${API.baseUrl}/api/?source=${song.source || "netease"}&id=${song.id}&type=url&br=${br}`;
-        console.log('🌐 生成的URL:', url);
-        return url;
+        const signature = API.generateSignature();
+        return `${API.baseUrl}?types=url&id=${song.id}&source=${song.source || "netease"}&br=${quality}&s=${signature}`;
     },
 
     getLyric: (song) => {
-        return `${API.baseUrl}/api/?source=${song.source || "netease"}&id=${song.id}&type=lrc`;
+        const signature = API.generateSignature();
+        return `${API.baseUrl}?types=lyric&id=${song.lyric_id || song.id}&source=${song.source || "netease"}&s=${signature}`;
     },
 
     getPicUrl: (song) => {
-        return `${API.baseUrl}/api/?source=${song.source || "netease"}&id=${song.id}&type=pic`;
-    },
-
-    getSongInfo: async (songId, source = "netease") => {
-        const url = `${API.baseUrl}/api/?source=${source}&id=${songId}&type=info`;
-        try {
-            const data = await API.fetchJson(url);
-            if (data && data.code === 200) {
-                return data.data;
-            }
-            throw new Error("获取歌曲信息失败");
-        } catch (error) {
-            console.error("获取歌曲信息错误:", error);
-            throw error;
-        }
+        const signature = API.generateSignature();
+        return `${API.baseUrl}?types=pic&id=${song.pic_id}&source=${song.source || "netease"}&size=300&s=${signature}`;
     }
 };
 
@@ -1065,9 +1022,6 @@ if (!Array.isArray(state.favoriteSongs) || state.favoriteSongs.length === 0) {
 saveFavoriteState();
 
 async function bootstrapPersistentStorage() {
-    // 禁用远程存储同步，确保每个设备的播放列表独立
-    // 注释掉远程存储加载和同步启用代码
-    /*
     try {
         const remoteKeys = Array.from(STORAGE_KEYS_TO_SYNC);
         const snapshot = await persistentStorage.getItems(remoteKeys);
@@ -1080,8 +1034,6 @@ async function bootstrapPersistentStorage() {
     } finally {
         remoteSyncEnabled = true;
     }
-    */
-    remoteSyncEnabled = false;
 }
 
 function applyPersistentSnapshotFromRemote(data) {
