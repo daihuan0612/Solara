@@ -4552,9 +4552,11 @@ function getSourceShortName(source) {
     const sourceMap = {
         'netease': '网易',
         'kuwo': '酷我',
-        'qq': 'QQ'
+        'qq': 'QQ',
+        'joox': 'JOOX'
     };
-    return sourceMap[source] || '';
+    if (!source || typeof source !== 'string') return '';
+    return sourceMap[source.toLowerCase()] || '';
 }
 
 function createSearchResultItem(song, index) {
@@ -4577,7 +4579,9 @@ function createSearchResultItem(song, index) {
 
     const title = document.createElement("div");
     title.className = "search-result-title";
-    title.textContent = song.name || "未知歌曲";
+    const sourceShortName = getSourceShortName(song.source);
+    const songNameWithSource = sourceShortName ? `[${sourceShortName}] ${song.name}` : (song.name || "未知歌曲");
+    title.textContent = songNameWithSource;
 
     const artist = document.createElement("div");
     artist.className = "search-result-artist";
