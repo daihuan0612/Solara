@@ -1013,6 +1013,97 @@ Object.freeze(API);
 // 要切换到方案A（旧API），请注释掉方案B的API实现并取消注释方案A的API实现
 // 要切换到方案B（新API），请注释掉方案A的API实现并取消注释方案B的API实现
 
+// ==================== 错误代码解释 ====================
+function getErrorExplanation(errorMessage) {
+    const errorMap = {
+        // 网络错误
+        "Failed to fetch": "网络连接失败，请检查网络连接",
+        "NetworkError": "网络错误，请检查网络连接",
+        "Connection refused": "连接被拒绝，服务器未响应",
+        "Timeout": "请求超时，请稍后重试",
+        "Request timeout": "请求超时，请稍后重试",
+        "Connection timeout": "连接超时，请稍后重试",
+        "Network timeout": "网络超时，请稍后重试",
+        "Network unavailable": "网络不可用，请检查网络连接",
+        "Offline": "当前处于离线状态，请检查网络连接",
+        
+        // HTTP 状态码错误
+        "400": "请求参数错误，请检查输入",
+        "401": "未授权访问，请检查权限",
+        "403": "禁止访问，权限不足",
+        "404": "请求的资源不存在",
+        "405": "请求方法不允许",
+        "408": "请求超时",
+        "429": "请求过于频繁，请稍后重试",
+        "500": "服务器内部错误，请稍后重试",
+        "502": "网关错误，API服务器暂时不可用",
+        "503": "服务不可用，服务器可能正在维护",
+        "504": "网关超时，请稍后重试",
+        "507": "服务器存储空间不足",
+        "508": "检测到循环重定向",
+        
+        // API 特定错误
+        "搜索结果格式错误": "搜索结果格式不正确",
+        "歌曲信息格式错误": "歌曲信息格式不正确",
+        "No tracks found": "未找到歌曲",
+        "Invalid pic API response": "封面API响应无效",
+        "无法获取音频播放地址": "无法获取音频播放地址",
+        "音频加载失败": "音频加载失败",
+        "音频加载超时": "音频加载超时，请稍后重试",
+        "Image load failed": "图片加载失败",
+        "Image load timed out": "图片加载超时，请稍后重试",
+        "JSON parse failed": "数据解析失败，请稍后重试",
+        "EMPTY_FILE": "文件为空",
+        "INVALID_JSON": "无效的JSON格式",
+        "NO_SONGS": "未找到歌曲",
+        
+        // 浏览器特定错误
+        "AbortError": "请求被中止",
+        "NotAllowedError": "操作不被允许",
+        "NotFoundError": "未找到指定资源",
+        "NotReadableError": "无法读取资源",
+        "SecurityError": "安全错误",
+        "TypeError": "类型错误",
+        "SyntaxError": "语法错误",
+        
+        // 其他常见错误
+        "undefined": "未定义错误",
+        "null": "空值错误",
+        "NaN": "数值错误",
+        "Infinity": "无穷大错误"
+    };
+    
+    // 检查是否包含状态码或错误关键词
+    for (const [code, explanation] of Object.entries(errorMap)) {
+        if (errorMessage.includes(code)) {
+            return explanation;
+        }
+    }
+    
+    // 检查是否是已知错误
+    if (errorMap[errorMessage]) {
+        return errorMap[errorMessage];
+    }
+    
+    // 检查是否是网络相关错误
+    if (errorMessage.includes("network") || errorMessage.includes("Network")) {
+        return "网络错误，请检查网络连接";
+    }
+    
+    // 检查是否是超时相关错误
+    if (errorMessage.includes("timeout") || errorMessage.includes("Timeout")) {
+        return "请求超时，请稍后重试";
+    }
+    
+    // 检查是否是连接相关错误
+    if (errorMessage.includes("connect") || errorMessage.includes("Connect")) {
+        return "连接错误，请检查网络连接";
+    }
+    
+    // 默认错误解释
+    return "未知错误，请稍后重试";
+}
+
 // ================================================
 // 辅助检测函数
 // ================================================
@@ -2540,11 +2631,38 @@ function saveFavoriteState(options = {}) {
 
 // 调试日志函数
 function debugLog(message) {
-    console.log(`[DEBUG] ${message}`);
+    // 检查是否包含错误信息并尝试转换为中文
+    let processedMessage = message;
+    if (typeof message === 'string') {
+        // 检查是否包含错误关键词
+        if (message.includes('API错误:') || message.includes('搜索失败:') || message.includes('播放失败:')) {
+            // 提取错误消息部分
+            const errorMatch = message.match(/(API错误:|搜索失败:|播放失败:)\s*(.+)/);
+            if (errorMatch && errorMatch[2]) {
+                const errorMessage = errorMatch[2];
+                const errorExplanation = getErrorExplanation(errorMessage);
+                if (errorExplanation !== errorMessage) {
+                    processedMessage = message.replace(errorMessage, errorExplanation);
+                }
+            }
+        } else if (message.includes('错误:')) {
+            // 提取错误消息部分
+            const errorMatch = message.match(/错误:\s*(.+)/);
+            if (errorMatch && errorMatch[1]) {
+                const errorMessage = errorMatch[1];
+                const errorExplanation = getErrorExplanation(errorMessage);
+                if (errorExplanation !== errorMessage) {
+                    processedMessage = message.replace(errorMessage, errorExplanation);
+                }
+            }
+        }
+    }
+    
+    console.log(`[DEBUG] ${processedMessage}`);
     if (state.debugMode) {
         const debugInfo = dom.debugInfo;
         const entry = document.createElement("div");
-        entry.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
+        entry.textContent = `${new Date().toLocaleTimeString()}: ${processedMessage}`;
         debugInfo.appendChild(entry);
 
         while (debugInfo.childNodes.length > 50) {
@@ -3052,7 +3170,8 @@ async function togglePlayPause() {
             });
         } catch (error) {
             console.error("恢复播放失败:", error);
-            showNotification("播放失败，请稍后重试", "error");
+            const errorExplanation = getErrorExplanation(error.message);
+            showNotification(`播放失败: ${errorExplanation}`, "error");
         }
         return;
     }
@@ -4688,9 +4807,11 @@ async function performSearch(isLiveSearch = false) {
 
     } catch (error) {
         console.error("搜索失败:", error);
-        showNotification("搜索失败，请稍后重试", "error");
+        const errorExplanation = getErrorExplanation(error.message);
+        showNotification(`搜索失败: ${errorExplanation}`, "error");
         hideSearchResults();
         debugLog(`搜索失败: ${error.message}`);
+        debugLog(`错误解释: ${errorExplanation}`);
     } finally {
         // 恢复搜索按钮状态
         dom.searchBtn.disabled = false;
@@ -6594,6 +6715,8 @@ async function playSong(song, options = {}) {
 
     } catch (error) {
         console.error("播放流程异常:", error);
+        const errorExplanation = getErrorExplanation(error.message);
+        showNotification(`播放失败: ${errorExplanation}`, "error");
         state.isPlaying = false;
         updatePlayPauseButton();
         if (isIOSPWA && window.solaraAudioGuard) window.solaraAudioGuard.stop();
