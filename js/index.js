@@ -651,16 +651,38 @@ function normalizeSource(value) {
     return allowed.includes(value) ? value : SOURCE_OPTIONS[0].value;
 }
 
+// ==================== 音质选项 ====================
+// 方案A: 旧API音质选项（暂时注释掉）
+/*
 const QUALITY_OPTIONS = [
     { value: "128", label: "标准音质", description: "128 kbps" },
     { value: "192", label: "高品音质", description: "192 kbps" },
     { value: "320", label: "极高音质", description: "320 kbps" },
     { value: "999", label: "无损音质", description: "FLAC" }
 ];
+*/
 
+// 方案B: 新API音质选项（当前使用）
+const QUALITY_OPTIONS = [
+    { value: "128", label: "标准音质", description: "128 kbps" },
+    { value: "320", label: "高品音质", description: "320 kbps" },
+    { value: "flac", label: "无损音质", description: "FLAC" },
+    { value: "flac24bit", label: "Hi-Res", description: "Hi-Res" }
+];
+
+// ==================== 音质选项转换 ====================
+// 方案A: 旧API音质转换（暂时注释掉）
+/*
 function normalizeQuality(value) {
     const match = QUALITY_OPTIONS.find(option => option.value === value);
     return match ? match.value : "999";
+}
+*/
+
+// 方案B: 新API音质转换（当前使用）
+function normalizeQuality(value) {
+    const match = QUALITY_OPTIONS.find(option => option.value === value);
+    return match ? match.value : "flac";
 }
 
 const savedPlaylistSongs = (() => {
@@ -760,7 +782,9 @@ const savedCurrentPlaylist = (() => {
     return playlists.includes(stored) ? stored : "playlist";
 })();
 
-// API配置 - 修复API地址和请求方式
+// ==================== API配置 ====================
+// 方案A: 旧API实现（暂时注释掉）
+/*
 const API = {
     baseUrl: "/proxy",
 
@@ -889,6 +913,105 @@ const API = {
 };
 
 Object.freeze(API);
+*/
+
+// 方案B: 新API实现（当前使用）
+const API = {
+    baseUrl: "https://music-dl.sayqz.com",
+
+    fetchJson: async (url) => {
+        try {
+            const response = await fetch(url, {
+                headers: {
+                    "Accept": "application/json",
+                },
+            });
+
+            if (!response.ok) {
+                throw new Error(`Request failed with status ${response.status}`);
+            }
+
+            const text = await response.text();
+            try {
+                return JSON.parse(text);
+            } catch (parseError) {
+                console.warn("JSON parse failed, returning raw text", parseError);
+                return text;
+            }
+        } catch (error) {
+            console.error("API request error:", error);
+            throw error;
+        }
+    },
+
+    search: async (keyword, source = "netease", count = 20, page = 1) => {
+        const url = `${API.baseUrl}/api/?source=${source}&type=search&keyword=${encodeURIComponent(keyword)}&limit=${count}`;
+
+        try {
+            debugLog(`API请求: ${url}`);
+            const data = await API.fetchJson(url);
+            debugLog(`API响应: ${JSON.stringify(data).substring(0, 200)}...`);
+
+            if (!data || !data.data || !Array.isArray(data.data.results)) throw new Error("搜索结果格式错误");
+
+            return data.data.results.map(song => ({
+                id: song.id,
+                name: song.name,
+                artist: song.artist,
+                album: song.album,
+                source: song.platform || source,
+            }));
+        } catch (error) {
+            debugLog(`API错误: ${error.message}`);
+            throw error;
+        }
+    },
+
+    getSongInfo: async (id, source = "netease") => {
+        const url = `${API.baseUrl}/api/?source=${source}&id=${id}&type=info`;
+        try {
+            debugLog(`API请求: ${url}`);
+            const data = await API.fetchJson(url);
+            debugLog(`API响应: ${JSON.stringify(data).substring(0, 200)}...`);
+
+            if (!data || !data.data) throw new Error("歌曲信息格式错误");
+
+            return {
+                id: id,
+                name: data.data.name,
+                artist: data.data.artist,
+                album: data.data.album,
+                source: source,
+            };
+        } catch (error) {
+            debugLog(`API错误: ${error.message}`);
+            throw error;
+        }
+    },
+
+    getSongUrl: (song, quality = "320") => {
+        // 转换音质参数
+        let br = quality;
+        if (quality === "128") br = "128k";
+        else if (quality === "320") br = "320k";
+
+        return `${API.baseUrl}/api/?source=${song.source || "netease"}&id=${song.id}&type=url&br=${br}`;
+    },
+
+    getLyric: (song) => {
+        return `${API.baseUrl}/api/?source=${song.source || "netease"}&id=${song.id}&type=lrc`;
+    },
+
+    getPicUrl: (song) => {
+        return `${API.baseUrl}/api/?source=${song.source || "netease"}&id=${song.id}&type=pic`;
+    }
+};
+
+Object.freeze(API);
+
+// 切换API方案的说明：
+// 要切换到方案A（旧API），请注释掉方案B的API实现并取消注释方案A的API实现
+// 要切换到方案B（新API），请注释掉方案A的API实现并取消注释方案B的API实现
 
 // ================================================
 // 辅助检测函数
