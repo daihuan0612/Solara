@@ -1,11 +1,4 @@
-// ==================== API配置 ====================
-// 方案A: 旧API实现（暂时注释掉）
-/*
 const API_BASE_URL = "https://music-api.gdstudio.xyz/api.php";
-*/
-
-// 方案B: 新API实现（当前使用）
-const API_BASE_URL = "https://music-dl.sayqz.com/api";
 const KUWO_HOST_PATTERN = /(^|\.)kuwo\.cn$/i;
 const SAFE_RESPONSE_HEADERS = ["content-type", "cache-control", "accept-ranges", "content-length", "content-range", "etag", "last-modified", "expires"];
 
@@ -96,16 +89,11 @@ async function proxyApiRequest(url: URL, request: Request): Promise<Response> {
     if (key === "target" || key === "callback") {
       return;
     }
-    // 转换参数名称以适配新API
-    let newKey = key;
-    if (key === "types") {
-      newKey = "type";
-    }
-    apiUrl.searchParams.set(newKey, value);
+    apiUrl.searchParams.set(key, value);
   });
 
-  if (!apiUrl.searchParams.has("type")) {
-    return new Response("Missing type", { status: 400 });
+  if (!apiUrl.searchParams.has("types")) {
+    return new Response("Missing types", { status: 400 });
   }
 
   const upstream = await fetch(apiUrl.toString(), {
@@ -145,7 +133,3 @@ export async function onRequest({ request }: { request: Request }): Promise<Resp
 
   return proxyApiRequest(url, request);
 }
-
-// 切换API方案的说明：
-// 要切换到方案A（旧API），请注释掉方案B的API_BASE_URL并取消注释方案A的API_BASE_URL
-// 要切换到方案B（新API），请注释掉方案A的API_BASE_URL并取消注释方案B的API_BASE_URL
