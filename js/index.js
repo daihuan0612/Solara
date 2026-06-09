@@ -2709,14 +2709,24 @@ function debugLog(message) {
 
 // 启用调试模式（按Ctrl+D）
 document.addEventListener("keydown", (e) => {
-    if (e.ctrlKey && e.key === "d") {
+    // 支持 e.key 和 e.keyCode 两种方式，提高兼容性
+    const isCtrlD = e.ctrlKey && (e.key === "d" || e.key === "D" || e.keyCode === 68);
+    
+    if (isCtrlD) {
         e.preventDefault();
+        e.stopPropagation();
         state.debugMode = !state.debugMode;
         if (state.debugMode) {
-            dom.debugInfo.classList.add("show");
-            debugLog("调试模式已启用");
+            if (dom.debugInfo) {
+                dom.debugInfo.classList.add("show");
+                debugLog("调试模式已启用");
+            } else {
+                console.log("调试模式已启用，但 debugInfo 元素未找到");
+            }
         } else {
-            dom.debugInfo.classList.remove("show");
+            if (dom.debugInfo) {
+                dom.debugInfo.classList.remove("show");
+            }
         }
     }
 });
@@ -4175,8 +4185,22 @@ function setupInteractions() {
     dom.searchBtn.addEventListener("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
+        
+        if (dom.searchBtn.disabled) {
+            debugLog("搜索按钮已禁用，忽略点击");
+            return;
+        }
+        
         debugLog("搜索按钮被点击");
-        performSearch();
+        
+        try {
+            performSearch();
+        } catch (error) {
+            console.error("搜索按钮点击处理失败:", error);
+            showNotification("搜索按钮点击处理失败", "error");
+            dom.searchBtn.disabled = false;
+            dom.searchBtn.innerHTML = '<i class="fas fa-search"></i><span>搜索</span>';
+        }
     });
 
     dom.searchInput.addEventListener("focus", () => {
