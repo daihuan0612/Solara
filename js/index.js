@@ -5020,107 +5020,97 @@ async function checkSearchResultsPlayability() {
     const container = dom.searchResultsList || dom.searchResults;
     if (!container) return;
     
-    const items = container.querySelectorAll('.search-result-item');
+    const items = Array.from(container.querySelectorAll('.search-result-item'));
     if (items.length === 0) return;
     
-    debugLog(`[可用性检查] 开始检查 ${items.length} 个结果的播放可用性`);
+    debugLog(`[可用性检查] 开始检查 ${items.length} 个结果`);
     
-    // 分批检查，每次最多3个并发，避免API压力
-    const concurrency = 3;
-    const queue = Array.from(items);
-    let checked = 0;
+    // 先对搜索结果按平台排序：netease/kuwo在前，joox在后（joox通常不可播）
+    state.searchResults.sort((a, b) => {
+        const order = { netease: 0, kuwo: 1, joox: 2 };
+        return (order[a.source] || 0) - (order[b.source] || 0);
+    });
     
-    async function checkItem(item) {
+    // 按新顺序重新渲染（仅保留已检查的静音状态）
+    const loadMoreBtn = container.querySelector("#loadMoreBtn");
+    container.innerHTML = "";
+    const fragment = document.createDocumentFragment();
+    state.searchResults.forEach((song, i) => {
+        fragment.appendChild(createSearchResultItem(song, i));
+    });
+    container.appendChild(fragment);
+    if (loadMoreBtn) container.appendChild(loadMoreBtn);
+    updateFavoriteIcons();
+    
+    // 逐个检查（不并发，避免API压力过大），每个检查完立即移动位置
+    const allItems = Array.from(container.querySelectorAll('.search-result-item'));
+    let playableCount = 0;
+    
+    for (let i = 0; i < allItems.length; i++) {
+        const item = allItems[i];
         const index = parseInt(item.dataset.index);
         const song = state.searchResults[index];
-        if (!song) return;
+        if (!song) continue;
         
-        // 快速检查：只尝试最高音质，只试1次
         try {
-            const checkUrl = API.getSongUrl({...song}, "999");
-            const resp = await fetch(checkUrl, { signal: AbortSignal.timeout(3000) });
+            const checkUrl = API.getSongUrl({...song}, song.source === "joox" ? "320" : "999");
+            const resp = await fetch(checkUrl, { signal: AbortSignal.timeout(4000) });
             const data = await resp.json();
             
             if (data && data.url) {
+                // 对JOOX额外验证：实际请求音频URL看是否可访问
+                if (song.source === "joox") {
+                    try {
+                        const verifyResp = await fetch(data.url, { method: 'HEAD', signal: AbortSignal.timeout(3000) });
+                        if (!verifyResp.ok) {
+                            song._canPlay = false;
+                            updateSearchResultMuteIcon(item, song);
+                            // 移到不可播放区
+                            item.parentNode.appendChild(item);
+                            continue;
+                        }
+                    } catch {
+                        song._canPlay = false;
+                        updateSearchResultMuteIcon(item, song);
+                        item.parentNode.appendChild(item);
+                        continue;
+                    }
+                }
+                
                 song._canPlay = true;
+                // 移到可播放区
+                const firstItem = container.querySelector('.search-result-item');
+                if (firstItem && firstItem !== item) {
+                    container.insertBefore(item, firstItem);
+                }
+                playableCount++;
             } else {
                 song._canPlay = false;
                 updateSearchResultMuteIcon(item, song);
+                // 移到不可播放区
+                item.parentNode.appendChild(item);
             }
         } catch {
             song._canPlay = false;
             updateSearchResultMuteIcon(item, song);
+            item.parentNode.appendChild(item);
         }
         
-        checked++;
-        if (checked >= items.length) {
-            debugLog(`[可用性检查] 完成，已检查 ${checked} 个结果，正在排序...`);
-            // 全部检查完成后，按可播放优先重新排序
-            sortSearchResultsByPlayability();
-        }
+        // 每检查几个给一个喘息
+        if (i % 3 === 2) await new Promise(r => setTimeout(r, 30));
     }
     
-    // 分批并发执行
-    for (let i = 0; i < queue.length; i += concurrency) {
-        const batch = queue.slice(i, i + concurrency);
-        await Promise.allSettled(batch.map(checkItem));
-        // 每批之间给一点点喘息时间
-        await new Promise(r => setTimeout(r, 50));
-    }
-}
-
-// 按播放可用性排序：能播放的放上面，不能播放的放下面
-function sortSearchResultsByPlayability() {
-    const playable = [];
-    const unplayable = [];
-    
-    for (const song of state.searchResults) {
-        if (song._canPlay) {
-            playable.push(song);
-        } else {
-            unplayable.push(song);
-        }
-    }
-    
-    // 如果没有不可播放的，不需要排序
-    if (unplayable.length === 0) return;
-    
-    state.searchResults = [...playable, ...unplayable];
-    
-    // 重新渲染搜索结果
-    const container = dom.searchResultsList || dom.searchResults;
-    if (!container) return;
-    
-    // 保留加载更多按钮
-    const loadMoreBtn = container.querySelector("#loadMoreBtn");
-    container.innerHTML = "";
-    
-    const fragment = document.createDocumentFragment();
-    state.searchResults.forEach((song, index) => {
-        fragment.appendChild(createSearchResultItem(song, index));
+    // 最终整理 state.searchResults 顺序与DOM一致
+    const finalItems = container.querySelectorAll('.search-result-item');
+    const reordered = [];
+    finalItems.forEach(item => {
+        const idx = parseInt(item.dataset.index);
+        item.dataset.index = String(reordered.length);
+        reordered.push(state.searchResults[idx]);
     });
-    container.appendChild(fragment);
+    state.searchResults = reordered;
     
-    if (loadMoreBtn) {
-        container.appendChild(loadMoreBtn);
-    }
-    
-    // 更新收藏图标状态
-    updateFavoriteIcons();
-    
-    // 重新检查未播放项的图标（之前已添加的图标还在）
-    state.searchResults.forEach((song, index) => {
-        if (song._canPlay === false) {
-            const item = container.querySelector(`.search-result-item[data-index="${index}"]`);
-            if (item && !item.classList.contains('search-result-unplayable')) {
-                updateSearchResultMuteIcon(item, song);
-            }
-        }
-    });
-    
-    if (unplayable.length > 0) {
-        debugLog(`[排序] 可播放: ${playable.length} 首在前，不可播放: ${unplayable.length} 首在后`);
-    }
+    debugLog(`[可用性检查] 完成: ${playableCount}首可播放, ${items.length - playableCount}首不可播放`);
 }
 
 // 更新搜索结果项的静音图标
