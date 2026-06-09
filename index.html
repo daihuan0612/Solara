@@ -5,6 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>小苹果Music</title>
     <meta name="apple-mobile-web-app-title" content="小苹果Music">
+    <meta name="theme-color" content="#0a0a1a">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="manifest" href="/manifest.json">
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png">
     <link rel="shortcut icon" href="/favicon.png">
@@ -19,9 +23,13 @@
     <script>
         (function () {
             const ua = navigator.userAgent || "";
-            const isMobileUA = /android|iphone|ipad|ipod|mobile|blackberry|phone|opera mini|windows phone/i.test(ua);
-            const isSmallScreen = typeof window.matchMedia === "function" && window.matchMedia("(max-width: 820px)").matches;
-            const isMobile = isMobileUA || isSmallScreen;
+            // 检测移动设备，但排除平板设备
+            const isTabletUA = /ipad|android(?!.*mobile)|tablet/i.test(ua);
+            const isMobileUA = /iphone|ipod|mobile|blackberry|phone|opera mini|windows phone/i.test(ua);
+            // 调整屏幕尺寸阈值：小于等于768px为移动设备，大于768px为平板/桌面
+            const isSmallScreen = typeof window.matchMedia === "function" && window.matchMedia("(max-width: 768px)").matches;
+            // 只有真正的移动设备（小屏幕或移动UA）才加载移动版，平板加载PC版
+            const isMobile = (isMobileUA || isSmallScreen) && !isTabletUA;
             window.__SOLARA_IS_MOBILE = isMobile;
             if (!isMobile) {
                 document.documentElement.classList.add("desktop-view");
@@ -195,6 +203,10 @@
                 <button id="themeToggleButton" class="theme-toggle-button" type="button" aria-label="切换深浅色模式">
                     <i class="fas fa-sun theme-icon theme-icon--sun" aria-hidden="true"></i>
                     <i class="fas fa-moon theme-icon theme-icon--moon" aria-hidden="true"></i>
+                </button>
+                <button id="installPwaBtn" class="install-pwa-btn" type="button" onclick="promptPwaInstall()" title="安装到桌面" style="display:none">
+                    <i class="fas fa-download" aria-hidden="true"></i>
+                    <span>安装到桌面</span>
                 </button>
             </div>
         </div>
