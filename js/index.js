@@ -6301,35 +6301,52 @@ async function playSong(song, options = {}) {
         }
 
         // 4. 获取实际音频流 URL
-        const quality = state.playbackQuality || '320';
-        const audioUrl = API.getSongUrl(song, quality);
-        debugLog(`获取音频URL: ${audioUrl}`);
+        let quality = state.playbackQuality || '320';
+        const availableQualities = ['999', '740', '320', '192', '128'];
         
-        // 添加重试机制，处理API不稳定的情况
-        const maxRetries = 3;
-        const retryDelay = 500;
+        // 找到当前音质在列表中的位置，从该位置开始尝试降级
+        let startIndex = availableQualities.indexOf(quality);
+        if (startIndex === -1) startIndex = 0;
+        
         let audioData = null;
         let lastError = null;
+        const retryDelay = 500;
         
-        for (let attempt = 1; attempt <= maxRetries; attempt++) {
-            try {
-                audioData = await API.fetchJson(audioUrl);
-                
-                if (audioData && audioData.url) {
-                    debugLog(`第 ${attempt} 次尝试获取音频URL成功: ${audioData.url.substring(0, 50)}...`);
-                    break;
+        // 尝试不同的音质级别
+        for (let qualityIndex = startIndex; qualityIndex < availableQualities.length; qualityIndex++) {
+            const currentQuality = availableQualities[qualityIndex];
+            const audioUrl = API.getSongUrl(song, currentQuality);
+            debugLog(`获取音频URL: ${audioUrl}`);
+            
+            // 每个音质最多重试2次
+            for (let attempt = 1; attempt <= 2; attempt++) {
+                try {
+                    audioData = await API.fetchJson(audioUrl);
+                    
+                    if (audioData && audioData.url) {
+                        debugLog(`使用音质 ${currentQuality} 获取音频URL成功: ${audioData.url.substring(0, 50)}...`);
+                        // 更新当前使用的音质
+                        state.playbackQuality = currentQuality;
+                        break;
+                    }
+                    
+                    if (attempt < 2) {
+                        debugLog(`音质 ${currentQuality} 第 ${attempt} 次尝试失败（返回空），等待 ${retryDelay}ms 后重试`);
+                        await new Promise(r => setTimeout(r, retryDelay));
+                    } else {
+                        debugLog(`音质 ${currentQuality} 尝试失败，尝试降级到更低音质`);
+                    }
+                } catch (error) {
+                    lastError = error;
+                    if (attempt < 2) {
+                        debugLog(`音质 ${currentQuality} 第 ${attempt} 次尝试失败: ${error.message}，等待 ${retryDelay}ms 后重试`);
+                        await new Promise(r => setTimeout(r, retryDelay));
+                    }
                 }
-                
-                if (attempt < maxRetries) {
-                    debugLog(`第 ${attempt} 次尝试获取音频URL失败（返回空），等待 ${retryDelay * attempt}ms 后重试`);
-                    await new Promise(r => setTimeout(r, retryDelay * attempt));
-                }
-            } catch (error) {
-                lastError = error;
-                if (attempt < maxRetries) {
-                    debugLog(`第 ${attempt} 次尝试获取音频URL失败: ${error.message}，等待 ${retryDelay * attempt}ms 后重试`);
-                    await new Promise(r => setTimeout(r, retryDelay * attempt));
-                }
+            }
+            
+            if (audioData && audioData.url) {
+                break;
             }
         }
         
