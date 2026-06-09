@@ -12,6 +12,7 @@ const CACHE_NAMES = {
 
 const PRECACHE_URLS = [
     '/',
+    '/login',
     '/favicon.png',
     '/favicon.svg',
     '/manifest.json',
