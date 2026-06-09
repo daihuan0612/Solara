@@ -4891,6 +4891,7 @@ async function performSearch(isLiveSearch = false) {
                 debugLog(`[聚合搜索] 同时搜索: ${allSources.join(', ')}`);
                 dom.searchBtn.innerHTML = '<span class="loader"></span><span>聚合搜索中...</span>';
                 
+                // 第一轮：同时搜索所有平台
                 const searchPromises = allSources.map(s => 
                     API.searchParallel(query, s, 20, state.searchPage)
                         .catch(() => [])
@@ -4898,13 +4899,61 @@ async function performSearch(isLiveSearch = false) {
                 
                 const settledResults = await Promise.allSettled(searchPromises);
                 
-                // 合并所有平台的搜索结果
+                // 收集结果，并记录哪些平台需要重试
                 const allResults = [];
-                for (const result of settledResults) {
-                    if (result.status === "fulfilled" && result.value.length > 0) {
-                        allResults.push(...result.value);
+                const retryPlatforms = [];
+                let platformCounts = { netease: 0, kuwo: 0, joox: 0 };
+                
+                for (let i = 0; i < settledResults.length; i++) {
+                    const platform = allSources[i];
+                    if (settledResults[i].status === "fulfilled" && settledResults[i].value.length > 0) {
+                        const platformResults = settledResults[i].value;
+                        allResults.push(...platformResults);
+                        platformCounts[platform] = platformResults.length;
+                    } else {
+                        // 记录返回空结果的平台，后续重试
+                        retryPlatforms.push(platform);
                     }
                 }
+                
+                // 对返回空结果的平台进行重试（最多3次）
+                if (retryPlatforms.length > 0) {
+                    debugLog(`[聚合搜索] 以下平台需重试: ${retryPlatforms.join(', ')}`);
+                    
+                    for (let attempt = 1; attempt <= 3; attempt++) {
+                        // 检查是否还有平台需要重试
+                        if (retryPlatforms.length === 0) break;
+                        
+                        await new Promise(r => setTimeout(r, 300 * attempt));
+                        
+                        const retryPromises = retryPlatforms.map(s => 
+                            API.searchParallel(query, s, 20, state.searchPage)
+                                .catch(() => [])
+                        );
+                        
+                        const retryResults = await Promise.allSettled(retryPromises);
+                        
+                        // 收集重试成功的结果，移除已成功的平台
+                        const stillNeedRetry = [];
+                        for (let i = 0; i < retryResults.length; i++) {
+                            const platform = retryPlatforms[i];
+                            if (retryResults[i].status === "fulfilled" && retryResults[i].value.length > 0) {
+                                const platformResults = retryResults[i].value;
+                                allResults.push(...platformResults);
+                                platformCounts[platform] = platformResults.length;
+                                debugLog(`[聚合搜索] 第${attempt}次重试: ${platform} 返回 ${platformResults.length} 条结果`);
+                            } else {
+                                stillNeedRetry.push(platform);
+                            }
+                        }
+                        
+                        // 更新还需重试的平台列表
+                        retryPlatforms.length = 0;
+                        retryPlatforms.push(...stillNeedRetry);
+                    }
+                }
+                
+                debugLog(`[聚合搜索] 各平台结果数: 网易=${platformCounts.netease}, 酷我=${platformCounts.kuwo}, JOOX=${platformCounts.joox}`);
                 
                 // 去重：同平台+同歌名视为重复
                 const seen = new Set();
@@ -5004,9 +5053,11 @@ async function checkSearchResultsPlayability() {
         }
         
         checked++;
-         if (checked >= items.length) {
-             debugLog(`[可用性检查] 完成，已检查 ${checked} 个结果`);
-         }
+        if (checked >= items.length) {
+            debugLog(`[可用性检查] 完成，已检查 ${checked} 个结果，正在排序...`);
+            // 全部检查完成后，按可播放优先重新排序
+            sortSearchResultsByPlayability();
+        }
     }
     
     // 分批并发执行
@@ -5015,6 +5066,60 @@ async function checkSearchResultsPlayability() {
         await Promise.allSettled(batch.map(checkItem));
         // 每批之间给一点点喘息时间
         await new Promise(r => setTimeout(r, 50));
+    }
+}
+
+// 按播放可用性排序：能播放的放上面，不能播放的放下面
+function sortSearchResultsByPlayability() {
+    const playable = [];
+    const unplayable = [];
+    
+    for (const song of state.searchResults) {
+        if (song._canPlay) {
+            playable.push(song);
+        } else {
+            unplayable.push(song);
+        }
+    }
+    
+    // 如果没有不可播放的，不需要排序
+    if (unplayable.length === 0) return;
+    
+    state.searchResults = [...playable, ...unplayable];
+    
+    // 重新渲染搜索结果
+    const container = dom.searchResultsList || dom.searchResults;
+    if (!container) return;
+    
+    // 保留加载更多按钮
+    const loadMoreBtn = container.querySelector("#loadMoreBtn");
+    container.innerHTML = "";
+    
+    const fragment = document.createDocumentFragment();
+    state.searchResults.forEach((song, index) => {
+        fragment.appendChild(createSearchResultItem(song, index));
+    });
+    container.appendChild(fragment);
+    
+    if (loadMoreBtn) {
+        container.appendChild(loadMoreBtn);
+    }
+    
+    // 更新收藏图标状态
+    updateFavoriteIcons();
+    
+    // 重新检查未播放项的图标（之前已添加的图标还在）
+    state.searchResults.forEach((song, index) => {
+        if (song._canPlay === false) {
+            const item = container.querySelector(`.search-result-item[data-index="${index}"]`);
+            if (item && !item.classList.contains('search-result-unplayable')) {
+                updateSearchResultMuteIcon(item, song);
+            }
+        }
+    });
+    
+    if (unplayable.length > 0) {
+        debugLog(`[排序] 可播放: ${playable.length} 首在前，不可播放: ${unplayable.length} 首在后`);
     }
 }
 
