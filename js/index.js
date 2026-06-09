@@ -928,7 +928,25 @@ const API = {
         
         debugLog(`[并行搜索] GD Studio: ${gdResults.length}条, TuneHub: ${thResults.length}条, 耗时: ${Date.now() - startTime}ms`);
         
-        // 合并结果：先显示GD Studio的结果，再追加TuneHub中不重复的
+        // 如果两个API都返回空，尝试用顺序搜索兜底（对QQ等部分平台有效）
+        if (gdResults.length === 0 && thResults.length === 0) {
+            debugLog(`[并行搜索] 两API均无结果，尝试顺序搜索兜底`);
+            try {
+                const fallbackResults = await API.searchWithFallback(keyword, source, count, page);
+                if (fallbackResults.length > 0) {
+                    debugLog(`[并行搜索] 兜底搜索成功: ${fallbackResults.length}条`);
+                    return fallbackResults.map(s => {
+                        s.apiSource = s.apiSource || "tunehub";
+                        return s;
+                    });
+                }
+            } catch (e) {
+                debugLog(`[并行搜索] 兜底搜索也失败: ${e.message}`);
+            }
+            return [];
+        }
+        
+        // 合并结果：GD Studio结果优先，TuneHub追加不重复的
         const seen = new Set();
         const merged = [];
         
@@ -1760,6 +1778,18 @@ bootstrapPersistentStorage();
     audio.addEventListener('seeked', updatePositionState);
 
     audio.addEventListener('ended', () => {
+        // 缓存已完整播放的歌曲到本地
+        if (state.currentSong && dom.audioPlayer && dom.audioPlayer.src) {
+            const song = state.currentSong;
+            const songId = song.id || song.url_id || song.lyric_id;
+            if (songId) {
+                AudioCache.cache(songId, dom.audioPlayer.currentSrc || dom.audioPlayer.src)
+                    .then(cached => {
+                        if (cached) debugLog(`[缓存] 已缓存歌曲: ${song.name}`);
+                    });
+            }
+        }
+
         // 不要立即设置为paused，先尝试自动播放下一首
         updatePositionState();
         const refresh = () => {
@@ -5001,7 +5031,7 @@ async function performSearch(isLiveSearch = false) {
             }
         } else {
             // 有结果时，在后台检查播放可用性（不阻塞UI）
-            checkSearchResultsPlayability();
+            checkSearchResultsPlayability(state.searchSource === "aggregate");
         }
 
     } catch (error) {
@@ -5017,41 +5047,31 @@ async function performSearch(isLiveSearch = false) {
 }
 
 // 后台检查搜索结果播放可用性（不阻塞UI）
-async function checkSearchResultsPlayability() {
+async function checkSearchResultsPlayability(hideUnplayable = false) {
     const container = dom.searchResultsList || dom.searchResults;
     if (!container) return;
     
     const items = Array.from(container.querySelectorAll('.search-result-item'));
     if (items.length === 0) return;
     
-    debugLog(`[可用性检查] 开始检查 ${items.length} 个结果`);
+    debugLog(`[可用性检查] 开始检查 ${items.length} 个结果${hideUnplayable ? '（聚合模式，将隐藏不可播歌曲）' : ''}`);
     
-    // 先对搜索结果按平台排序：netease/kuwo/qq在前，joox在后（joox通常不可播）
-    state.searchResults.sort((a, b) => {
-        const order = { netease: 0, kuwo: 1, qq: 2, joox: 3 };
-        return (order[a.source] || 0) - (order[b.source] || 0);
-    });
-    
-    // 按新顺序重新渲染（仅保留已检查的静音状态）
-    const loadMoreBtn = container.querySelector("#loadMoreBtn");
-    container.innerHTML = "";
-    const fragment = document.createDocumentFragment();
-    state.searchResults.forEach((song, i) => {
-        fragment.appendChild(createSearchResultItem(song, i));
-    });
-    container.appendChild(fragment);
-    if (loadMoreBtn) container.appendChild(loadMoreBtn);
-    updateFavoriteIcons();
-    
-    // 逐个检查（不并发，避免API压力过大），每个检查完立即移动位置
-    const allItems = Array.from(container.querySelectorAll('.search-result-item'));
+    // 逐个检查（不并发，避免API压力过大），只设标志和图标，不移动DOM
     let playableCount = 0;
+    let unplayableCount = 0;
     
-    for (let i = 0; i < allItems.length; i++) {
-        const item = allItems[i];
+    for (let i = 0; i < items.length; i++) {
+        const item = items[i];
         const index = parseInt(item.dataset.index);
         const song = state.searchResults[index];
         if (!song) continue;
+        
+        // 跳过已检查过的
+        if (song._canPlay !== undefined) {
+            if (song._canPlay) playableCount++;
+            else unplayableCount++;
+            continue;
+        }
         
         try {
             const checkUrl = API.getSongUrl({...song}, song.source === "joox" ? "320" : "999");
@@ -5066,52 +5086,101 @@ async function checkSearchResultsPlayability() {
                         if (!verifyResp.ok) {
                             song._canPlay = false;
                             updateSearchResultMuteIcon(item, song);
-                            // 移到不可播放区
-                            item.parentNode.appendChild(item);
+                            unplayableCount++;
                             continue;
                         }
                     } catch {
                         song._canPlay = false;
                         updateSearchResultMuteIcon(item, song);
-                        item.parentNode.appendChild(item);
+                        unplayableCount++;
                         continue;
                     }
                 }
                 
                 song._canPlay = true;
-                // 移到可播放区
-                const firstItem = container.querySelector('.search-result-item');
-                if (firstItem && firstItem !== item) {
-                    container.insertBefore(item, firstItem);
-                }
                 playableCount++;
             } else {
                 song._canPlay = false;
                 updateSearchResultMuteIcon(item, song);
-                // 移到不可播放区
-                item.parentNode.appendChild(item);
+                unplayableCount++;
             }
         } catch {
             song._canPlay = false;
             updateSearchResultMuteIcon(item, song);
-            item.parentNode.appendChild(item);
+            unplayableCount++;
         }
         
         // 每检查几个给一个喘息
         if (i % 3 === 2) await new Promise(r => setTimeout(r, 30));
     }
     
-    // 最终整理 state.searchResults 顺序与DOM一致
-    const finalItems = container.querySelectorAll('.search-result-item');
-    const reordered = [];
-    finalItems.forEach(item => {
-        const idx = parseInt(item.dataset.index);
-        item.dataset.index = String(reordered.length);
-        reordered.push(state.searchResults[idx]);
-    });
-    state.searchResults = reordered;
+    // 全部检查完毕，按模式处理
+    sortSearchResultsByPlayability(hideUnplayable);
     
-    debugLog(`[可用性检查] 完成: ${playableCount}首可播放, ${items.length - playableCount}首不可播放`);
+    debugLog(`[可用性检查] 完成: ${playableCount}首可播放, ${unplayableCount}首不可播放`);
+}
+
+// 按播放可用性排序：能播放的放上面，不能播放的放下面
+// hideUnplayable=true（聚合模式）：直接隐藏不可播的歌曲
+// hideUnplayable=false（单平台模式）：显示全部，带静音图标
+function sortSearchResultsByPlayability(hideUnplayable = false) {
+    const playable = [];
+    const unplayable = [];
+    
+    for (const song of state.searchResults) {
+        if (song._canPlay) {
+            playable.push(song);
+        } else {
+            unplayable.push(song);
+        }
+    }
+    
+    // 如果没有不可播放的，不需要处理
+    if (unplayable.length === 0) return;
+    
+    if (hideUnplayable) {
+        // 聚合模式：只保留可播放的歌曲
+        state.searchResults = playable;
+        debugLog(`[聚合模式] 隐藏了 ${unplayable.length} 首不可播放的歌曲，剩余 ${playable.length} 首`);
+    } else {
+        // 单平台模式：排序，可播放的放上面
+        state.searchResults = [...playable, ...unplayable];
+        debugLog(`[排序] 可播放: ${playable.length} 首在前，不可播放: ${unplayable.length} 首在后`);
+    }
+    
+    // 重新渲染
+    const container = dom.searchResultsList || dom.searchResults;
+    if (!container) return;
+    
+    // 保留加载更多按钮
+    const loadMoreBtn = container.querySelector("#loadMoreBtn");
+    container.innerHTML = "";
+    
+    if (state.searchResults.length === 0) {
+        // 全部不可播时显示提示
+        container.innerHTML = '<div class="search-no-results" style="padding:30px;text-align:center;color:var(--text-muted)"><i class="fas fa-music" style="font-size:24px;margin-bottom:8px;display:block"></i>当前平台歌曲均无法播放，请尝试其他平台</div>';
+        if (loadMoreBtn) container.appendChild(loadMoreBtn);
+        return;
+    }
+    
+    const fragment = document.createDocumentFragment();
+    state.searchResults.forEach((song, index) => {
+        const el = createSearchResultItem(song, index);
+        // 非聚合模式下，不可播放的加静音图标
+        if (!hideUnplayable && song._canPlay === false) {
+            updateSearchResultMuteIcon(el, song);
+        }
+        fragment.appendChild(el);
+    });
+    container.appendChild(fragment);
+    
+    // 加载更多按钮始终在底部
+    if (loadMoreBtn) {
+        container.appendChild(loadMoreBtn);
+    }
+    
+    // 更新收藏图标状态
+    updateFavoriteIcons();
 }
 
 // 更新搜索结果项的静音图标
@@ -5210,9 +5279,11 @@ async function loadMoreResults() {
         showNotification("加载失败，请稍后重试", "error");
         state.searchPage--; // 回退页码
     } finally {
-        if (loadMoreBtn) {
-            loadMoreBtn.disabled = false;
-            loadMoreBtn.innerHTML = "<i class=\"fas fa-plus\"></i><span>加载更多</span>";
+        // 重新查询按钮（可能已被displaySearchResults移除重建）
+        const newLoadMoreBtn = document.getElementById("loadMoreBtn");
+        if (newLoadMoreBtn) {
+            newLoadMoreBtn.disabled = false;
+            newLoadMoreBtn.innerHTML = "<i class=\"fas fa-plus\"></i><span>加载更多</span>";
         }
     }
 }
@@ -6868,7 +6939,18 @@ async function playSong(song, options = {}) {
             await new Promise(r => setTimeout(r, 30));
         }
 
-        // 4. 获取实际音频流 URL（快速切换：无等待重试，快速降级）
+        // 4. 检查本地缓存是否有已完整播放的歌曲
+        const songId = song.id || song.url_id || song.lyric_id;
+        let cachedAudioUrl = null;
+        if (songId) {
+            const isCached = await AudioCache.isCached(songId).catch(() => false);
+            if (isCached) {
+                cachedAudioUrl = AudioCache.getCacheUrl(songId);
+                debugLog(`[播放] 命中本地缓存: ${song.name}`);
+            }
+        }
+
+        // 5. 获取实际音频流 URL（快速切换：无等待重试，快速降级）
         let quality = state.playbackQuality || '320';
         const availableQualities = ['999', '740', '320', '192', '128'];
         const fallbackSources = ['netease', 'qq', 'joox', 'kuwo'];
@@ -6882,92 +6964,100 @@ async function playSong(song, options = {}) {
         let finalSource = song.source;
         let finalApiSource = song.apiSource || "gd";
         
-        // 第一步：快速尝试原始API（每个音质只试1次，无延迟）
-        debugLog(`[播放] 尝试主API获取音频: ${song.source}`);
-        for (let qualityIndex = startIndex; qualityIndex < availableQualities.length; qualityIndex++) {
-            const currentQuality = availableQualities[qualityIndex];
-            try {
-                const audioUrl = API.getSongUrl(song, currentQuality);
-                audioData = await API.fetchJson(audioUrl);
-                if (audioData && audioData.url) {
-                    debugLog(`[播放] 主API成功 (音质: ${currentQuality})`);
-                    state.playbackQuality = currentQuality;
-                    break;
-                }
-            } catch (error) {
-                debugLog(`[播放] 主API音质 ${currentQuality} 失败: ${error.message}`);
-            }
+        // 有缓存则直接使用缓存
+        if (cachedAudioUrl) {
+            audioData = { url: cachedAudioUrl };
+            debugLog(`[播放] 从本地缓存播放: ${song.name}`);
         }
         
-        // 第二步：主API失败 → 快速尝试备用API（GD Studio）
+        // 没有缓存或缓存验证失败，尝试API获取
         if (!audioData || !audioData.url) {
-            debugLog(`[播放] 主API失败，尝试GD Studio备用API`);
-            // 如果歌曲来自TuneHub，用GD Studio格式；否则构建纯GD Studio URL
-            const gdQuality = quality === "flac" ? "999" : 
-                              quality === "flac24bit" ? "999" : 
-                              quality === "320k" ? "320" : "128k";
-            const gdUrl = `${API_CONFIG.fallback.baseUrl}?types=url&id=${song.id}&source=${song.source || "netease"}&br=${gdQuality}`;
-            try {
-                const resp = await fetch(gdUrl, { signal: AbortSignal.timeout(4000) });
-                const data = await resp.json();
-                if (data && data.url) {
-                    audioData = data;
-                    usedFallbackApi = true;
-                    finalApiSource = "gd";
-                    song.apiSource = "gd";
-                    debugLog(`[播放] GD Studio备用API成功`);
-                }
-            } catch (error) {
-                debugLog(`[播放] GD Studio备用API也失败: ${error.message}`);
-            }
-        }
-        
-        // 第三步：都失败 → 快速尝试备用音乐源（只查前2个源，只试1个音质）
-        if (!audioData || !audioData.url) {
-            debugLog(`[播放] API都失败，尝试备用音乐源`);
-            
-            for (const fallbackSource of fallbackSources.slice(0, 2)) {
-                if (fallbackSource === song.source) continue;
-                
+            // 第一步：快速尝试原始API（每个音质只试1次，无延迟）
+            debugLog(`[播放] 尝试主API获取音频: ${song.source}`);
+            for (let qualityIndex = startIndex; qualityIndex < availableQualities.length; qualityIndex++) {
+                const currentQuality = availableQualities[qualityIndex];
                 try {
-                    const fallbackSongName = song.name;
-                    const fallbackArtist = Array.isArray(song.artist) ? song.artist[0] : song.artist;
-                    const searchResults = await API.searchWithFallback(fallbackSongName, fallbackSource, 3, 1);
-                    
-                    const matchedSong = searchResults.find(r => {
-                        const ra = Array.isArray(r.artist) ? r.artist.join(', ') : r.artist;
-                        const sa = Array.isArray(song.artist) ? song.artist.join(', ') : song.artist;
-                        return r.name === song.name && (ra.includes(sa) || sa.includes(ra));
-                    });
-                    
-                    if (!matchedSong) continue;
-                    
-                    // 只尝试最高音质
-                    const topQuality = matchedSong.apiSource === "tunehub" ? "flac" : availableQualities[0];
-                    const qualityToTry = matchedSong.apiSource === "tunehub" ? topQuality : availableQualities[0];
-                    
-                    if (matchedSong.apiSource === "tunehub") {
-                        audioData = await API.getSongUrlTuneHub(matchedSong, topQuality);
-                    } else {
-                        const fallbackUrl = API.getSongUrl(matchedSong, qualityToTry);
-                        audioData = await API.fetchJson(fallbackUrl);
-                    }
-                    
+                    const audioUrl = API.getSongUrl(song, currentQuality);
+                    audioData = await API.fetchJson(audioUrl);
                     if (audioData && audioData.url) {
-                        debugLog(`[播放] 备用源 ${fallbackSource} 成功`);
-                        usedFallbackSource = true;
-                        usedFallbackApi = matchedSong.apiSource === "tunehub";
-                        finalSource = fallbackSource;
-                        finalApiSource = matchedSong.apiSource;
-                        song.id = matchedSong.id;
-                        song.source = fallbackSource;
-                        song.pic_id = matchedSong.pic_id;
-                        song.lyric_id = matchedSong.lyric_id;
-                        song.apiSource = matchedSong.apiSource;
+                        debugLog(`[播放] 主API成功 (音质: ${currentQuality})`);
+                        state.playbackQuality = currentQuality;
                         break;
                     }
                 } catch (error) {
-                    debugLog(`[播放] 备用源 ${fallbackSource} 搜索失败: ${error.message}`);
+                    debugLog(`[播放] 主API音质 ${currentQuality} 失败: ${error.message}`);
+                }
+            }
+            
+            // 第二步：主API失败 → 快速尝试备用API（GD Studio）
+            if (!audioData || !audioData.url) {
+                debugLog(`[播放] 主API失败，尝试GD Studio备用API`);
+                const gdQuality = quality === "flac" ? "999" : 
+                                  quality === "flac24bit" ? "999" : 
+                                  quality === "320k" ? "320" : "128k";
+                const gdUrl = `${API_CONFIG.fallback.baseUrl}?types=url&id=${song.id}&source=${song.source || "netease"}&br=${gdQuality}`;
+                try {
+                    const resp = await fetch(gdUrl, { signal: AbortSignal.timeout(4000) });
+                    const data = await resp.json();
+                    if (data && data.url) {
+                        audioData = data;
+                        usedFallbackApi = true;
+                        finalApiSource = "gd";
+                        song.apiSource = "gd";
+                        debugLog(`[播放] GD Studio备用API成功`);
+                    }
+                } catch (error) {
+                    debugLog(`[播放] GD Studio备用API也失败: ${error.message}`);
+                }
+            }
+            
+            // 第三步：都失败 → 快速尝试备用音乐源（只查前2个源，只试1个音质）
+            if (!audioData || !audioData.url) {
+                debugLog(`[播放] API都失败，尝试备用音乐源`);
+                
+                for (const fallbackSource of fallbackSources.slice(0, 2)) {
+                    if (fallbackSource === song.source) continue;
+                    
+                    try {
+                        const fallbackSongName = song.name;
+                        const fallbackArtist = Array.isArray(song.artist) ? song.artist[0] : song.artist;
+                        const searchResults = await API.searchWithFallback(fallbackSongName, fallbackSource, 3, 1);
+                        
+                        const matchedSong = searchResults.find(r => {
+                            const ra = Array.isArray(r.artist) ? r.artist.join(', ') : r.artist;
+                            const sa = Array.isArray(song.artist) ? song.artist.join(', ') : song.artist;
+                            return r.name === song.name && (ra.includes(sa) || sa.includes(ra));
+                        });
+                        
+                        if (!matchedSong) continue;
+                        
+                        // 只尝试最高音质
+                        const topQuality = matchedSong.apiSource === "tunehub" ? "flac" : availableQualities[0];
+                        const qualityToTry = matchedSong.apiSource === "tunehub" ? topQuality : availableQualities[0];
+                        
+                        if (matchedSong.apiSource === "tunehub") {
+                            audioData = await API.getSongUrlTuneHub(matchedSong, topQuality);
+                        } else {
+                            const fallbackUrl = API.getSongUrl(matchedSong, qualityToTry);
+                            audioData = await API.fetchJson(fallbackUrl);
+                        }
+                        
+                        if (audioData && audioData.url) {
+                            debugLog(`[播放] 备用源 ${fallbackSource} 成功`);
+                            usedFallbackSource = true;
+                            usedFallbackApi = matchedSong.apiSource === "tunehub";
+                            finalSource = fallbackSource;
+                            finalApiSource = matchedSong.apiSource;
+                            song.id = matchedSong.id;
+                            song.source = fallbackSource;
+                            song.pic_id = matchedSong.pic_id;
+                            song.lyric_id = matchedSong.lyric_id;
+                            song.apiSource = matchedSong.apiSource;
+                            break;
+                        }
+                    } catch (error) {
+                        debugLog(`[播放] 备用源 ${fallbackSource} 搜索失败: ${error.message}`);
+                    }
                 }
             }
         }
@@ -8188,25 +8278,117 @@ function showNotification(message, type = "success") {
 })();
 
 // ================================================
-// 💀 启动清理：清除所有僵尸 SW 和缓存
+// 📦 PWA: 注册 Service Worker
 // ================================================
-async function exterminateServiceWorkers() {
-    if (!('serviceWorker' in navigator)) return;
+async function registerSW() {
+    if (!('serviceWorker' in navigator)) return null;
     try {
-        const regs = await navigator.serviceWorker.getRegistrations();
-        if (regs.length > 0) {
-            console.warn(`⚠️ 清除 ${regs.length} 个僵尸SW`);
-            await Promise.all(regs.map(r => r.unregister()));
-        }
-        if ('caches' in window) {
-            const keys = await caches.keys();
-            // 清理所有包含 sw 或 workbox 的缓存
-            for (const k of keys) {
-                if (k.includes('sw') || k.includes('workbox') || k.includes('precache')) await caches.delete(k);
-            }
-        }
-    } catch (e) { console.error('清理失败:', e); }
+        const reg = await navigator.serviceWorker.register('/service-worker.js', { scope: '/' });
+        debugLog(`[PWA] Service Worker 注册成功 (${reg.active ? '激活' : '等待中'})`);
+        return reg;
+    } catch (e) {
+        console.warn('[PWA] Service Worker 注册失败:', e);
+        return null;
+    }
 }
+
+// ================================================
+// 📦 PWA: 安装提示
+// ================================================
+let deferredPrompt = null;
+
+function setupInstallPrompt() {
+    window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        deferredPrompt = e;
+        // 显示安装按钮（如有）
+        const installBtn = document.getElementById('installPwaBtn');
+        if (installBtn) installBtn.style.display = 'flex';
+    });
+
+    window.addEventListener('appinstalled', () => {
+        deferredPrompt = null;
+        debugLog('[PWA] 已安装到桌面');
+        const installBtn = document.getElementById('installPwaBtn');
+        if (installBtn) installBtn.style.display = 'none';
+    });
+}
+
+// 触发安装弹窗
+async function promptPwaInstall() {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const result = await deferredPrompt.userChoice;
+    debugLog(`[PWA] 安装结果: ${result.outcome}`);
+    deferredPrompt = null;
+}
+
+// ================================================
+// 📦 音频缓存管理（通过 Service Worker 缓存到本地）
+// ================================================
+const AudioCache = {
+    swReg: null,
+
+    init(reg) {
+        this.swReg = reg;
+    },
+
+    // 缓存一首歌的音频
+    async cache(songId, audioUrl) {
+        if (!this.swReg || !audioUrl) return false;
+        try {
+            return new Promise((resolve) => {
+                const channel = new MessageChannel();
+                const timeout = setTimeout(() => resolve(false), 15000);
+                channel.port1.onmessage = (e) => {
+                    clearTimeout(timeout);
+                    resolve(e.data.success === true);
+                };
+                this.swReg.active.postMessage(
+                    { type: 'CACHE_AUDIO', songId: String(songId), audioUrl },
+                    [channel.port2]
+                );
+            });
+        } catch (e) {
+            console.warn('[AudioCache] 缓存失败:', e);
+            return false;
+        }
+    },
+
+    // 检查歌曲是否已缓存
+    async isCached(songId) {
+        if (!this.swReg) return false;
+        try {
+            return new Promise((resolve) => {
+                const channel = new MessageChannel();
+                const timeout = setTimeout(() => resolve(false), 5000);
+                channel.port1.onmessage = (e) => {
+                    clearTimeout(timeout);
+                    resolve(e.data.cached === true);
+                };
+                this.swReg.active.postMessage(
+                    { type: 'CHECK_AUDIO_CACHE', songId: String(songId) },
+                    [channel.port2]
+                );
+            });
+        } catch (e) {
+            return false;
+        }
+    },
+
+    // 获取缓存的音频 URL（如果已缓存则返回本地URL，否则返回null）
+    getCacheUrl(songId) {
+        return `/cached-audio/${songId}`;
+    },
+
+    // 删除缓存的音频
+    async remove(songId) {
+        if (!this.swReg) return;
+        try {
+            this.swReg.active.postMessage({ type: 'DELETE_AUDIO_CACHE', songId: String(songId) });
+        } catch (e) { /* 静默 */ }
+    }
+};
 
 // ================================================
 // 🚀 UI 优化：移除加载遮罩 (实现秒开)
@@ -8222,9 +8404,14 @@ function removeLoadingMask() {
     }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-    // 1. 立即清理僵尸进程
-    exterminateServiceWorkers();
+// ================================================
+// 🏁 启动
+// ================================================
+document.addEventListener('DOMContentLoaded', async () => {
+    // 1. 注册 Service Worker
+    const swReg = await registerSW();
+    AudioCache.init(swReg);
+    setupInstallPrompt();
     
     // 2. 初始化播放器
     const player = dom.audioPlayer;
