@@ -6322,6 +6322,7 @@ async function playSong(song, options = {}) {
             for (let attempt = 1; attempt <= 2; attempt++) {
                 try {
                     audioData = await API.fetchJson(audioUrl);
+                    debugLog(`音质 ${currentQuality} 第 ${attempt} 次响应: ${JSON.stringify(audioData).substring(0, 100)}`);
                     
                     if (audioData && audioData.url) {
                         debugLog(`使用音质 ${currentQuality} 获取音频URL成功: ${audioData.url.substring(0, 50)}...`);
@@ -6338,8 +6339,9 @@ async function playSong(song, options = {}) {
                     }
                 } catch (error) {
                     lastError = error;
+                    debugLog(`音质 ${currentQuality} 第 ${attempt} 次尝试异常: ${error.message}`);
                     if (attempt < 2) {
-                        debugLog(`音质 ${currentQuality} 第 ${attempt} 次尝试失败: ${error.message}，等待 ${retryDelay}ms 后重试`);
+                        debugLog(`等待 ${retryDelay}ms 后重试`);
                         await new Promise(r => setTimeout(r, retryDelay));
                     }
                 }
@@ -6351,7 +6353,9 @@ async function playSong(song, options = {}) {
         }
         
         if (!audioData || !audioData.url) {
-            throw lastError || new Error('无法获取音频播放地址');
+            // 显示更详细的错误信息
+            const errorMsg = `无法获取音频播放地址 (歌曲: ${song.name}, 歌手: ${song.artist}, 来源: ${song.source}, ID: ${song.id})。可能原因：1) 该歌曲在当前音乐源不可用 2) 版权限制 3) 音乐源暂时不可用`;
+            throw new Error(errorMsg);
         }
         
         const originalAudioUrl = audioData.url;
