@@ -7029,42 +7029,70 @@ async function playSong(song, options = {}) {
         
         // 没有缓存或缓存验证失败，尝试API获取
         if (!audioData || !audioData.url) {
-            // 第一步：快速尝试原始API（每个音质只试1次，无延迟）
-            debugLog(`[播放] 尝试主API获取音频: ${song.source}`);
-            for (let qualityIndex = startIndex; qualityIndex < availableQualities.length; qualityIndex++) {
-                const currentQuality = availableQualities[qualityIndex];
+            // 第一步：直接获取播放链接（TuneHub 用302重定向，GD Studio 解析JSON）
+            debugLog(`[播放] 尝试获取音频: ${song.source}`);
+            
+            if (song.apiSource === "tunehub") {
+                // TuneHub：单个HEAD请求获取302重定向，不循环音质（检查时已验证320k可播）
                 try {
-                    const audioUrl = API.getSongUrl(song, currentQuality);
-                    audioData = await API.fetchJson(audioUrl);
+                    audioData = await API.getSongUrlTuneHub(song, "320k");
                     if (audioData && audioData.url) {
-                        debugLog(`[播放] 主API成功 (音质: ${currentQuality})`);
-                        state.playbackQuality = currentQuality;
-                        break;
+                        state.playbackQuality = "320k";
+                        debugLog(`[播放] TuneHub成功`);
                     }
                 } catch (error) {
-                    debugLog(`[播放] 主API音质 ${currentQuality} 失败: ${error.message}`);
+                    debugLog(`[播放] TuneHub失败: ${error.message}`);
+                }
+            } else {
+                // GD Studio：尝试最高音质（只试前2个，无延迟）
+                const gdQualities = ['999', '320'];
+                for (const q of gdQualities) {
+                    try {
+                        const gdUrl = `${API_CONFIG.fallback.baseUrl}?types=url&id=${song.id}&source=${song.source || "netease"}&br=${q}`;
+                        const resp = await fetch(gdUrl, { signal: AbortSignal.timeout(4000) });
+                        const data = await resp.json();
+                        if (data && data.url) {
+                            audioData = data;
+                            state.playbackQuality = q;
+                            debugLog(`[播放] GD Studio成功 (音质: ${q})`);
+                            break;
+                        }
+                    } catch (e) {
+                        debugLog(`[播放] GD Studio音质 ${q} 失败`);
+                    }
                 }
             }
             
-            // 第二步：主API失败 → 快速尝试备用API（GD Studio）
+            // 第二步：尝试备用API（TuneHub失败 → GD Studio, GD Studio失败 → TuneHub）
             if (!audioData || !audioData.url) {
-                debugLog(`[播放] 主API失败，尝试GD Studio备用API`);
-                const gdQuality = quality === "flac" ? "999" : 
-                                  quality === "flac24bit" ? "999" : 
-                                  quality === "320k" ? "320" : "128k";
-                const gdUrl = `${API_CONFIG.fallback.baseUrl}?types=url&id=${song.id}&source=${song.source || "netease"}&br=${gdQuality}`;
-                try {
-                    const resp = await fetch(gdUrl, { signal: AbortSignal.timeout(4000) });
-                    const data = await resp.json();
-                    if (data && data.url) {
-                        audioData = data;
-                        usedFallbackApi = true;
-                        finalApiSource = "gd";
-                        song.apiSource = "gd";
-                        debugLog(`[播放] GD Studio备用API成功`);
+                debugLog(`[播放] 主API失败，尝试备用API`);
+                if (song.apiSource === "tunehub") {
+                    const gdUrl = `${API_CONFIG.fallback.baseUrl}?types=url&id=${song.id}&source=${song.source || "netease"}&br=320`;
+                    try {
+                        const resp = await fetch(gdUrl, { signal: AbortSignal.timeout(4000) });
+                        const data = await resp.json();
+                        if (data && data.url) {
+                            audioData = data;
+                            usedFallbackApi = true;
+                            finalApiSource = "gd";
+                            song.apiSource = "gd";
+                            debugLog(`[播放] 备用GD Studio成功`);
+                        }
+                    } catch (error) {
+                        debugLog(`[播放] 备用GD Studio失败: ${error.message}`);
                     }
-                } catch (error) {
-                    debugLog(`[播放] GD Studio备用API也失败: ${error.message}`);
+                } else {
+                    try {
+                        audioData = await API.getSongUrlTuneHub(song, "320k");
+                        if (audioData && audioData.url) {
+                            usedFallbackApi = true;
+                            finalApiSource = "tunehub";
+                            song.apiSource = "tunehub";
+                            debugLog(`[播放] 备用TuneHub成功`);
+                        }
+                    } catch (error) {
+                        debugLog(`[播放] 备用TuneHub失败: ${error.message}`);
+                    }
                 }
             }
             
