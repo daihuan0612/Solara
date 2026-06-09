@@ -4351,6 +4351,8 @@ function fixAudioOutputIfNeeded() {
 function updateCurrentSongInfo(song, options = {}) {
     const { loadArtwork = true, updateBackground = true } = options;
     
+    debugLog(`updateCurrentSongInfo 被调用: ${song.name} - ${song.source}, loadArtwork=${loadArtwork}, updateBackground=${updateBackground}`);
+    
     // 如果是隐身模式，跳过UI更新
     if (shouldUseStealthMode() && !state.forceUIUpdate) {
         console.log('🔒 隐身模式：跳过UI更新');
@@ -4385,6 +4387,7 @@ function updateCurrentSongInfo(song, options = {}) {
         cancelDeferredPaletteUpdate();
         dom.albumCover.classList.add("loading");
         let picUrl = API.getPicUrl(song);
+        debugLog(`加载封面: pic_id=${song.pic_id}, source=${song.source}, URL=${picUrl}`);
         
         // 针对QQ音乐的封面加载优化（酷我音乐已禁用）
         const isSlowSource = song.source === 'qq';
@@ -4527,9 +4530,45 @@ async function performSearch(isLiveSearch = false) {
         showSearchResults();
         debugLog("已切换到搜索模式");
 
-        // 执行搜索
-        const results = await API.search(query, source, 20, state.searchPage);
-        debugLog(`API返回结果数量: ${results.length}`);
+        // 执行搜索（带重试机制）
+        let results = [];
+        const maxRetries = 3;
+        const retryDelay = 500;
+        let lastError = null;
+
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                // 更新按钮显示当前重试状态
+                if (attempt > 1) {
+                    dom.searchBtn.innerHTML = `<span class="loader"></span><span>搜索中... (${attempt}/${maxRetries})</span>`;
+                }
+                
+                results = await API.search(query, source, 20, state.searchPage);
+                debugLog(`API返回结果数量: ${results.length}`);
+                
+                // 如果返回结果，直接退出重试循环
+                if (results.length > 0) {
+                    break;
+                }
+                
+                // 如果返回空数组且不是最后一次尝试，等待后重试
+                if (attempt < maxRetries) {
+                    debugLog(`第 ${attempt} 次搜索返回空结果，等待 ${retryDelay * attempt}ms 后重试`);
+                    await new Promise(r => setTimeout(r, retryDelay * attempt));
+                }
+            } catch (error) {
+                lastError = error;
+                if (attempt < maxRetries) {
+                    debugLog(`第 ${attempt} 次请求失败: ${error.message}，等待 ${retryDelay * attempt}ms 后重试`);
+                    await new Promise(r => setTimeout(r, retryDelay * attempt));
+                }
+            }
+        }
+
+        // 如果所有重试都失败且有错误，抛出异常
+        if (results.length === 0 && lastError) {
+            throw lastError;
+        }
 
         if (state.searchPage === 1) {
             state.searchResults = results;
@@ -6266,10 +6305,36 @@ async function playSong(song, options = {}) {
         const audioUrl = API.getSongUrl(song, quality);
         debugLog(`获取音频URL: ${audioUrl}`);
         
-        const audioData = await API.fetchJson(audioUrl);
+        // 添加重试机制，处理API不稳定的情况
+        const maxRetries = 3;
+        const retryDelay = 500;
+        let audioData = null;
+        let lastError = null;
+        
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                audioData = await API.fetchJson(audioUrl);
+                
+                if (audioData && audioData.url) {
+                    debugLog(`第 ${attempt} 次尝试获取音频URL成功: ${audioData.url.substring(0, 50)}...`);
+                    break;
+                }
+                
+                if (attempt < maxRetries) {
+                    debugLog(`第 ${attempt} 次尝试获取音频URL失败（返回空），等待 ${retryDelay * attempt}ms 后重试`);
+                    await new Promise(r => setTimeout(r, retryDelay * attempt));
+                }
+            } catch (error) {
+                lastError = error;
+                if (attempt < maxRetries) {
+                    debugLog(`第 ${attempt} 次尝试获取音频URL失败: ${error.message}，等待 ${retryDelay * attempt}ms 后重试`);
+                    await new Promise(r => setTimeout(r, retryDelay * attempt));
+                }
+            }
+        }
         
         if (!audioData || !audioData.url) {
-            throw new Error('无法获取音频播放地址');
+            throw lastError || new Error('无法获取音频播放地址');
         }
         
         const originalAudioUrl = audioData.url;
@@ -6373,6 +6438,7 @@ async function playSong(song, options = {}) {
         } else {
             if (dom.albumCover) dom.albumCover.classList.add('loading');
             setTimeout(() => {
+                debugLog(`开始更新歌曲信息: ${song.name} - ${song.source}`);
                 updateCurrentSongInfo(song, { loadArtwork: true, updateBackground: true, immediate: true });
                 setTimeout(() => { if (dom.albumCover) dom.albumCover.classList.remove('loading'); }, 300);
             }, 100);
