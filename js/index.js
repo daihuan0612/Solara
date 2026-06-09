@@ -5090,71 +5090,61 @@ async function checkSearchResultsPlayability(hideUnplayable = false) {
     const container = dom.searchResultsList || dom.searchResults;
     if (!container) return;
     
-    const items = Array.from(container.querySelectorAll('.search-result-item'));
+    let items = Array.from(container.querySelectorAll('.search-result-item'));
     if (items.length === 0) return;
     
     debugLog(`[可用性检查] 开始检查 ${items.length} 个结果${hideUnplayable ? '（聚合模式，将隐藏不可播歌曲）' : ''}`);
     
-    // 逐个检查（不并发，避免API压力过大），只设标志和图标，不移动DOM
-    let playableCount = 0;
-    let unplayableCount = 0;
+    // 1. 按源优先级排序：网易云优先（大概率能播），用户不用等检查完就能看到网易的结果
+    const sourcePriority = { netease: 0, kuwo: 1, qq: 2, joox: 3 };
+    state.searchResults.sort((a, b) =>
+        (sourcePriority[a.source] ?? 99) - (sourcePriority[b.source] ?? 99)
+    );
     
-    for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-        const index = parseInt(item.dataset.index);
-        const song = state.searchResults[index];
-        if (!song) continue;
-        
-        // 跳过已检查过的
-        if (song._canPlay !== undefined) {
-            if (song._canPlay) playableCount++;
-            else unplayableCount++;
-            continue;
-        }
-        
-        try {
-            const result = await tryCheckSongPlayable(song);
+    // 重新渲染（网易在前）
+    const loadMoreBtn = container.querySelector("#loadMoreBtn");
+    const fragment = document.createDocumentFragment();
+    state.searchResults.forEach((song, index) => {
+        fragment.appendChild(createSearchResultItem(song, index));
+    });
+    container.innerHTML = "";
+    container.appendChild(fragment);
+    if (loadMoreBtn) container.appendChild(loadMoreBtn);
+    
+    // 重新获取items
+    items = Array.from(container.querySelectorAll('.search-result-item'));
+    if (items.length === 0) return;
+    
+    // 2. 并发检查可用性（TuneHub无频率限制，每批5个并行）
+    const CONCURRENCY = 5;
+    let checked = 0;
+    
+    for (let i = 0; i < items.length; i += CONCURRENCY) {
+        const batch = items.slice(i, i + CONCURRENCY);
+        await Promise.all(batch.map(async (item) => {
+            const index = parseInt(item.dataset.index);
+            const song = state.searchResults[index];
+            if (!song || song._canPlay !== undefined) return;
             
-            if (result.playable) {
-                song._canPlay = true;
-                playableCount++;
-                
-                // 对JOOX额外验证
-                if (song.source === "joox") {
-                    try {
-                        const verifyResp = await fetch(result.url, { method: 'HEAD', signal: AbortSignal.timeout(3000) });
-                        if (!verifyResp.ok) {
-                            song._canPlay = false;
-                            updateSearchResultMuteIcon(item, song);
-                            unplayableCount++;
-                            continue;
-                        }
-                    } catch {
-                        song._canPlay = false;
-                        updateSearchResultMuteIcon(item, song);
-                        unplayableCount++;
-                        continue;
-                    }
+            try {
+                const result = await tryCheckSongPlayable(song);
+                song._canPlay = result.playable;
+                if (!result.playable) {
+                    updateSearchResultMuteIcon(item, song);
                 }
-            } else {
+            } catch {
                 song._canPlay = false;
                 updateSearchResultMuteIcon(item, song);
-                unplayableCount++;
             }
-        } catch {
-            song._canPlay = false;
-            updateSearchResultMuteIcon(item, song);
-            unplayableCount++;
-        }
+            checked++;
+        }));
         
-        // 每首歌间隔800ms，避免触发GD Studio限流（50次/5分钟）
-        await new Promise(r => setTimeout(r, 800));
+        debugLog(`[可用性检查] 进度: ${checked}/${items.length}`);
     }
     
-    // 全部检查完毕，按模式处理
+    // 3. 全部检查完毕，按播放状态排序
     sortSearchResultsByPlayability(hideUnplayable);
-    
-    debugLog(`[可用性检查] 完成: ${playableCount}首可播放, ${unplayableCount}首不可播放`);
+    debugLog(`[可用性检查] 完成`);
 }
 
 // 按播放可用性排序：能播放的放上面，不能播放的放下面
