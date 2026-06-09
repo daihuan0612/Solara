@@ -644,6 +644,7 @@ const SOURCE_OPTIONS = [
     { value: "aggregate", label: "聚合搜索" },
     { value: "netease", label: "网易云音乐" },
     { value: "kuwo", label: "酷我音乐" },
+    { value: "qq", label: "QQ音乐" },
     { value: "joox", label: "JOOX音乐" }
 ];
 
@@ -763,17 +764,17 @@ const savedCurrentPlaylist = (() => {
 
 // API配置 - 双API支持（主API + 备用API）
 const API_CONFIG = {
-    // 主API (GD Studio)
+    // 主API (TuneHub)
     primary: {
-        name: "GD Studio",
-        baseUrl: "https://music-api.gdstudio.xyz/api.php",
-        searchFormat: "gd", // GD Studio格式
-    },
-    // 备用API (TuneHub)
-    fallback: {
         name: "TuneHub",
         baseUrl: "https://music-dl.sayqz.com/api",
-        searchFormat: "tunehub", // TuneHub格式
+        searchFormat: "tunehub",
+    },
+    // 备用API (GD Studio)
+    fallback: {
+        name: "GD Studio",
+        baseUrl: "https://music-api.gdstudio.xyz/api.php",
+        searchFormat: "gd",
     }
 };
 
@@ -781,7 +782,7 @@ const API_CONFIG = {
 let _currentApi = "primary";
 
 const API = {
-    baseUrl: API_CONFIG.primary.baseUrl,
+    baseUrl: API_CONFIG.fallback.baseUrl,  // GD Studio格式兼容
 
     // 切换到备用API
     switchToFallback: () => {
@@ -829,7 +830,7 @@ const API = {
 
     // TuneHub API搜索
     searchTuneHub: async (keyword, source = "netease", limit = 20) => {
-        const url = `${API_CONFIG.fallback.baseUrl}?source=${source}&type=search&keyword=${encodeURIComponent(keyword)}&limit=${limit}`;
+        const url = `${API_CONFIG.primary.baseUrl}?source=${source}&type=search&keyword=${encodeURIComponent(keyword)}&limit=${limit}`;
         
         try {
             debugLog(`TuneHub搜索: ${url}`);
@@ -885,27 +886,27 @@ const API = {
         }
     },
 
-    // 双API搜索（先主API，失败则备用API）
+    // 双API搜索（先TuneHub主API，失败则GD Studio备用API）
     searchWithFallback: async (keyword, source = "netease", count = 20, page = 1) => {
         try {
-            // 先尝试主API
-            const results = await API.search(keyword, source, count, page);
+            // 先尝试TuneHub主API
+            const results = await API.searchTuneHub(keyword, source, count);
             if (results.length > 0) {
                 return results;
             }
         } catch (error) {
-            debugLog(`主API搜索失败，尝试备用API: ${error.message}`);
+            debugLog(`TuneHub主API搜索失败，尝试备用API: ${error.message}`);
         }
 
-        // 主API失败或返回空，尝试TuneHub
+        // 主API失败或返回空，尝试GD Studio备用API
         try {
-            const tuneHubResults = await API.searchTuneHub(keyword, source, count);
-            if (tuneHubResults.length > 0) {
-                showNotification(`已切换到 TuneHub API 搜索`, 'info');
-                return tuneHubResults;
+            const fallbackResults = await API.search(keyword, source, count, page);
+            if (fallbackResults.length > 0) {
+                showNotification(`已切换到 GD Studio API 搜索`, 'info');
+                return fallbackResults;
             }
         } catch (error) {
-            debugLog(`备用API搜索也失败: ${error.message}`);
+            debugLog(`GD Studio备用API搜索也失败: ${error.message}`);
         }
 
         return []; // 两个API都失败，返回空数组
@@ -1011,14 +1012,14 @@ const API = {
                                    quality === "740" ? "flac24bit" : 
                                    quality === "320" ? "320k" : 
                                    quality === "192" ? "320k" : "128k";
-            return `${API_CONFIG.fallback.baseUrl}?source=${song.source || "netease"}&id=${song.id}&type=url&br=${tuneHubQuality}`;
+            return `${API_CONFIG.primary.baseUrl}?source=${song.source || "netease"}&id=${song.id}&type=url&br=${tuneHubQuality}`;
         }
         return `${API.baseUrl}?types=url&id=${song.id}&source=${song.source || "netease"}&br=${quality}`;
     },
 
     // TuneHub获取播放链接（返回302重定向URL）
     getSongUrlTuneHub: async (song, quality = "320k") => {
-        const url = `${API_CONFIG.fallback.baseUrl}?source=${song.source || "netease"}&id=${song.id}&type=url&br=${quality}`;
+        const url = `${API_CONFIG.primary.baseUrl}?source=${song.source || "netease"}&id=${song.id}&type=url&br=${quality}`;
         debugLog(`TuneHub获取播放链接: ${url}`);
         
         try {
@@ -1045,14 +1046,14 @@ const API = {
     getLyric: (song) => {
         // 根据歌曲的apiSource决定使用哪个API
         if (song.apiSource === "tunehub") {
-            return `${API_CONFIG.fallback.baseUrl}?source=${song.source || "netease"}&id=${song.lyric_id || song.id}&type=lrc`;
+            return `${API_CONFIG.primary.baseUrl}?source=${song.source || "netease"}&id=${song.lyric_id || song.id}&type=lrc`;
         }
         return `${API.baseUrl}?types=lyric&id=${song.lyric_id || song.id}&source=${song.source || "netease"}`;
     },
 
     // TuneHub获取歌词
     getLyricTuneHub: async (song) => {
-        const url = `${API_CONFIG.fallback.baseUrl}?source=${song.source || "netease"}&id=${song.lyric_id || song.id}&type=lrc`;
+        const url = `${API_CONFIG.primary.baseUrl}?source=${song.source || "netease"}&id=${song.lyric_id || song.id}&type=lrc`;
         debugLog(`TuneHub获取歌词: ${url}`);
         
         try {
@@ -1070,14 +1071,14 @@ const API = {
     getPicUrl: (song) => {
         // 根据歌曲的apiSource决定使用哪个API
         if (song.apiSource === "tunehub") {
-            return `${API_CONFIG.fallback.baseUrl}?source=${song.source || "netease"}&id=${song.pic_id || song.id}&type=pic`;
+            return `${API_CONFIG.primary.baseUrl}?source=${song.source || "netease"}&id=${song.pic_id || song.id}&type=pic`;
         }
         return `${API.baseUrl}?types=pic&id=${song.pic_id}&source=${song.source || "netease"}&size=500`;
     },
 
     // TuneHub获取封面（返回302重定向URL）
     getPicUrlTuneHub: async (song) => {
-        const url = `${API_CONFIG.fallback.baseUrl}?source=${song.source || "netease"}&id=${song.pic_id || song.id}&type=pic`;
+        const url = `${API_CONFIG.primary.baseUrl}?source=${song.source || "netease"}&id=${song.pic_id || song.id}&type=pic`;
         debugLog(`TuneHub获取封面: ${url}`);
         
         try {
@@ -4883,11 +4884,11 @@ async function performSearch(isLiveSearch = false) {
 
         // 执行搜索（聚合模式搜索所有平台，普通模式搜索单个平台）
         let results = [];
-        const allSources = ['netease', 'kuwo', 'joox'];
+        const allSources = ['netease', 'kuwo', 'qq', 'joox'];
         
         try {
             if (source === "aggregate") {
-                // 聚合模式：同时搜索所有3个平台
+                // 聚合模式：同时搜索所有4个平台
                 debugLog(`[聚合搜索] 同时搜索: ${allSources.join(', ')}`);
                 dom.searchBtn.innerHTML = '<span class="loader"></span><span>聚合搜索中...</span>';
                 
@@ -4902,7 +4903,7 @@ async function performSearch(isLiveSearch = false) {
                 // 收集结果，并记录哪些平台需要重试
                 const allResults = [];
                 const retryPlatforms = [];
-                let platformCounts = { netease: 0, kuwo: 0, joox: 0 };
+                let platformCounts = { netease: 0, kuwo: 0, qq: 0, joox: 0 };
                 
                 for (let i = 0; i < settledResults.length; i++) {
                     const platform = allSources[i];
@@ -4953,7 +4954,7 @@ async function performSearch(isLiveSearch = false) {
                     }
                 }
                 
-                debugLog(`[聚合搜索] 各平台结果数: 网易=${platformCounts.netease}, 酷我=${platformCounts.kuwo}, JOOX=${platformCounts.joox}`);
+                debugLog(`[聚合搜索] 各平台结果数: 网易=${platformCounts.netease}, 酷我=${platformCounts.kuwo}, QQ=${platformCounts.qq}, JOOX=${platformCounts.joox}`);
                 
                 // 去重：同平台+同歌名视为重复
                 const seen = new Set();
@@ -5025,9 +5026,9 @@ async function checkSearchResultsPlayability() {
     
     debugLog(`[可用性检查] 开始检查 ${items.length} 个结果`);
     
-    // 先对搜索结果按平台排序：netease/kuwo在前，joox在后（joox通常不可播）
+    // 先对搜索结果按平台排序：netease/kuwo/qq在前，joox在后（joox通常不可播）
     state.searchResults.sort((a, b) => {
-        const order = { netease: 0, kuwo: 1, joox: 2 };
+        const order = { netease: 0, kuwo: 1, qq: 2, joox: 3 };
         return (order[a.source] || 0) - (order[b.source] || 0);
     });
     
@@ -5163,7 +5164,7 @@ async function loadMoreResults() {
         let results;
         if (source === "aggregate") {
             // 聚合模式：同时搜索所有平台
-            const allSources = ['netease', 'kuwo', 'joox'];
+            const allSources = ['netease', 'kuwo', 'qq', 'joox'];
             const searchPromises = allSources.map(s => 
                 API.searchParallel(state.searchKeyword, s, 20, state.searchPage)
                     .catch(() => [])
@@ -6870,7 +6871,7 @@ async function playSong(song, options = {}) {
         // 4. 获取实际音频流 URL（快速切换：无等待重试，快速降级）
         let quality = state.playbackQuality || '320';
         const availableQualities = ['999', '740', '320', '192', '128'];
-        const fallbackSources = ['netease', 'joox', 'kuwo'];
+        const fallbackSources = ['netease', 'qq', 'joox', 'kuwo'];
         
         let startIndex = availableQualities.indexOf(quality);
         if (startIndex === -1) startIndex = 0;
@@ -6898,24 +6899,26 @@ async function playSong(song, options = {}) {
             }
         }
         
-        // 第二步：主API失败 → 快速尝试TuneHub（每个音质只试1次，无延迟）
+        // 第二步：主API失败 → 快速尝试备用API（GD Studio）
         if (!audioData || !audioData.url) {
-            debugLog(`[播放] 主API失败，尝试TuneHub备用API`);
-            const tuneHubQualities = ['flac', 'flac24bit', '320k', '128k'];
-            
-            for (const thQuality of tuneHubQualities) {
-                try {
-                    audioData = await API.getSongUrlTuneHub(song, thQuality);
-                    if (audioData && audioData.url) {
-                        debugLog(`[播放] TuneHub备用API成功`);
-                        usedFallbackApi = true;
-                        finalApiSource = "tunehub";
-                        song.apiSource = "tunehub";
-                        break;
-                    }
-                } catch (error) {
-                    // 静默忽略
+            debugLog(`[播放] 主API失败，尝试GD Studio备用API`);
+            // 如果歌曲来自TuneHub，用GD Studio格式；否则构建纯GD Studio URL
+            const gdQuality = quality === "flac" ? "999" : 
+                              quality === "flac24bit" ? "999" : 
+                              quality === "320k" ? "320" : "128k";
+            const gdUrl = `${API_CONFIG.fallback.baseUrl}?types=url&id=${song.id}&source=${song.source || "netease"}&br=${gdQuality}`;
+            try {
+                const resp = await fetch(gdUrl, { signal: AbortSignal.timeout(4000) });
+                const data = await resp.json();
+                if (data && data.url) {
+                    audioData = data;
+                    usedFallbackApi = true;
+                    finalApiSource = "gd";
+                    song.apiSource = "gd";
+                    debugLog(`[播放] GD Studio备用API成功`);
                 }
+            } catch (error) {
+                debugLog(`[播放] GD Studio备用API也失败: ${error.message}`);
             }
         }
         
