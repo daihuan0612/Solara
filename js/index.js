@@ -762,7 +762,7 @@ const savedCurrentPlaylist = (() => {
 
 // API配置 - 修复API地址和请求方式
 const API = {
-    baseUrl: "/proxy",
+    baseUrl: "https://music-api.gdstudio.xyz/api.php",
 
     fetchJson: async (url) => {
         try {
