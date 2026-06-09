@@ -19,8 +19,7 @@ const PRECACHE_URLS = [
     '/js/index.js',
 ];
 
-// 限制缓存大小（音频缓存最多 500MB 左右，此处限制条目数）
-const MAX_AUDIO_CACHE_ITEMS = 100;
+// 音频缓存不设上限（用户自行管理）
 
 // =============================================
 // INSTALL：预缓存应用壳
@@ -199,13 +198,6 @@ self.addEventListener('message', async event => {
                 const cache = await caches.open(CACHE_NAMES.audio);
                 const cacheKey = `/cached-audio/${songId}`;
                 await cache.put(cacheKey, response);
-
-                // 限制缓存大小：超出则删除最旧的
-                const keys = await cache.keys();
-                if (keys.length > MAX_AUDIO_CACHE_ITEMS) {
-                    const toDelete = keys.slice(0, keys.length - MAX_AUDIO_CACHE_ITEMS);
-                    await Promise.all(toDelete.map(k => cache.delete(k)));
-                }
 
                 event.source.postMessage({ type: 'AUDIO_CACHED', songId, success: true });
             } else {
