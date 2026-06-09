@@ -1,7 +1,7 @@
 {
   "name": "小苹果Music",
-  "short_name": "小苹果",
-  "description": "在线音乐播放器",
+  "short_name": "小苹果Music",
+  "description": "自用的在线音乐网站",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
