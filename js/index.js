@@ -5046,6 +5046,57 @@ async function performSearch(isLiveSearch = false) {
     }
 }
 
+// 检查单首歌曲是否可播放
+// TuneHub 支持自动换源（文档：原平台失败自动尝试其他平台），所以只要TuneHub返回有效URL即可播
+async function tryCheckSongPlayable(song) {
+    try {
+        const source = song.source || "netease";
+        
+        // TuneHub支持的源列表（文档明确列出）
+        const tuneHubSources = ["netease", "kuwo", "qq"];
+        
+        if (tuneHubSources.includes(source)) {
+            // TuneHub检测（支持自动换源，用320k检测成功率更高）
+            const tuneHubUrl = `${API_CONFIG.primary.baseUrl}?source=${source}&id=${song.id}&type=url&br=320k`;
+            
+            // HEAD检测302重定向
+            const headResp = await fetch(tuneHubUrl, { method: 'HEAD', redirect: 'manual', signal: AbortSignal.timeout(3000) });
+            if (headResp.status === 302) {
+                const redirectUrl = headResp.headers.get('Location');
+                if (redirectUrl) return { playable: true, url: redirectUrl, api: 'tunehub' };
+            }
+            
+            // HEAD失败，用GET尝试
+            const getResp = await fetch(tuneHubUrl, { signal: AbortSignal.timeout(3000) });
+            if (getResp.ok) {
+                try {
+                    const data = await getResp.clone().json();
+                    if (data && data.url) return { playable: true, url: data.url, api: 'tunehub' };
+                } catch {
+                    return { playable: true, url: tuneHubUrl, api: 'tunehub' };
+                }
+            }
+            
+            // TuneHub检测失败，用GD Studio兜底（针对部分源TuneHub不稳定的情况）
+            const gdUrl = `${API_CONFIG.fallback.baseUrl}?types=url&source=${source}&id=${song.id}&br=320`;
+            const gdResp = await fetch(gdUrl, { signal: AbortSignal.timeout(5000) });
+            if (gdResp.ok) {
+                const gdData = await gdResp.json();
+                if (gdData && gdData.url) return { playable: true, url: gdData.url, api: 'gd' };
+            }
+        } else {
+            // 非TuneHub支持源（如joox），直接使用GD Studio检测
+            const gdUrl = `${API_CONFIG.fallback.baseUrl}?types=url&source=${source}&id=${song.id}&br=320`;
+            const gdResp = await fetch(gdUrl, { signal: AbortSignal.timeout(5000) });
+            if (gdResp.ok) {
+                const gdData = await gdResp.json();
+                if (gdData && gdData.url) return { playable: true, url: gdData.url, api: 'gd' };
+            }
+        }
+    } catch { /* 忽略 */ }
+    return { playable: false };
+}
+
 // 后台检查搜索结果播放可用性（不阻塞UI）
 async function checkSearchResultsPlayability(hideUnplayable = false) {
     const container = dom.searchResultsList || dom.searchResults;
@@ -5074,15 +5125,16 @@ async function checkSearchResultsPlayability(hideUnplayable = false) {
         }
         
         try {
-            const checkUrl = API.getSongUrl({...song}, song.source === "joox" ? "320" : "999");
-            const resp = await fetch(checkUrl, { signal: AbortSignal.timeout(4000) });
-            const data = await resp.json();
+            const result = await tryCheckSongPlayable(song);
             
-            if (data && data.url) {
-                // 对JOOX额外验证：实际请求音频URL看是否可访问
+            if (result.playable) {
+                song._canPlay = true;
+                playableCount++;
+                
+                // 对JOOX额外验证
                 if (song.source === "joox") {
                     try {
-                        const verifyResp = await fetch(data.url, { method: 'HEAD', signal: AbortSignal.timeout(3000) });
+                        const verifyResp = await fetch(result.url, { method: 'HEAD', signal: AbortSignal.timeout(3000) });
                         if (!verifyResp.ok) {
                             song._canPlay = false;
                             updateSearchResultMuteIcon(item, song);
@@ -5096,9 +5148,6 @@ async function checkSearchResultsPlayability(hideUnplayable = false) {
                         continue;
                     }
                 }
-                
-                song._canPlay = true;
-                playableCount++;
             } else {
                 song._canPlay = false;
                 updateSearchResultMuteIcon(item, song);
@@ -5110,8 +5159,8 @@ async function checkSearchResultsPlayability(hideUnplayable = false) {
             unplayableCount++;
         }
         
-        // 每检查几个给一个喘息
-        if (i % 3 === 2) await new Promise(r => setTimeout(r, 30));
+        // 每首歌间隔800ms，避免触发GD Studio限流（50次/5分钟）
+        await new Promise(r => setTimeout(r, 800));
     }
     
     // 全部检查完毕，按模式处理
