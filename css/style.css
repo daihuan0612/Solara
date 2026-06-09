@@ -146,6 +146,159 @@ body.background-transitioning .background-stage__layer--transition {
     position: relative;
 }
 
+/* 平板设备适配 */
+@media (max-width: 1024px) {
+    .container {
+        width: 95%;
+        padding: 20px;
+        gap: 15px;
+        grid-template-columns: 250px 1fr 1fr;
+        max-height: 85vh;
+    }
+    
+    .header h1 {
+        font-size: 1.8em;
+    }
+    
+    .search-container {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+    
+    .source-select-btn {
+        min-width: 120px;
+        padding: 10px 14px;
+        font-size: 14px;
+    }
+    
+    .search-input {
+        padding: 10px 14px;
+        font-size: 14px;
+    }
+    
+    .search-btn {
+        padding: 10px 16px;
+        font-size: 14px;
+    }
+}
+
+/* 小平板设备适配 */
+@media (max-width: 768px) {
+    .container {
+        width: 98%;
+        padding: 15px;
+        gap: 10px;
+        grid-template-columns: 200px 1fr;
+        grid-template-areas:
+            "header header"
+            "search search"
+            "cover playlist"
+            "controls controls";
+        aspect-ratio: auto;
+        height: auto;
+        min-height: 80vh;
+    }
+    
+    .lyrics {
+        display: none;
+    }
+    
+    .header h1 {
+        font-size: 1.5em;
+    }
+    
+    .header .warning {
+        font-size: 0.8em;
+    }
+    
+    .search-container {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .source-select-btn {
+        min-width: auto;
+    }
+    
+    /* 控制区域适配 */
+    .controls {
+        gap: 10px;
+    }
+    
+    .transport-controls {
+        gap: 8px;
+    }
+    
+    #playPauseBtn {
+        width: 50px;
+        height: 50px;
+        font-size: 1.2em;
+    }
+    
+    .progress-container {
+        gap: 8px;
+        min-width: 200px;
+    }
+    
+    .audio-tools {
+        gap: 8px;
+    }
+    
+    .volume-container {
+        min-width: 120px;
+    }
+    
+    .volume-container input[type="range"] {
+        width: 80px;
+    }
+    
+    .controls .player-quality-btn {
+        min-width: 80px;
+        padding: 8px 10px;
+        font-size: 0.8em;
+        height: 36px;
+    }
+    
+    .control-trailing #loadOnlineBtn {
+        padding: 8px 12px;
+        font-size: 0.8em;
+    }
+    
+    .control-trailing #loadOnlineBtn .btn-text {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+}
+
+/* 平板设备控制区域适配 */
+@media (max-width: 1024px) {
+    .controls {
+        gap: 12px;
+    }
+    
+    .control-trailing {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+    
+    .audio-tools {
+        flex: 1 1 100%;
+        order: -1;
+        margin-bottom: 8px;
+    }
+    
+    .control-trailing #loadOnlineBtn {
+        margin-left: 0;
+        flex: 1 1 100%;
+        justify-content: center;
+    }
+    
+    .progress-container {
+        min-width: 220px;
+    }
+}
+
 /* 搜索模式下的容器布局 */
 .container.search-mode {
     grid-template-areas: 
@@ -539,6 +692,21 @@ body.background-transitioning .background-stage__layer--transition {
 .search-result-item.selected .search-result-select i {
     opacity: 1;
     transform: scale(1);
+}
+
+.search-result-unplayable {
+    opacity: 0.75;
+}
+
+.search-result-unplayable .search-result-title {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.search-result-unplayable .action-btn.play {
+    opacity: 0.4;
+    cursor: not-allowed;
 }
 
 .search-result-select {
