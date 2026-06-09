@@ -1778,18 +1778,6 @@ bootstrapPersistentStorage();
     audio.addEventListener('seeked', updatePositionState);
 
     audio.addEventListener('ended', () => {
-        // 缓存已完整播放的歌曲到本地
-        if (state.currentSong && dom.audioPlayer && dom.audioPlayer.src) {
-            const song = state.currentSong;
-            const songId = song.id || song.url_id || song.lyric_id;
-            if (songId) {
-                AudioCache.cache(songId, dom.audioPlayer.currentSrc || dom.audioPlayer.src)
-                    .then(cached => {
-                        if (cached) debugLog(`[缓存] 已缓存歌曲: ${song.name}`);
-                    });
-            }
-        }
-
         // 不要立即设置为paused，先尝试自动播放下一首
         updatePositionState();
         const refresh = () => {
@@ -6503,6 +6491,14 @@ function removeFavoriteAtIndex(index) {
     }
     const [removed] = favorites.splice(index, 1);
 
+    // 移除收藏时同步删除本地缓存
+    if (removed) {
+        const songId = removed.id || removed.url_id || removed.lyric_id;
+        if (songId) {
+            AudioCache.remove(songId);
+        }
+    }
+
     if (state.currentList === "favorite") {
         if (state.currentFavoriteIndex === index) {
             if (favorites.length === 0) {
@@ -6550,6 +6546,27 @@ function toggleFavorite(song) {
         saveFavoriteState();
         renderFavorites();
         showNotification("已添加到收藏列表", "success");
+
+        // 自动缓存音频到本地，没网也能听
+        const songId = normalizedSong.id || normalizedSong.url_id || normalizedSong.lyric_id;
+        if (songId) {
+            cacheFavoriteAudio(normalizedSong, songId);
+        }
+    }
+}
+
+// 收藏歌曲时后台自动缓存音频
+async function cacheFavoriteAudio(song, songId) {
+    try {
+        const result = await API.getAudioUrlWithFallback(song, "320");
+        if (result && result.url) {
+            const cached = await AudioCache.cache(songId, result.url);
+            if (cached) {
+                debugLog(`[缓存] 已缓存收藏歌曲: ${song.name}`);
+            }
+        }
+    } catch (e) {
+        debugLog(`[缓存] 收藏歌曲缓存失败: ${song.name}`, e.message);
     }
 }
 
