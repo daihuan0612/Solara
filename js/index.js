@@ -641,6 +641,7 @@ function buildAudioProxyUrl(url) {
 }
 
 const SOURCE_OPTIONS = [
+    { value: "aggregate", label: "聚合搜索" },
     { value: "netease", label: "网易云音乐" },
     { value: "kuwo", label: "酷我音乐" },
     { value: "joox", label: "JOOX音乐" }
@@ -648,7 +649,7 @@ const SOURCE_OPTIONS = [
 
 function normalizeSource(value) {
     const allowed = SOURCE_OPTIONS.map(option => option.value);
-    return allowed.includes(value) ? value : SOURCE_OPTIONS[0].value;
+    return allowed.includes(value) ? value : "aggregate";
 }
 
 const QUALITY_OPTIONS = [
@@ -908,6 +909,48 @@ const API = {
         }
 
         return []; // 两个API都失败，返回空数组
+    },
+
+    // 并行搜索：同时调用主API和TuneHub，合并去重后返回
+    searchParallel: async (keyword, source = "netease", count = 20, page = 1) => {
+        const startTime = Date.now();
+        debugLog(`[并行搜索] 开始并行搜索: ${keyword}, 来源: ${source}`);
+        
+        const [gdResult, thResult] = await Promise.allSettled([
+            API.search(keyword, source, count, page).catch(() => []),
+            API.searchTuneHub(keyword, source, count).catch(() => []),
+        ]);
+        
+        // 提取结果
+        const gdResults = gdResult.status === "fulfilled" ? gdResult.value : [];
+        const thResults = thResult.status === "fulfilled" ? thResult.value : [];
+        
+        debugLog(`[并行搜索] GD Studio: ${gdResults.length}条, TuneHub: ${thResults.length}条, 耗时: ${Date.now() - startTime}ms`);
+        
+        // 合并结果：先显示GD Studio的结果，再追加TuneHub中不重复的
+        const seen = new Set();
+        const merged = [];
+        
+        // GD Studio结果优先
+        for (const song of gdResults) {
+            const key = `${song.name}|${Array.isArray(song.artist) ? song.artist.join(',') : song.artist}`;
+            if (!seen.has(key)) {
+                seen.add(key);
+                merged.push(song);
+            }
+        }
+        
+        // 追加TuneHub中不重复的结果
+        for (const song of thResults) {
+            const key = `${song.name}|${Array.isArray(song.artist) ? song.artist.join(',') : song.artist}`;
+            if (!seen.has(key)) {
+                seen.add(key);
+                merged.push(song);
+            }
+        }
+        
+        debugLog(`[并行搜索] 合并去重后: ${merged.length}条`);
+        return merged;
     },
 
     getRadarPlaylist: async (playlistId = "3778678", options = {}) => {
@@ -4838,44 +4881,48 @@ async function performSearch(isLiveSearch = false) {
         showSearchResults();
         debugLog("已切换到搜索模式");
 
-        // 执行搜索（带重试机制）
+        // 执行搜索（聚合模式搜索所有平台，普通模式搜索单个平台）
         let results = [];
-        const maxRetries = 3;
-        const retryDelay = 500;
-        let lastError = null;
-
-        for (let attempt = 1; attempt <= maxRetries; attempt++) {
-            try {
-                // 更新按钮显示当前重试状态
-                if (attempt > 1) {
-                    dom.searchBtn.innerHTML = `<span class="loader"></span><span>搜索中... (${attempt}/${maxRetries})</span>`;
+        const allSources = ['netease', 'kuwo', 'joox'];
+        
+        try {
+            if (source === "aggregate") {
+                // 聚合模式：同时搜索所有3个平台
+                debugLog(`[聚合搜索] 同时搜索: ${allSources.join(', ')}`);
+                dom.searchBtn.innerHTML = '<span class="loader"></span><span>聚合搜索中...</span>';
+                
+                const searchPromises = allSources.map(s => 
+                    API.searchParallel(query, s, 20, state.searchPage)
+                        .catch(() => [])
+                );
+                
+                const settledResults = await Promise.allSettled(searchPromises);
+                
+                // 合并所有平台的搜索结果
+                const allResults = [];
+                for (const result of settledResults) {
+                    if (result.status === "fulfilled" && result.value.length > 0) {
+                        allResults.push(...result.value);
+                    }
                 }
                 
-                results = await API.search(query, source, 20, state.searchPage);
-                debugLog(`API返回结果数量: ${results.length}`);
-                
-                // 如果返回结果，直接退出重试循环
-                if (results.length > 0) {
-                    break;
+                // 去重：同平台+同歌名视为重复
+                const seen = new Set();
+                for (const song of allResults) {
+                    const key = `${song.source}|${song.name}|${Array.isArray(song.artist) ? song.artist.join(',') : song.artist}`;
+                    if (!seen.has(key)) {
+                        seen.add(key);
+                        results.push(song);
+                    }
                 }
                 
-                // 如果返回空数组且不是最后一次尝试，等待后重试
-                if (attempt < maxRetries) {
-                    debugLog(`第 ${attempt} 次搜索返回空结果，等待 ${retryDelay * attempt}ms 后重试`);
-                    await new Promise(r => setTimeout(r, retryDelay * attempt));
-                }
-            } catch (error) {
-                lastError = error;
-                if (attempt < maxRetries) {
-                    debugLog(`第 ${attempt} 次请求失败: ${error.message}，等待 ${retryDelay * attempt}ms 后重试`);
-                    await new Promise(r => setTimeout(r, retryDelay * attempt));
-                }
+                debugLog(`[聚合搜索] 完成: 共 ${results.length} 条合并结果`);
+            } else {
+                // 普通模式：只搜索选定平台
+                results = await API.searchParallel(query, source, 20, state.searchPage);
             }
-        }
-
-        // 如果所有重试都失败且有错误，抛出异常
-        if (results.length === 0 && lastError) {
-            throw lastError;
+        } catch (error) {
+            debugLog(`搜索整体失败: ${error.message}`);
         }
 
         if (state.searchPage === 1) {
@@ -4884,7 +4931,7 @@ async function performSearch(isLiveSearch = false) {
             state.searchResults = [...state.searchResults, ...results];
         }
 
-        state.hasMoreResults = results.length === 20;
+        state.hasMoreResults = results.length >= 20;
 
         // 显示搜索结果
         displaySearchResults(results, {
@@ -4896,8 +4943,15 @@ async function performSearch(isLiveSearch = false) {
 
         // 如果没有结果，显示更友好的提示信息
         if (state.searchResults.length === 0) {
-            const platformName = SOURCE_OPTIONS.find(option => option.value === source)?.label || source;
-            showNotification(`${platformName} 未找到相关歌曲，请尝试其他平台或关键词`, "info");
+            if (source === "aggregate") {
+                showNotification("所有平台均未找到相关歌曲，请尝试其他关键词", "info");
+            } else {
+                const platformName = SOURCE_OPTIONS.find(option => option.value === source)?.label || source;
+                showNotification(`${platformName} 未找到相关歌曲，请尝试其他平台或关键词`, "info");
+            }
+        } else {
+            // 有结果时，在后台检查播放可用性（不阻塞UI）
+            checkSearchResultsPlayability();
         }
 
     } catch (error) {
@@ -4910,6 +4964,81 @@ async function performSearch(isLiveSearch = false) {
         dom.searchBtn.disabled = false;
         dom.searchBtn.innerHTML = '<i class="fas fa-search"></i><span>搜索</span>';
     }
+}
+
+// 后台检查搜索结果播放可用性（不阻塞UI）
+async function checkSearchResultsPlayability() {
+    const container = dom.searchResultsList || dom.searchResults;
+    if (!container) return;
+    
+    const items = container.querySelectorAll('.search-result-item');
+    if (items.length === 0) return;
+    
+    debugLog(`[可用性检查] 开始检查 ${items.length} 个结果的播放可用性`);
+    
+    // 分批检查，每次最多3个并发，避免API压力
+    const concurrency = 3;
+    const queue = Array.from(items);
+    let checked = 0;
+    
+    async function checkItem(item) {
+        const index = parseInt(item.dataset.index);
+        const song = state.searchResults[index];
+        if (!song) return;
+        
+        // 快速检查：只尝试最高音质，只试1次
+        try {
+            const checkUrl = API.getSongUrl({...song}, "999");
+            const resp = await fetch(checkUrl, { signal: AbortSignal.timeout(3000) });
+            const data = await resp.json();
+            
+            if (data && data.url) {
+                song._canPlay = true;
+            } else {
+                song._canPlay = false;
+                updateSearchResultMuteIcon(item, song);
+            }
+        } catch {
+            song._canPlay = false;
+            updateSearchResultMuteIcon(item, song);
+        }
+        
+        checked++;
+         if (checked >= items.length) {
+             debugLog(`[可用性检查] 完成，已检查 ${checked} 个结果`);
+         }
+    }
+    
+    // 分批并发执行
+    for (let i = 0; i < queue.length; i += concurrency) {
+        const batch = queue.slice(i, i + concurrency);
+        await Promise.allSettled(batch.map(checkItem));
+        // 每批之间给一点点喘息时间
+        await new Promise(r => setTimeout(r, 50));
+    }
+}
+
+// 更新搜索结果项的静音图标
+function updateSearchResultMuteIcon(item, song) {
+    if (song._canPlay !== false) return;
+    
+    const titleEl = item.querySelector('.search-result-title');
+    if (!titleEl) return;
+    
+    // 如果已经有图标了，不重复添加
+    if (titleEl.querySelector('.mute-icon')) return;
+    
+    const muteIcon = document.createElement('span');
+    muteIcon.className = 'mute-icon';
+    muteIcon.title = '该歌曲当前无法播放';
+    // 内联SVG静音喇叭图标（纯黑）
+    muteIcon.innerHTML = `<svg viewBox="0 0 24 24" width="16" height="16" fill="#333"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>`;
+    muteIcon.style.marginLeft = '6px';
+    muteIcon.style.verticalAlign = 'middle';
+    muteIcon.style.flexShrink = '0';
+    
+    titleEl.appendChild(muteIcon);
+    item.classList.add('search-result-unplayable');
 }
 
 // 加载更多搜索结果
@@ -4935,7 +5064,37 @@ async function loadMoreResults() {
         const source = normalizeSource(state.searchSource);
         state.searchSource = source;
         safeSetLocalStorage("searchSource", source);
-        const results = await API.search(state.searchKeyword, source, 20, state.searchPage);
+        
+        let results;
+        if (source === "aggregate") {
+            // 聚合模式：同时搜索所有平台
+            const allSources = ['netease', 'kuwo', 'joox'];
+            const searchPromises = allSources.map(s => 
+                API.searchParallel(state.searchKeyword, s, 20, state.searchPage)
+                    .catch(() => [])
+            );
+            const settledResults = await Promise.allSettled(searchPromises);
+            
+            const allResults = [];
+            for (const result of settledResults) {
+                if (result.status === "fulfilled" && result.value.length > 0) {
+                    allResults.push(...result.value);
+                }
+            }
+            
+            // 去重
+            const seen = new Set();
+            results = [];
+            for (const song of allResults) {
+                const key = `${song.source}|${song.name}|${Array.isArray(song.artist) ? song.artist.join(',') : song.artist}`;
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    results.push(song);
+                }
+            }
+        } else {
+            results = await API.searchParallel(state.searchKeyword, source, 20, state.searchPage);
+        }
 
         if (results.length > 0) {
             state.searchResults = [...state.searchResults, ...results];
@@ -6613,7 +6772,7 @@ async function playSong(song, options = {}) {
             await new Promise(r => setTimeout(r, 30));
         }
 
-        // 4. 获取实际音频流 URL（双API + 备用音乐源）
+        // 4. 获取实际音频流 URL（快速切换：无等待重试，快速降级）
         let quality = state.playbackQuality || '320';
         const availableQualities = ['999', '740', '320', '192', '128'];
         const fallbackSources = ['netease', 'joox', 'kuwo'];
@@ -6622,134 +6781,95 @@ async function playSong(song, options = {}) {
         if (startIndex === -1) startIndex = 0;
         
         let audioData = null;
-        let lastError = null;
-        const retryDelay = 500;
         let usedFallbackSource = false;
         let usedFallbackApi = false;
         let finalSource = song.source;
         let finalApiSource = song.apiSource || "gd";
         
-        // 首先尝试原始API和音乐源
+        // 第一步：快速尝试原始API（每个音质只试1次，无延迟）
+        debugLog(`[播放] 尝试主API获取音频: ${song.source}`);
         for (let qualityIndex = startIndex; qualityIndex < availableQualities.length; qualityIndex++) {
             const currentQuality = availableQualities[qualityIndex];
-            const audioUrl = API.getSongUrl(song, currentQuality);
-            debugLog(`获取音频URL: ${audioUrl}`);
-            
-            for (let attempt = 1; attempt <= 2; attempt++) {
-                try {
-                    audioData = await API.fetchJson(audioUrl);
-                    debugLog(`音质 ${currentQuality} 第 ${attempt} 次响应: ${JSON.stringify(audioData).substring(0, 100)}`);
-                    
-                    if (audioData && audioData.url) {
-                        debugLog(`使用音质 ${currentQuality} 获取音频URL成功`);
-                        state.playbackQuality = currentQuality;
-                        finalApiSource = song.apiSource || "gd";
-                        break;
-                    }
-                    
-                    if (attempt < 2) {
-                        debugLog(`音质 ${currentQuality} 第 ${attempt} 次尝试失败（返回空），等待 ${retryDelay}ms 后重试`);
-                        await new Promise(r => setTimeout(r, retryDelay));
-                    }
-                } catch (error) {
-                    lastError = error;
-                    debugLog(`音质 ${currentQuality} 第 ${attempt} 次尝试异常: ${error.message}`);
-                    if (attempt < 2) {
-                        await new Promise(r => setTimeout(r, retryDelay));
-                    }
+            try {
+                const audioUrl = API.getSongUrl(song, currentQuality);
+                audioData = await API.fetchJson(audioUrl);
+                if (audioData && audioData.url) {
+                    debugLog(`[播放] 主API成功 (音质: ${currentQuality})`);
+                    state.playbackQuality = currentQuality;
+                    break;
                 }
+            } catch (error) {
+                debugLog(`[播放] 主API音质 ${currentQuality} 失败: ${error.message}`);
             }
-            
-            if (audioData && audioData.url) break;
         }
         
-        // 如果主API失败，尝试TuneHub备用API
+        // 第二步：主API失败 → 快速尝试TuneHub（每个音质只试1次，无延迟）
         if (!audioData || !audioData.url) {
-            debugLog(`主API ${song.apiSource || "gd"} 无法获取播放链接，尝试 TuneHub 备用API`);
+            debugLog(`[播放] 主API失败，尝试TuneHub备用API`);
+            const tuneHubQualities = ['flac', 'flac24bit', '320k', '128k'];
             
-            const tuneHubQualities = ['flac', 'flac24bit', '320k', '320k', '128k'];
-            
-            for (let i = 0; i < tuneHubQualities.length; i++) {
-                const currentQuality = tuneHubQualities[i];
-                
+            for (const thQuality of tuneHubQualities) {
                 try {
-                    audioData = await API.getSongUrlTuneHub(song, currentQuality);
-                    
+                    audioData = await API.getSongUrlTuneHub(song, thQuality);
                     if (audioData && audioData.url) {
-                        debugLog(`TuneHub成功获取播放链接: ${audioData.url.substring(0, 50)}...`);
+                        debugLog(`[播放] TuneHub备用API成功`);
                         usedFallbackApi = true;
                         finalApiSource = "tunehub";
                         song.apiSource = "tunehub";
-                        state.playbackQuality = currentQuality;
                         break;
                     }
                 } catch (error) {
-                    debugLog(`TuneHub音质 ${currentQuality} 失败: ${error.message}`);
+                    // 静默忽略
                 }
             }
         }
         
-        // 如果所有API都失败，尝试备用音乐源搜索
+        // 第三步：都失败 → 快速尝试备用音乐源（只查前2个源，只试1个音质）
         if (!audioData || !audioData.url) {
-            debugLog(`所有API都无法获取播放链接，尝试备用音乐源搜索`);
+            debugLog(`[播放] API都失败，尝试备用音乐源`);
             
-            for (const fallbackSource of fallbackSources) {
+            for (const fallbackSource of fallbackSources.slice(0, 2)) {
                 if (fallbackSource === song.source) continue;
                 
                 try {
-                    debugLog(`尝试在 ${fallbackSource} 搜索: ${song.name} - ${song.artist}`);
-                    const searchResults = await API.searchWithFallback(song.name, fallbackSource, 5, 1);
+                    const fallbackSongName = song.name;
+                    const fallbackArtist = Array.isArray(song.artist) ? song.artist[0] : song.artist;
+                    const searchResults = await API.searchWithFallback(fallbackSongName, fallbackSource, 3, 1);
                     
-                    const matchedSong = searchResults.find(result => {
-                        const resultArtist = Array.isArray(result.artist) ? result.artist.join(', ') : result.artist;
-                        const songArtist = Array.isArray(song.artist) ? song.artist.join(', ') : song.artist;
-                        return result.name === song.name && 
-                               (resultArtist.includes(songArtist) || songArtist.includes(resultArtist));
+                    const matchedSong = searchResults.find(r => {
+                        const ra = Array.isArray(r.artist) ? r.artist.join(', ') : r.artist;
+                        const sa = Array.isArray(song.artist) ? song.artist.join(', ') : song.artist;
+                        return r.name === song.name && (ra.includes(sa) || sa.includes(ra));
                     });
                     
-                    if (matchedSong) {
-                        debugLog(`在 ${fallbackSource} (${matchedSong.apiSource}) 找到匹配歌曲`);
-                        
-                        // 尝试获取播放链接
-                        for (let qualityIndex = 0; qualityIndex < availableQualities.length; qualityIndex++) {
-                            const currentQuality = availableQualities[qualityIndex];
-                            
-                            try {
-                                if (matchedSong.apiSource === "tunehub") {
-                                    const tuneHubQuality = currentQuality === "999" ? "flac" : 
-                                                           currentQuality === "740" ? "flac24bit" : 
-                                                           currentQuality === "320" ? "320k" : "128k";
-                                    audioData = await API.getSongUrlTuneHub(matchedSong, tuneHubQuality);
-                                } else {
-                                    const fallbackAudioUrl = API.getSongUrl(matchedSong, currentQuality);
-                                    audioData = await API.fetchJson(fallbackAudioUrl);
-                                }
-                                
-                                if (audioData && audioData.url) {
-                                    debugLog(`备用音乐源 ${fallbackSource} 成功获取播放链接`);
-                                    usedFallbackSource = true;
-                                    usedFallbackApi = matchedSong.apiSource === "tunehub";
-                                    finalSource = fallbackSource;
-                                    finalApiSource = matchedSong.apiSource;
-                                    song.id = matchedSong.id;
-                                    song.source = fallbackSource;
-                                    song.pic_id = matchedSong.pic_id;
-                                    song.lyric_id = matchedSong.lyric_id;
-                                    song.apiSource = matchedSong.apiSource;
-                                    state.playbackQuality = currentQuality;
-                                    break;
-                                }
-                            } catch (error) {
-                                debugLog(`备用音乐源 ${fallbackSource} 音质 ${currentQuality} 失败: ${error.message}`);
-                            }
-                            
-                            if (audioData && audioData.url) break;
-                        }
-                        
-                        if (audioData && audioData.url) break;
+                    if (!matchedSong) continue;
+                    
+                    // 只尝试最高音质
+                    const topQuality = matchedSong.apiSource === "tunehub" ? "flac" : availableQualities[0];
+                    const qualityToTry = matchedSong.apiSource === "tunehub" ? topQuality : availableQualities[0];
+                    
+                    if (matchedSong.apiSource === "tunehub") {
+                        audioData = await API.getSongUrlTuneHub(matchedSong, topQuality);
+                    } else {
+                        const fallbackUrl = API.getSongUrl(matchedSong, qualityToTry);
+                        audioData = await API.fetchJson(fallbackUrl);
+                    }
+                    
+                    if (audioData && audioData.url) {
+                        debugLog(`[播放] 备用源 ${fallbackSource} 成功`);
+                        usedFallbackSource = true;
+                        usedFallbackApi = matchedSong.apiSource === "tunehub";
+                        finalSource = fallbackSource;
+                        finalApiSource = matchedSong.apiSource;
+                        song.id = matchedSong.id;
+                        song.source = fallbackSource;
+                        song.pic_id = matchedSong.pic_id;
+                        song.lyric_id = matchedSong.lyric_id;
+                        song.apiSource = matchedSong.apiSource;
+                        break;
                     }
                 } catch (error) {
-                    debugLog(`备用音乐源 ${fallbackSource} 搜索失败: ${error.message}`);
+                    debugLog(`[播放] 备用源 ${fallbackSource} 搜索失败: ${error.message}`);
                 }
             }
         }
