@@ -6304,6 +6304,9 @@ async function playSong(song, options = {}) {
         let quality = state.playbackQuality || '320';
         const availableQualities = ['999', '740', '320', '192', '128'];
         
+        // 定义备用音乐源（按优先级排序）
+        const fallbackSources = ['netease', 'joox', 'kuwo'];
+        
         // 找到当前音质在列表中的位置，从该位置开始尝试降级
         let startIndex = availableQualities.indexOf(quality);
         if (startIndex === -1) startIndex = 0;
@@ -6311,8 +6314,10 @@ async function playSong(song, options = {}) {
         let audioData = null;
         let lastError = null;
         const retryDelay = 500;
+        let usedFallbackSource = false;
+        let finalSource = song.source;
         
-        // 尝试不同的音质级别
+        // 首先尝试原始音乐源
         for (let qualityIndex = startIndex; qualityIndex < availableQualities.length; qualityIndex++) {
             const currentQuality = availableQualities[qualityIndex];
             const audioUrl = API.getSongUrl(song, currentQuality);
@@ -6326,7 +6331,6 @@ async function playSong(song, options = {}) {
                     
                     if (audioData && audioData.url) {
                         debugLog(`使用音质 ${currentQuality} 获取音频URL成功: ${audioData.url.substring(0, 50)}...`);
-                        // 更新当前使用的音质
                         state.playbackQuality = currentQuality;
                         break;
                     }
@@ -6341,7 +6345,6 @@ async function playSong(song, options = {}) {
                     lastError = error;
                     debugLog(`音质 ${currentQuality} 第 ${attempt} 次尝试异常: ${error.message}`);
                     if (attempt < 2) {
-                        debugLog(`等待 ${retryDelay}ms 后重试`);
                         await new Promise(r => setTimeout(r, retryDelay));
                     }
                 }
@@ -6352,10 +6355,73 @@ async function playSong(song, options = {}) {
             }
         }
         
+        // 如果原始音乐源所有音质都失败，尝试备用音乐源
         if (!audioData || !audioData.url) {
-            // 显示更详细的错误信息
+            debugLog(`原始音乐源 ${song.source} 无法获取播放链接，尝试备用音乐源`);
+            
+            // 尝试在备用音乐源中搜索同一首歌
+            for (const fallbackSource of fallbackSources) {
+                if (fallbackSource === song.source) continue; // 跳过原始音乐源
+                
+                try {
+                    debugLog(`尝试在 ${fallbackSource} 搜索: ${song.name} - ${song.artist}`);
+                    const searchResults = await API.search(song.name, fallbackSource, 5, 1);
+                    
+                    // 查找匹配的歌曲（歌手名匹配）
+                    const matchedSong = searchResults.find(result => {
+                        const resultArtist = Array.isArray(result.artist) ? result.artist.join(', ') : result.artist;
+                        const songArtist = Array.isArray(song.artist) ? song.artist.join(', ') : song.artist;
+                        return result.name === song.name && 
+                               (resultArtist.includes(songArtist) || songArtist.includes(resultArtist));
+                    });
+                    
+                    if (matchedSong) {
+                        debugLog(`在 ${fallbackSource} 找到匹配歌曲: ${matchedSong.name} - ${matchedSong.artist}`);
+                        
+                        // 尝试获取播放链接
+                        for (let qualityIndex = 0; qualityIndex < availableQualities.length; qualityIndex++) {
+                            const currentQuality = availableQualities[qualityIndex];
+                            const fallbackAudioUrl = API.getSongUrl(matchedSong, currentQuality);
+                            debugLog(`尝试备用音乐源 ${fallbackSource} 音质 ${currentQuality}: ${fallbackAudioUrl}`);
+                            
+                            try {
+                                audioData = await API.fetchJson(fallbackAudioUrl);
+                                debugLog(`备用音乐源响应: ${JSON.stringify(audioData).substring(0, 100)}`);
+                                
+                                if (audioData && audioData.url) {
+                                    debugLog(`备用音乐源 ${fallbackSource} 成功获取播放链接`);
+                                    usedFallbackSource = true;
+                                    finalSource = fallbackSource;
+                                    // 更新歌曲信息为备用音乐源的歌曲
+                                    song.id = matchedSong.id;
+                                    song.source = fallbackSource;
+                                    song.pic_id = matchedSong.pic_id;
+                                    song.lyric_id = matchedSong.lyric_id;
+                                    state.playbackQuality = currentQuality;
+                                    break;
+                                }
+                            } catch (error) {
+                                debugLog(`备用音乐源 ${fallbackSource} 音质 ${currentQuality} 失败: ${error.message}`);
+                            }
+                            
+                            if (audioData && audioData.url) break;
+                        }
+                        
+                        if (audioData && audioData.url) break;
+                    }
+                } catch (error) {
+                    debugLog(`备用音乐源 ${fallbackSource} 搜索失败: ${error.message}`);
+                }
+            }
+        }
+        
+        if (!audioData || !audioData.url) {
             const errorMsg = `无法获取音频播放地址 (歌曲: ${song.name}, 歌手: ${song.artist}, 来源: ${song.source}, ID: ${song.id})。可能原因：1) 该歌曲在当前音乐源不可用 2) 版权限制 3) 音乐源暂时不可用`;
             throw new Error(errorMsg);
+        }
+        
+        if (usedFallbackSource) {
+            showNotification(`已自动切换到 ${finalSource} 音乐源播放`, 'info');
         }
         
         const originalAudioUrl = audioData.url;
