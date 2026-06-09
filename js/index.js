@@ -630,7 +630,7 @@ function buildAudioProxyUrl(url) {
         }
 
         if (parsedUrl.protocol === "http:" && /(^|\.)kuwo\.cn$/i.test(parsedUrl.hostname)) {
-            return `${API.baseUrl}?target=${encodeURIComponent(parsedUrl.toString())}`;
+            return `/proxy?target=${encodeURIComponent(parsedUrl.toString())}`;
         }
 
         return parsedUrl.toString();
