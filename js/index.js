@@ -776,29 +776,29 @@ const API_CONFIG = {
     }
 };
 
-// 当前使用的API（默认主API）
-state.currentApi = "primary";
+// 当前使用的API标识（默认主API）- 使用独立变量，state对象在后面定义
+let _currentApi = "primary";
 
 const API = {
     baseUrl: API_CONFIG.primary.baseUrl,
 
     // 切换到备用API
     switchToFallback: () => {
-        state.currentApi = "fallback";
+        _currentApi = "fallback";
         API.baseUrl = API_CONFIG.fallback.baseUrl;
         debugLog(`已切换到备用API: ${API_CONFIG.fallback.name}`);
     },
 
     // 切换到主API
     switchToPrimary: () => {
-        state.currentApi = "primary";
+        _currentApi = "primary";
         API.baseUrl = API_CONFIG.primary.baseUrl;
         debugLog(`已切换到主API: ${API_CONFIG.primary.name}`);
     },
 
     // 获取当前API名称
     getCurrentApiName: () => {
-        return API_CONFIG[state.currentApi].name;
+        return API_CONFIG[_currentApi].name;
     },
 
     fetchJson: async (url) => {
