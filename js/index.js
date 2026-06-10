@@ -7071,19 +7071,38 @@ async function playSong(song, options = {}) {
         }
         
         const originalAudioUrl = audioData.url;
-        const proxiedAudioUrl = buildAudioProxyUrl(originalAudioUrl);
-        const preferredAudioUrl = preferHttpsUrl(originalAudioUrl);
-        const candidateAudioUrls = Array.from(
-            new Set([proxiedAudioUrl, preferredAudioUrl, originalAudioUrl].filter(Boolean))
-        );
         
-        const primaryAudioUrl = candidateAudioUrls[0] || originalAudioUrl;
+        // 妖狐API返回的音频URL可直接播放，跳过代理（本地测试已验证）
+        const isYaohudSource = audioData.apiSource === "kuwo_api" || audioData.apiSource === "kugou_api";
         
-        if (proxiedAudioUrl && proxiedAudioUrl !== originalAudioUrl) {
-            debugLog(`音频地址已通过代理转换为 HTTPS: ${proxiedAudioUrl}`);
-        } else if (preferredAudioUrl && preferredAudioUrl !== originalAudioUrl) {
+        let proxiedAudioUrl, preferredAudioUrl;
+        let candidateAudioUrls;
+        
+        if (isYaohudSource) {
+            // 妖狐API来源：直接使用原URL，不做代理转发
+            proxiedAudioUrl = originalAudioUrl;
+            preferredAudioUrl = preferHttpsUrl(originalAudioUrl);
+            candidateAudioUrls = Array.from(
+                new Set([preferredAudioUrl, originalAudioUrl].filter(Boolean))
+            );
+            debugLog(`[播放] 妖狐API来源，跳过代理，直接播放`);
+        } else {
+            proxiedAudioUrl = buildAudioProxyUrl(originalAudioUrl);
+            preferredAudioUrl = preferHttpsUrl(originalAudioUrl);
+            candidateAudioUrls = Array.from(
+                new Set([proxiedAudioUrl, preferredAudioUrl, originalAudioUrl].filter(Boolean))
+            );
+            
+            if (proxiedAudioUrl && proxiedAudioUrl !== originalAudioUrl) {
+                debugLog(`音频地址已通过代理转换为 HTTPS: ${proxiedAudioUrl}`);
+            }
+        }
+        
+        if (preferredAudioUrl && preferredAudioUrl !== originalAudioUrl) {
             debugLog(`音频地址由 HTTP 升级为 HTTPS: ${preferredAudioUrl}`);
         }
+        
+        const primaryAudioUrl = candidateAudioUrls[0] || originalAudioUrl;
         
         state.currentSong = song;
         state.currentAudioUrl = null;
