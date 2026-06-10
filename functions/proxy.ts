@@ -1,6 +1,6 @@
 const API_BASE_URL = "https://music-api.gdstudio.xyz/api.php";
-const TUNE_HUB_BASE_URL = "https://music-dl.sayqz.com/api";
 const KUWO_HOST_PATTERN = /(^|\.)kuwo\.cn$/i;
+const JOOX_HOST_PATTERN = /(^|\.)joox\.com$/i;
 const SAFE_RESPONSE_HEADERS = ["content-type", "cache-control", "accept-ranges", "content-length", "content-range", "etag", "last-modified", "expires"];
 
 function createCorsHeaders(init?: Headers): Headers {
@@ -36,24 +36,35 @@ function isAllowedKuwoHost(hostname: string): boolean {
   return KUWO_HOST_PATTERN.test(hostname);
 }
 
-function normalizeKuwoUrl(rawUrl: string): URL | null {
+function isAllowedJooxHost(hostname: string): boolean {
+  if (!hostname) return false;
+  return JOOX_HOST_PATTERN.test(hostname);
+}
+
+function normalizeAudioUrl(rawUrl: string): { url: URL; type: "kuwo" | "joox" } | null {
   try {
     const parsed = new URL(rawUrl);
-    if (!isAllowedKuwoHost(parsed.hostname)) {
-      return null;
-    }
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
       return null;
     }
-    parsed.protocol = "http:";
-    return parsed;
+    
+    if (isAllowedKuwoHost(parsed.hostname)) {
+      parsed.protocol = "http:";
+      return { url: parsed, type: "kuwo" };
+    }
+    
+    if (isAllowedJooxHost(parsed.hostname)) {
+      return { url: parsed, type: "joox" };
+    }
+    
+    return null;
   } catch {
     return null;
   }
 }
 
-async function proxyKuwoAudio(targetUrl: string, request: Request): Promise<Response> {
-  const normalized = normalizeKuwoUrl(targetUrl);
+async function proxyAudio(targetUrl: string, request: Request): Promise<Response> {
+  const normalized = normalizeAudioUrl(targetUrl);
   if (!normalized) {
     return new Response("Invalid target", { status: 400 });
   }
@@ -61,17 +72,23 @@ async function proxyKuwoAudio(targetUrl: string, request: Request): Promise<Resp
   const init: RequestInit = {
     method: request.method,
     headers: {
-      "User-Agent": request.headers.get("User-Agent") ?? "Mozilla/5.0",
-      "Referer": "https://www.kuwo.cn/",
+      "User-Agent": request.headers.get("User-Agent") ?? "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     },
   };
+
+  if (normalized.type === "kuwo") {
+    (init.headers as Record<string, string>)["Referer"] = "https://www.kuwo.cn/";
+  } else if (normalized.type === "joox") {
+    (init.headers as Record<string, string>)["Referer"] = "https://www.joox.com/";
+    (init.headers as Record<string, string>)["Origin"] = "https://www.joox.com";
+  }
 
   const rangeHeader = request.headers.get("Range");
   if (rangeHeader) {
     (init.headers as Record<string, string>)["Range"] = rangeHeader;
   }
 
-  const upstream = await fetch(normalized.toString(), init);
+  const upstream = await fetch(normalized.url.toString(), init);
   const headers = createCorsHeaders(upstream.headers);
   if (!headers.has("Cache-Control")) {
     headers.set("Cache-Control", "public, max-age=3600");
@@ -121,39 +138,6 @@ async function proxyApiRequest(url: URL, request: Request): Promise<Response> {
   });
 }
 
-async function proxyTuneHubRequest(url: URL, request: Request): Promise<Response> {
-  const tuneHubUrl = new URL(TUNE_HUB_BASE_URL);
-  url.searchParams.forEach((value, key) => {
-    if (key === "target" || key === "callback" || key === "api") {
-      return;
-    }
-    tuneHubUrl.searchParams.set(key, value);
-  });
-
-  const upstream = await fetch(tuneHubUrl.toString(), {
-    headers: {
-      "User-Agent": request.headers.get("User-Agent") ?? "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      "Accept": "application/json, text/plain, */*",
-      "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-      "Accept-Encoding": "gzip, deflate, br",
-      "Connection": "keep-alive",
-      "Referer": "https://music-dl.sayqz.com/",
-      "Origin": "https://music-dl.sayqz.com",
-    },
-  });
-
-  const headers = createCorsHeaders(upstream.headers);
-  if (!headers.has("Content-Type")) {
-    headers.set("Content-Type", "application/json; charset=utf-8");
-  }
-
-  return new Response(upstream.body, {
-    status: upstream.status,
-    statusText: upstream.statusText,
-    headers,
-  });
-}
-
 export async function onRequest({ request }: { request: Request }): Promise<Response> {
   if (request.method === "OPTIONS") {
     return handleOptions();
@@ -167,12 +151,7 @@ export async function onRequest({ request }: { request: Request }): Promise<Resp
   const target = url.searchParams.get("target");
 
   if (target) {
-    return proxyKuwoAudio(target, request);
-  }
-
-  const api = url.searchParams.get("api");
-  if (api === "tunehub") {
-    return proxyTuneHubRequest(url, request);
+    return proxyAudio(target, request);
   }
 
   return proxyApiRequest(url, request);
