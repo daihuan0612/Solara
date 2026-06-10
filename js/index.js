@@ -2318,56 +2318,8 @@ async function fetchPaletteData(imageUrl) {
         return getDefaultPalette(imageUrl);
     }
     
-    // 移除对网易云和QQ音乐的取色限制，所有有封面的歌曲都尝试取色
+    // 所有有封面的歌曲都尝试取色
     console.log(`🎵 ${songSource || '未知来源'}，尝试取色`);
-    
-    // 对于QQ音乐，使用基于URL哈希的取色方案，确保能取色
-    if (songSource === 'qq') {
-        console.log('🎵 QQ音乐，使用基于URL哈希的取色方案');
-        
-        // 基于URL哈希生成主题色，确保同一图片始终生成相同颜色
-        const hash = Array.from(imageUrl).reduce((acc, char) => {
-            acc = ((acc << 5) - acc) + char.charCodeAt(0);
-            return acc & acc;
-        }, 0);
-        
-        // 使用哈希生成一个一致的主题色
-        const hue = Math.abs(hash % 360);
-        const saturation = 60 + Math.abs(hash % 20);
-        const lightness = 65 + Math.abs(hash % 10);
-        
-        // 创建基于URL的调色板
-        const r = Math.floor((hue * 0.7) * 2.55);
-        const g = Math.floor(saturation * 2.55);
-        const b = Math.floor(lightness * 2.55);
-        const hex = `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
-        
-        const palette = {
-            gradients: {
-                light: {
-                    gradient: `linear-gradient(135deg, ${hex} 0%, ${hex}bb 50%, ${hex}99 100%)`
-                },
-                dark: {
-                    gradient: `linear-gradient(135deg, ${hex}66 0%, ${hex}55 50%, ${hex}44 100%)`
-                }
-            },
-            tokens: {
-                light: {
-                    primaryColor: hex,
-                    primaryColorDark: hex
-                },
-                dark: {
-                    primaryColor: hex,
-                    primaryColorDark: hex
-                }
-            }
-        };
-        
-        console.log('🎨 使用URL哈希生成调色板:', hex);
-        paletteCache.set(imageUrl, palette);
-        persistPaletteCache();
-        return palette;
-    }
 
     try {
         console.log('🔍 尝试本地取色');
@@ -4487,9 +4439,7 @@ function updateCurrentSongInfo(song, options = {}) {
         let picUrl = API.getPicUrl(song);
         debugLog(`加载封面: pic_id=${song.pic_id}, source=${song.source}, URL=${picUrl}`);
         
-        // 针对QQ音乐的封面加载优化（酷我音乐已禁用）
-        const isSlowSource = song.source === 'qq';
-        const loadTimeout = isSlowSource ? 8000 : 3000;
+        const loadTimeout = 3000;
         
         // 优化图片加载，添加超时处理和重试机制
         const loadImageWithTimeout = (url, timeout) => {
@@ -4700,7 +4650,7 @@ async function performSearch(isLiveSearch = false) {
                     }
                 }
                 
-                debugLog(`[聚合搜索] 各平台结果数: 网易=${platformCounts.netease}, 酷我=${platformCounts.kuwo}, QQ=${platformCounts.qq}, JOOX=${platformCounts.joox}`);
+                debugLog(`[聚合搜索] 各平台结果数: 网易=${platformCounts.netease}, 酷我=${platformCounts.kuwo}, JOOX=${platformCounts.joox}`);
                 
                 // 去重：同平台+同歌名视为重复
                 const seen = new Set();
@@ -4797,7 +4747,7 @@ async function checkSearchResultsPlayability(hideUnplayable = false) {
     debugLog(`[可用性检查] 开始检查 ${items.length} 个结果${hideUnplayable ? '（聚合模式，将隐藏不可播歌曲）' : ''}`);
     
     // 1. 按源优先级排序：网易云优先（大概率能播），用户不用等检查完就能看到网易的结果
-    const sourcePriority = { netease: 0, kuwo: 1, qq: 2, joox: 3 };
+    const sourcePriority = { netease: 0, kuwo: 1, joox: 2 };
     state.searchResults.sort((a, b) =>
         (sourcePriority[a.source] ?? 99) - (sourcePriority[b.source] ?? 99)
     );
@@ -5022,7 +4972,6 @@ function getSourceShortName(source) {
     const sourceMap = {
         'netease': '网易',
         'kuwo': '酷我',
-        'qq': 'QQ',
         'joox': 'JOOX'
     };
     if (!source || typeof source !== 'string') return '';
@@ -6711,7 +6660,7 @@ async function playSong(song, options = {}) {
         // 5. 获取实际音频流 URL（快速切换：无等待重试，快速降级）
         let quality = state.playbackQuality || '320';
         const availableQualities = ['999', '740', '320', '192', '128'];
-        const fallbackSources = ['netease', 'qq', 'joox', 'kuwo'];
+        const fallbackSources = ['netease', 'kuwo', 'joox'];
         
         let startIndex = availableQualities.indexOf(quality);
         if (startIndex === -1) startIndex = 0;
@@ -6734,11 +6683,15 @@ async function playSong(song, options = {}) {
             debugLog(`[播放] 尝试获取音频: ${song.source}`);
             const gdQualities = ['999', '320'];
             const gdSource = song.source || "netease";
+            
+            let apiReturnedEmptyUrl = false; // 标记API是否返回空URL
+            
             for (const q of gdQualities) {
                 try {
                     const gdUrl = `${API_CONFIG.primary.baseUrl}?types=url&id=${song.id}&source=${gdSource}&br=${q}`;
                     const resp = await fetch(gdUrl, { signal: AbortSignal.timeout(4000) });
                     const data = await resp.json();
+                    
                     if (data && data.url) {
                         // 酷我和JOOX的所有URL都需要通过代理访问
                         if (song.source === "kuwo" || song.source === "joox") {
@@ -6750,6 +6703,10 @@ async function playSong(song, options = {}) {
                         state.playbackQuality = q;
                         debugLog(`[播放] GD Studio成功 (音质: ${q})`);
                         break;
+                    } else if (data && data.from === "music.gdstudio.xyz" && !data.url) {
+                        // GD Studio 返回了空URL，这表示该平台暂时无法获取音频
+                        apiReturnedEmptyUrl = true;
+                        debugLog(`[播放] GD Studio返回空URL (平台: ${song.source}, 可能该平台暂时不可用)`);
                     }
                 } catch (e) {
                     debugLog(`[播放] GD Studio音质 ${q} 失败`);
