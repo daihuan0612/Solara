@@ -625,14 +625,16 @@ function buildAudioProxyUrl(url) {
 
     try {
         const parsedUrl = new URL(url, window.location.href);
-        if (parsedUrl.protocol === "https:") {
-            return parsedUrl.toString();
-        }
-
-        if (parsedUrl.protocol === "http:" && /(^|\.)kuwo\.cn$/i.test(parsedUrl.hostname)) {
+        
+        // 检查是否是酷我或JOOX的URL，这些需要通过代理添加Referer头
+        const needsProxy = /(^|\.)kuwo\.cn$/i.test(parsedUrl.hostname) || 
+                         /(^|\.)joox\.com$/i.test(parsedUrl.hostname);
+        
+        if (needsProxy) {
             return `/proxy?target=${encodeURIComponent(parsedUrl.toString())}`;
         }
-
+        
+        // 其他URL保持原样
         return parsedUrl.toString();
     } catch (error) {
         console.warn("无法解析音频地址，跳过代理", error);
@@ -6738,9 +6740,10 @@ async function playSong(song, options = {}) {
                     const resp = await fetch(gdUrl, { signal: AbortSignal.timeout(4000) });
                     const data = await resp.json();
                     if (data && data.url) {
-                        // 酷我和JOOX的URL需要通过代理访问
+                        // 酷我和JOOX的所有URL都需要通过代理访问
                         if (song.source === "kuwo" || song.source === "joox") {
                             audioData = { url: `/proxy?target=${encodeURIComponent(data.url)}` };
+                            debugLog(`[播放] 酷我/JOOX URL通过代理: ${data.url.substring(0, 80)}...`);
                         } else {
                             audioData = data;
                         }
@@ -6776,9 +6779,10 @@ async function playSong(song, options = {}) {
                         audioData = await API.fetchJson(fallbackUrl);
                         
                         if (audioData && audioData.url) {
-                            // 酷我和JOOX的URL需要通过代理访问
+                            // 酷我和JOOX的所有URL都需要通过代理访问
                             if (matchedSong.source === "kuwo" || matchedSong.source === "joox") {
                                 audioData = { url: `/proxy?target=${encodeURIComponent(audioData.url)}` };
+                                debugLog(`[播放] 备用酷我/JOOX URL通过代理: ${audioData.url.substring(0, 80)}...`);
                             }
                             debugLog(`[播放] 备用源 ${fallbackSource} 成功`);
                             usedFallbackSource = true;
