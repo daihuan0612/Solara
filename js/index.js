@@ -767,13 +767,13 @@ const API_CONFIG = {
     // 主API (GD Studio) - 用户反馈速度更快
     primary: {
         name: "GD Studio",
-        baseUrl: "https://music-api.gdstudio.xyz/api.php",
+        baseUrl: "/api/proxy",
         searchFormat: "gd",
     },
-    // 备用API (TuneHub)
+    // 备用API (TuneHub) - 通过代理调用
     fallback: {
         name: "TuneHub",
-        baseUrl: "https://music-dl.sayqz.com/api",
+        baseUrl: "/api/proxy?api=tunehub",
         searchFormat: "tunehub",
     }
 };
@@ -828,9 +828,9 @@ const API = {
         }
     },
 
-    // TuneHub API搜索
+    // TuneHub API搜索（通过代理）
     searchTuneHub: async (keyword, source = "netease", limit = 20) => {
-        const url = `${API_CONFIG.primary.baseUrl}?source=${source}&type=search&keyword=${encodeURIComponent(keyword)}&limit=${limit}`;
+        const url = `${API_CONFIG.fallback.baseUrl}&source=${source}&type=search&keyword=${encodeURIComponent(keyword)}&limit=${limit}`;
         
         try {
             debugLog(`TuneHub搜索: ${url}`);
@@ -1025,19 +1025,19 @@ const API = {
     getSongUrl: (song, quality = "999") => {
         // 根据歌曲的apiSource决定使用哪个API
         if (song.apiSource === "tunehub") {
-            // TuneHub API格式
+            // TuneHub API格式（通过代理）
             const tuneHubQuality = quality === "999" ? "flac" : 
                                    quality === "740" ? "flac24bit" : 
                                    quality === "320" ? "320k" : 
                                    quality === "192" ? "320k" : "128k";
-            return `${API_CONFIG.primary.baseUrl}?source=${song.source || "netease"}&id=${song.id}&type=url&br=${tuneHubQuality}`;
+            return `${API_CONFIG.fallback.baseUrl}&source=${song.source || "netease"}&id=${song.id}&type=url&br=${tuneHubQuality}`;
         }
         return `${API.baseUrl}?types=url&id=${song.id}&source=${song.source || "netease"}&br=${quality}`;
     },
 
     // TuneHub获取播放链接（返回302重定向URL）
     getSongUrlTuneHub: async (song, quality = "320k") => {
-        const url = `${API_CONFIG.primary.baseUrl}?source=${song.source || "netease"}&id=${song.id}&type=url&br=${quality}`;
+        const url = `${API_CONFIG.fallback.baseUrl}&source=${song.source || "netease"}&id=${song.id}&type=url&br=${quality}`;
         debugLog(`TuneHub获取播放链接: ${url}`);
         
         try {
@@ -1064,14 +1064,14 @@ const API = {
     getLyric: (song) => {
         // 根据歌曲的apiSource决定使用哪个API
         if (song.apiSource === "tunehub") {
-            return `${API_CONFIG.primary.baseUrl}?source=${song.source || "netease"}&id=${song.lyric_id || song.id}&type=lrc`;
+            return `${API_CONFIG.fallback.baseUrl}&source=${song.source || "netease"}&id=${song.lyric_id || song.id}&type=lrc`;
         }
         return `${API.baseUrl}?types=lyric&id=${song.lyric_id || song.id}&source=${song.source || "netease"}`;
     },
 
     // TuneHub获取歌词
     getLyricTuneHub: async (song) => {
-        const url = `${API_CONFIG.primary.baseUrl}?source=${song.source || "netease"}&id=${song.lyric_id || song.id}&type=lrc`;
+        const url = `${API_CONFIG.fallback.baseUrl}&source=${song.source || "netease"}&id=${song.lyric_id || song.id}&type=lrc`;
         debugLog(`TuneHub获取歌词: ${url}`);
         
         try {
@@ -1089,14 +1089,14 @@ const API = {
     getPicUrl: (song) => {
         // 根据歌曲的apiSource决定使用哪个API
         if (song.apiSource === "tunehub") {
-            return `${API_CONFIG.primary.baseUrl}?source=${song.source || "netease"}&id=${song.pic_id || song.id}&type=pic`;
+            return `${API_CONFIG.fallback.baseUrl}&source=${song.source || "netease"}&id=${song.pic_id || song.id}&type=pic`;
         }
         return `${API.baseUrl}?types=pic&id=${song.pic_id}&source=${song.source || "netease"}&size=500`;
     },
 
     // TuneHub获取封面（返回302重定向URL）
     getPicUrlTuneHub: async (song) => {
-        const url = `${API_CONFIG.primary.baseUrl}?source=${song.source || "netease"}&id=${song.pic_id || song.id}&type=pic`;
+        const url = `${API_CONFIG.fallback.baseUrl}&source=${song.source || "netease"}&id=${song.pic_id || song.id}&type=pic`;
         debugLog(`TuneHub获取封面: ${url}`);
         
         try {
@@ -5045,7 +5045,7 @@ async function tryCheckSongPlayable(song) {
         
         if (tuneHubSources.includes(source)) {
             // TuneHub检测（支持自动换源，用320k检测成功率更高）
-            const tuneHubUrl = `${API_CONFIG.primary.baseUrl}?source=${source}&id=${song.id}&type=url&br=320k`;
+            const tuneHubUrl = `${API_CONFIG.fallback.baseUrl}&source=${source}&id=${song.id}&type=url&br=320k`;
             
             // HEAD检测302重定向
             const headResp = await fetch(tuneHubUrl, { method: 'HEAD', redirect: 'manual', signal: AbortSignal.timeout(3000) });
@@ -5066,7 +5066,7 @@ async function tryCheckSongPlayable(song) {
             }
             
             // TuneHub检测失败，用GD Studio兜底（针对部分源TuneHub不稳定的情况）
-            const gdUrl = `${API_CONFIG.fallback.baseUrl}?types=url&source=${source}&id=${song.id}&br=320`;
+            const gdUrl = `${API_CONFIG.primary.baseUrl}?types=url&source=${source}&id=${song.id}&br=320`;
             const gdResp = await fetch(gdUrl, { signal: AbortSignal.timeout(5000) });
             if (gdResp.ok) {
                 const gdData = await gdResp.json();
@@ -5074,7 +5074,7 @@ async function tryCheckSongPlayable(song) {
             }
         } else {
             // 非TuneHub支持源（如joox），直接使用GD Studio检测
-            const gdUrl = `${API_CONFIG.fallback.baseUrl}?types=url&source=${source}&id=${song.id}&br=320`;
+            const gdUrl = `${API_CONFIG.primary.baseUrl}?types=url&source=${source}&id=${song.id}&br=320`;
             const gdResp = await fetch(gdUrl, { signal: AbortSignal.timeout(5000) });
             if (gdResp.ok) {
                 const gdData = await gdResp.json();
