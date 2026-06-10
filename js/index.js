@@ -764,17 +764,17 @@ const savedCurrentPlaylist = (() => {
 
 // API配置 - 双API支持（主API + 备用API）
 const API_CONFIG = {
-    // 主API (TuneHub)
+    // 主API (GD Studio) - 用户反馈速度更快
     primary: {
-        name: "TuneHub",
-        baseUrl: "https://music-dl.sayqz.com/api",
-        searchFormat: "tunehub",
-    },
-    // 备用API (GD Studio)
-    fallback: {
         name: "GD Studio",
         baseUrl: "https://music-api.gdstudio.xyz/api.php",
         searchFormat: "gd",
+    },
+    // 备用API (TuneHub)
+    fallback: {
+        name: "TuneHub",
+        baseUrl: "https://music-dl.sayqz.com/api",
+        searchFormat: "tunehub",
     }
 };
 
@@ -7044,11 +7044,11 @@ async function playSong(song, options = {}) {
                     debugLog(`[播放] TuneHub失败: ${error.message}`);
                 }
             } else {
-                // GD Studio：尝试最高音质（只试前2个，无延迟）
+                // GD Studio（主API）：尝试最高音质（只试前2个，无延迟）
                 const gdQualities = ['999', '320'];
                 for (const q of gdQualities) {
                     try {
-                        const gdUrl = `${API_CONFIG.fallback.baseUrl}?types=url&id=${song.id}&source=${song.source || "netease"}&br=${q}`;
+                        const gdUrl = `${API_CONFIG.primary.baseUrl}?types=url&id=${song.id}&source=${song.source || "netease"}&br=${q}`;
                         const resp = await fetch(gdUrl, { signal: AbortSignal.timeout(4000) });
                         const data = await resp.json();
                         if (data && data.url) {
@@ -7063,11 +7063,12 @@ async function playSong(song, options = {}) {
                 }
             }
             
-            // 第二步：尝试备用API（TuneHub失败 → GD Studio, GD Studio失败 → TuneHub）
+            // 第二步：尝试备用API（GD Studio失败 → TuneHub, TuneHub失败 → GD Studio）
             if (!audioData || !audioData.url) {
                 debugLog(`[播放] 主API失败，尝试备用API`);
                 if (song.apiSource === "tunehub") {
-                    const gdUrl = `${API_CONFIG.fallback.baseUrl}?types=url&id=${song.id}&source=${song.source || "netease"}&br=320`;
+                    // TuneHub歌曲失败，尝试GD Studio（主API）
+                    const gdUrl = `${API_CONFIG.primary.baseUrl}?types=url&id=${song.id}&source=${song.source || "netease"}&br=320`;
                     try {
                         const resp = await fetch(gdUrl, { signal: AbortSignal.timeout(4000) });
                         const data = await resp.json();
@@ -7082,6 +7083,7 @@ async function playSong(song, options = {}) {
                         debugLog(`[播放] 备用GD Studio失败: ${error.message}`);
                     }
                 } else {
+                    // GD Studio歌曲失败，尝试TuneHub（备用API）
                     try {
                         audioData = await API.getSongUrlTuneHub(song, "320k");
                         if (audioData && audioData.url) {
