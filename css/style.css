@@ -694,21 +694,6 @@ body.background-transitioning .background-stage__layer--transition {
     transform: scale(1);
 }
 
-.search-result-unplayable {
-    opacity: 0.75;
-}
-
-.search-result-unplayable .search-result-title {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-}
-
-.search-result-unplayable .action-btn.play {
-    opacity: 0.4;
-    cursor: not-allowed;
-}
-
 .search-result-select {
     width: 22px;
     height: 22px;
@@ -2426,4 +2411,160 @@ input[type="range"]:active::-moz-range-thumb {
     justify-content: center;
     width: 100%;
     max-width: 220px;
+}
+
+/* ============================================
+   车机屏幕适配
+   横屏 + 超宽比例(>=19:9) + 触摸屏 + 无悬停
+   针对比亚迪等安卓车机优化，不影响PC/移动端
+   ============================================ */
+@media (orientation: landscape) and (min-width: 1024px) and (min-aspect-ratio: 19/9) and (hover: none) and (pointer: coarse) {
+    
+    /* 主容器：更宽的布局 */
+    .container {
+        grid-template-columns: 320px 1fr 1fr;
+        gap: 24px;
+        padding: 20px 30px;
+    }
+    
+    /* 播放/暂停按钮：更大 */
+    #playPauseBtn {
+        width: 72px;
+        height: 72px;
+        font-size: 1.8em;
+    }
+    
+    /* 控制按钮：全部加大 */
+    .controls button {
+        width: 60px;
+        height: 60px;
+        font-size: 1.4em;
+    }
+    
+    /* 控制栏：更宽松 */
+    .controls {
+        grid-template-columns: 360px minmax(0, 1fr) minmax(0, 1fr);
+        column-gap: 24px;
+    }
+    
+    /* 音质按钮：更大 */
+    .controls .player-quality-btn {
+        min-width: 120px;
+        height: 50px;
+        font-size: 1.1em;
+        padding: 12px 18px;
+    }
+    
+    /* 播放模式按钮：更大 */
+    .play-mode-btn {
+        width: 60px;
+        height: 60px;
+        font-size: 1.4em;
+    }
+    
+    /* 进度条：更粗 */
+    .progress-container {
+        gap: 16px;
+    }
+    
+    /* 音量控制：更宽 */
+    .volume-container {
+        min-width: 180px;
+        gap: 12px;
+    }
+    
+    /* 封面：更大 */
+    .cover-area {
+        padding: 20px;
+    }
+    
+    .album-art {
+        width: 280px !important;
+        height: 280px !important;
+    }
+    
+    /* 传输控制：更大间距 */
+    .transport-controls {
+        gap: 16px;
+    }
+    
+    /* 搜索选项按钮：更大 */
+    .source-select-btn {
+        padding: 14px 22px;
+        font-size: 18px;
+        min-width: 140px;
+    }
+    
+    /* 搜索输入框：更大 */
+    .search-input {
+        padding: 14px 18px;
+        font-size: 18px;
+    }
+    
+    /* 搜索按钮：更大 */
+    .search-btn {
+        padding: 14px 24px;
+        font-size: 18px;
+    }
+    
+    /* 搜索结果项：更大触摸区域 */
+    .search-result-item {
+        padding: 14px 16px;
+        gap: 14px;
+    }
+    
+    .search-result-item .action-btn {
+        width: 40px;
+        height: 40px;
+        font-size: 16px;
+    }
+    
+    .search-result-title {
+        font-size: 16px;
+    }
+    
+    .search-result-artist {
+        font-size: 14px;
+    }
+    
+    /* 播放列表项：更大 */
+    .playlist-items .playlist-item {
+        padding: 12px 16px;
+    }
+    
+    /* 播放列表操作按钮：更大 */
+    .playlist-action-btn {
+        width: 48px;
+        height: 48px;
+        font-size: 18px;
+    }
+    
+    /* 播放列表标签：更大 */
+    .playlist-tab {
+        padding: 12px 20px;
+        font-size: 16px;
+    }
+    
+    /* 歌词：更大字体 */
+    .lyrics-scroll {
+        font-size: 1.3em;
+    }
+    
+    /* 加载更多按钮：更大 */
+    .load-more-btn {
+        padding: 18px;
+        font-size: 16px;
+    }
+    
+    /* 主题切换按钮：更大 */
+    .theme-toggle-button {
+        width: 52px;
+        height: 52px;
+    }
+    
+    /* 批量导入按钮：更大 */
+    .import-selected-btn {
+        padding: 12px 20px;
+        font-size: 16px;
+    }
 }
