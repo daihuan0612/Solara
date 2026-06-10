@@ -1,4 +1,5 @@
 const API_BASE_URL = "https://music-api.gdstudio.xyz/api.php";
+const TUNE_HUB_BASE_URL = "https://music-dl.sayqz.com/api";
 const KUWO_HOST_PATTERN = /(^|\.)kuwo\.cn$/i;
 const SAFE_RESPONSE_HEADERS = ["content-type", "cache-control", "accept-ranges", "content-length", "content-range", "etag", "last-modified", "expires"];
 
@@ -86,7 +87,7 @@ async function proxyKuwoAudio(targetUrl: string, request: Request): Promise<Resp
 async function proxyApiRequest(url: URL, request: Request): Promise<Response> {
   const apiUrl = new URL(API_BASE_URL);
   url.searchParams.forEach((value, key) => {
-    if (key === "target" || key === "callback") {
+    if (key === "target" || key === "callback" || key === "api") {
       return;
     }
     apiUrl.searchParams.set(key, value);
@@ -98,8 +99,46 @@ async function proxyApiRequest(url: URL, request: Request): Promise<Response> {
 
   const upstream = await fetch(apiUrl.toString(), {
     headers: {
-      "User-Agent": request.headers.get("User-Agent") ?? "Mozilla/5.0",
-      "Accept": "application/json",
+      "User-Agent": request.headers.get("User-Agent") ?? "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "Accept": "application/json, text/plain, */*",
+      "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+      "Accept-Encoding": "gzip, deflate, br",
+      "Connection": "keep-alive",
+      "Referer": "https://music.gdstudio.xyz/",
+      "Origin": "https://music.gdstudio.xyz",
+    },
+  });
+
+  const headers = createCorsHeaders(upstream.headers);
+  if (!headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json; charset=utf-8");
+  }
+
+  return new Response(upstream.body, {
+    status: upstream.status,
+    statusText: upstream.statusText,
+    headers,
+  });
+}
+
+async function proxyTuneHubRequest(url: URL, request: Request): Promise<Response> {
+  const tuneHubUrl = new URL(TUNE_HUB_BASE_URL);
+  url.searchParams.forEach((value, key) => {
+    if (key === "target" || key === "callback" || key === "api") {
+      return;
+    }
+    tuneHubUrl.searchParams.set(key, value);
+  });
+
+  const upstream = await fetch(tuneHubUrl.toString(), {
+    headers: {
+      "User-Agent": request.headers.get("User-Agent") ?? "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "Accept": "application/json, text/plain, */*",
+      "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+      "Accept-Encoding": "gzip, deflate, br",
+      "Connection": "keep-alive",
+      "Referer": "https://music-dl.sayqz.com/",
+      "Origin": "https://music-dl.sayqz.com",
     },
   });
 
@@ -129,6 +168,11 @@ export async function onRequest({ request }: { request: Request }): Promise<Resp
 
   if (target) {
     return proxyKuwoAudio(target, request);
+  }
+
+  const api = url.searchParams.get("api");
+  if (api === "tunehub") {
+    return proxyTuneHubRequest(url, request);
   }
 
   return proxyApiRequest(url, request);
