@@ -1,6 +1,4 @@
 const API_BASE_URL = "https://music-api.gdstudio.xyz/api.php";
-const KUWO_HOST_PATTERN = /(^|\.)kuwo\.cn$/i;
-const JOOX_HOST_PATTERN = /(^|\.)joox\.com$/i;
 const SAFE_RESPONSE_HEADERS = ["content-type", "cache-control", "accept-ranges", "content-length", "content-range", "etag", "last-modified", "expires"];
 
 function createCorsHeaders(init?: Headers): Headers {
@@ -31,74 +29,49 @@ function handleOptions(): Response {
   });
 }
 
-function isAllowedKuwoHost(hostname: string): boolean {
-  if (!hostname) return false;
-  return KUWO_HOST_PATTERN.test(hostname);
-}
-
-function isAllowedJooxHost(hostname: string): boolean {
-  if (!hostname) return false;
-  return JOOX_HOST_PATTERN.test(hostname);
-}
-
-function normalizeAudioUrl(rawUrl: string): { url: URL; type: "kuwo" | "joox" } | null {
-  try {
-    const parsed = new URL(rawUrl);
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      return null;
-    }
-    
-    if (isAllowedKuwoHost(parsed.hostname)) {
-      parsed.protocol = "http:";
-      return { url: parsed, type: "kuwo" };
-    }
-    
-    if (isAllowedJooxHost(parsed.hostname)) {
-      return { url: parsed, type: "joox" };
-    }
-    
-    return null;
-  } catch {
-    return null;
-  }
-}
-
 async function proxyAudio(targetUrl: string, request: Request): Promise<Response> {
-  const normalized = normalizeAudioUrl(targetUrl);
-  if (!normalized) {
-    return new Response("Invalid target", { status: 400 });
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(targetUrl);
+  } catch {
+    return new Response("Invalid target URL", { status: 400 });
+  }
+
+  // 只允许HTTP和HTTPS协议
+  if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+    return new Response("Only HTTP and HTTPS are allowed", { status: 400 });
   }
 
   const init: RequestInit = {
     method: request.method,
     headers: {
       "User-Agent": request.headers.get("User-Agent") ?? "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "Accept": "*/*",
+      "Accept-Language": "en-US,en;q=0.9",
+      "Referer": parsedUrl.origin + "/",
     },
   };
-
-  if (normalized.type === "kuwo") {
-    (init.headers as Record<string, string>)["Referer"] = "https://www.kuwo.cn/";
-  } else if (normalized.type === "joox") {
-    (init.headers as Record<string, string>)["Referer"] = "https://www.joox.com/";
-    (init.headers as Record<string, string>)["Origin"] = "https://www.joox.com";
-  }
 
   const rangeHeader = request.headers.get("Range");
   if (rangeHeader) {
     (init.headers as Record<string, string>)["Range"] = rangeHeader;
   }
 
-  const upstream = await fetch(normalized.url.toString(), init);
-  const headers = createCorsHeaders(upstream.headers);
-  if (!headers.has("Cache-Control")) {
-    headers.set("Cache-Control", "public, max-age=3600");
-  }
+  try {
+    const upstream = await fetch(parsedUrl.toString(), init);
+    const headers = createCorsHeaders(upstream.headers);
+    if (!headers.has("Cache-Control")) {
+      headers.set("Cache-Control", "public, max-age=3600");
+    }
 
-  return new Response(upstream.body, {
-    status: upstream.status,
-    statusText: upstream.statusText,
-    headers,
-  });
+    return new Response(upstream.body, {
+      status: upstream.status,
+      statusText: upstream.statusText,
+      headers,
+    });
+  } catch (error) {
+    return new Response("Failed to fetch audio", { status: 502 });
+  }
 }
 
 async function proxyApiRequest(url: URL, request: Request): Promise<Response> {
