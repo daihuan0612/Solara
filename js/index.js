@@ -847,14 +847,14 @@ const API_KUWO = {
         
         try {
             debugLog(`[酷我API] 获取播放链接: ${url}`);
-            const response = await fetch(url);
+            const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
             
             if (!response.ok) {
                 throw new Error(`请求失败: ${response.status}`);
             }
             
             const data = await response.json();
-            debugLog(`[酷我API] 播放响应: ${JSON.stringify(data).substring(0, 200)}...`);
+            debugLog(`[酷我API] 关键词播放响应: ${JSON.stringify(data).substring(0, 200)}...`);
             
             if (data.code === 200 && data.data && data.data.vipmusic && data.data.vipmusic.url) {
                 return {
@@ -867,7 +867,7 @@ const API_KUWO = {
             
             return null;
         } catch (error) {
-            debugLog(`[酷我API] 获取播放链接错误: ${error.message}`);
+            debugLog(`[酷我API] 关键词获取播放链接错误: ${error.message}`);
             return null;
         }
     },
@@ -887,7 +887,7 @@ const API_KUWO = {
         
         try {
             debugLog(`[酷我API] 通过RID获取播放链接: ${url}`);
-            const response = await fetch(url);
+            const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
             
             if (!response.ok) {
                 throw new Error(`请求失败: ${response.status}`);
@@ -930,7 +930,7 @@ const API_KUGOU = {
         
         try {
             debugLog(`[酷狗API] 搜索请求: ${url}`);
-            const response = await fetch(url);
+            const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
             
             if (!response.ok) {
                 throw new Error(`请求失败: ${response.status}`);
@@ -969,7 +969,7 @@ const API_KUGOU = {
         
         try {
             debugLog(`[酷狗API] 获取播放链接: ${url}`);
-            const response = await fetch(url);
+            const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
             
             if (!response.ok) {
                 throw new Error(`请求失败: ${response.status}`);
@@ -4911,7 +4911,7 @@ async function performSearch(isLiveSearch = false) {
                     }
                 }
                 
-                debugLog(`[聚合搜索] 各平台结果数: 网易=${platformCounts.netease}, 酷我=${platformCounts.kuwo}, JOOX=${platformCounts.joox}`);
+                debugLog(`[聚合搜索] 各平台结果数: 网易=${platformCounts.netease}, 酷我=${platformCounts.kuwo}, 酷狗=${platformCounts.kugou}`);
                 
                 // 去重：同平台+同歌名视为重复
                 const seen = new Set();
@@ -4922,6 +4922,10 @@ async function performSearch(isLiveSearch = false) {
                         results.push(song);
                     }
                 }
+                
+                // 按来源分组排序：网易云 > 酷我 > 酷狗，避免结果穿插
+                const sourceOrder = { netease: 0, kuwo: 1, kugou: 2 };
+                results.sort((a, b) => (sourceOrder[a.source] ?? 99) - (sourceOrder[b.source] ?? 99));
                 
                 debugLog(`[聚合搜索] 完成: 共 ${results.length} 条合并结果`);
             } else {
@@ -4938,7 +4942,8 @@ async function performSearch(isLiveSearch = false) {
             state.searchResults = [...state.searchResults, ...results];
         }
 
-        state.hasMoreResults = results.length >= 20;
+        // 酷我等平台单次返回较少（约5首），降低加载更多阈值
+        state.hasMoreResults = results.length >= 5;
 
         // 显示搜索结果
         displaySearchResults(results, {
@@ -5026,18 +5031,38 @@ async function loadMoreResults() {
                     results.push(song);
                 }
             }
+            
+            // 按来源分组排序：网易云 > 酷我 > 酷狗
+            const sourceOrder = { netease: 0, kuwo: 1, kugou: 2 };
+            results.sort((a, b) => (sourceOrder[a.source] ?? 99) - (sourceOrder[b.source] ?? 99));
         } else {
             results = await API.search(state.searchKeyword, source, 20, state.searchPage);
         }
 
         if (results.length > 0) {
-            state.searchResults = [...state.searchResults, ...results];
-            state.hasMoreResults = results.length === 20;
-            displaySearchResults(results, {
+            // 去重后再追加，防止酷我等不支持分页的API重复返回
+            const existingKeys = new Set(state.searchResults.map(s => 
+                `${s.source}|${s.name}|${Array.isArray(s.artist) ? s.artist.join(',') : s.artist}`
+            ));
+            const newResults = results.filter(s => {
+                const key = `${s.source}|${s.name}|${Array.isArray(s.artist) ? s.artist.join(',') : s.artist}`;
+                return !existingKeys.has(key);
+            });
+            
+            if (newResults.length === 0) {
+                state.hasMoreResults = false;
+                showNotification("没有更多结果了");
+                debugLog("加载更多: 没有新结果（可能API不支持分页）");
+                return;
+            }
+            
+            state.searchResults = [...state.searchResults, ...newResults];
+            state.hasMoreResults = newResults.length >= 5;
+            displaySearchResults(newResults, {
                 totalCount: state.searchResults.length,
             });
             persistLastSearchState();
-            debugLog(`加载完成: 新增 ${results.length} 个结果`);
+            debugLog(`加载完成: 新增 ${newResults.length} 个结果`);
         } else {
             state.hasMoreResults = false;
             showNotification("没有更多结果了");
@@ -6769,68 +6794,78 @@ async function playSong(song, options = {}) {
         
         // 没有缓存或缓存验证失败，尝试API获取
         if (!audioData || !audioData.url) {
-            // 酷我使用新的API
+            // 酷我使用新的API - 并行尝试所有音质
             if (song.source === "kuwo") {
-                debugLog(`[播放] 酷我使用新API获取音频`);
+                debugLog(`[播放] 酷我使用新API获取音频（并行尝试各音质）`);
                 const kuwoQualities = ['999', '320', '192', '128'];
-                for (const q of kuwoQualities) {
-                    try {
-                        const result = await API_KUWO.getSongUrlByRid(song.id, q);
-                        if (result && result.url) {
-                            audioData = result;
-                            state.playbackQuality = q;
-                            debugLog(`[播放] 酷我API成功 (音质: ${q})`);
-                            break;
-                        }
-                    } catch (e) {
-                        debugLog(`[播放] 酷我API音质 ${q} 失败: ${e.message}`);
-                    }
+                const results = await Promise.allSettled(
+                    kuwoQualities.map(async (q) => {
+                        try {
+                            const result = await API_KUWO.getSongUrlByRid(song.id, q);
+                            if (result && result.url) {
+                                return { quality: q, data: result };
+                            }
+                        } catch {}
+                        return null;
+                    })
+                );
+                // 取第一个成功的
+                const success = results.find(r => r.status === "fulfilled" && r.value);
+                if (success && success.value) {
+                    audioData = success.value.data;
+                    state.playbackQuality = success.value.quality;
+                    debugLog(`[播放] 酷我API成功 (音质: ${success.value.quality})`);
                 }
             } else if (song.source === "kugou") {
-                // 酷狗音乐使用新的API
-                debugLog(`[播放] 酷狗音乐使用新API获取音频`);
+                // 酷狗音乐使用新API - 并行尝试所有音质
+                debugLog(`[播放] 酷狗音乐使用新API获取音频（并行尝试各音质）`);
                 const kugouQualities = ['999', '320', '192', '128'];
                 const keyword = `${song.name} ${song.artist}`;
-                for (const q of kugouQualities) {
-                    try {
-                        const kgQuality = q === '999' ? 'flac' : q === '740' ? 'flac' : q;
-                        const result = await API_KUGOU.getSongUrlByKeyword(keyword, 1, kgQuality);
-                        if (result && result.url) {
-                            audioData = result;
-                            state.playbackQuality = q;
-                            debugLog(`[播放] 酷狗音乐API成功 (音质: ${q})`);
-                            break;
-                        }
-                    } catch (e) {
-                        debugLog(`[播放] 酷狗音乐API音质 ${q} 失败: ${e.message}`);
-                    }
+                const results = await Promise.allSettled(
+                    kugouQualities.map(async (q) => {
+                        try {
+                            const kgQuality = q === '999' ? 'flac' : q === '740' ? 'flac' : q;
+                            const result = await API_KUGOU.getSongUrlByKeyword(keyword, 1, kgQuality);
+                            if (result && result.url) {
+                                return { quality: q, data: result };
+                            }
+                        } catch {}
+                        return null;
+                    })
+                );
+                // 取第一个成功的
+                const success = results.find(r => r.status === "fulfilled" && r.value);
+                if (success && success.value) {
+                    audioData = success.value.data;
+                    state.playbackQuality = success.value.quality;
+                    debugLog(`[播放] 酷狗音乐API成功 (音质: ${success.value.quality})`);
                 }
             } else {
-                // 网易云使用GD Studio API
-                debugLog(`[播放] 尝试获取音频: ${song.source}`);
+                // 网易云使用GD Studio API - 并行尝试各音质
+                debugLog(`[播放] 尝试获取音频: ${song.source}（并行尝试各音质）`);
                 const gdQualities = ['999', '320'];
                 const gdSource = song.source || "netease";
                 
-                let apiReturnedEmptyUrl = false;
+                const results = await Promise.allSettled(
+                    gdQualities.map(async (q) => {
+                        try {
+                            const gdUrl = `${API_CONFIG.primary.baseUrl}?types=url&id=${song.id}&source=${gdSource}&br=${q}`;
+                            const resp = await fetch(gdUrl, { signal: AbortSignal.timeout(4000) });
+                            const data = await resp.json();
+                            if (data && data.url) {
+                                return { quality: q, data };
+                            }
+                        } catch {}
+                        return null;
+                    })
+                );
                 
-                for (const q of gdQualities) {
-                    try {
-                        const gdUrl = `${API_CONFIG.primary.baseUrl}?types=url&id=${song.id}&source=${gdSource}&br=${q}`;
-                        const resp = await fetch(gdUrl, { signal: AbortSignal.timeout(4000) });
-                        const data = await resp.json();
-                        
-                        if (data && data.url) {
-                            audioData = data;
-                            state.playbackQuality = q;
-                            debugLog(`[播放] GD Studio成功 (音质: ${q})`);
-                            break;
-                        } else if (data && data.from === "music.gdstudio.xyz" && !data.url) {
-                            apiReturnedEmptyUrl = true;
-                            debugLog(`[播放] GD Studio返回空URL (平台: ${song.source}, 可能该平台暂时不可用)`);
-                        }
-                    } catch (e) {
-                        debugLog(`[播放] GD Studio音质 ${q} 失败`);
-                    }
+                // 取第一个成功的
+                const success = results.find(r => r.status === "fulfilled" && r.value);
+                if (success && success.value) {
+                    audioData = success.value.data;
+                    state.playbackQuality = success.value.quality;
+                    debugLog(`[播放] GD Studio成功 (音质: ${success.value.quality})`);
                 }
             }
             
