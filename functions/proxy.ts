@@ -42,13 +42,36 @@ async function proxyAudio(targetUrl: string, request: Request): Promise<Response
     return new Response("Only HTTP and HTTPS are allowed", { status: 400 });
   }
 
+  // 根据不同的域名设置不同的Referer
+  let referer = parsedUrl.origin + "/";
+  let origin = parsedUrl.origin;
+  
+  // 酷我音乐特殊处理
+  if (parsedUrl.hostname.includes("kuwo")) {
+    referer = "https://www.kuwo.cn/";
+    origin = "https://www.kuwo.cn";
+  }
+  // 酷狗音乐特殊处理
+  else if (parsedUrl.hostname.includes("kugou")) {
+    referer = "https://www.kugou.com/";
+    origin = "https://www.kugou.com";
+  }
+  // 妖狐API特殊处理
+  else if (parsedUrl.hostname.includes("yaohud")) {
+    referer = "https://api.yaohud.cn/";
+    origin = "https://api.yaohud.cn";
+  }
+
   const init: RequestInit = {
     method: request.method,
     headers: {
       "User-Agent": request.headers.get("User-Agent") ?? "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
       "Accept": "*/*",
-      "Accept-Language": "en-US,en;q=0.9",
-      "Referer": parsedUrl.origin + "/",
+      "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+      "Accept-Encoding": "gzip, deflate, br",
+      "Referer": referer,
+      "Origin": origin,
+      "Connection": "keep-alive",
     },
   };
 
