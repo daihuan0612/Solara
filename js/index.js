@@ -627,15 +627,33 @@ function buildAudioProxyUrl(url) {
         const parsedUrl = new URL(url, window.location.href);
         
         // 检查是否是需要代理的URL（酷我、酷狗等有防盗链限制的平台）
+        // 酷我相关域名
         const needsProxy = /(^|\.)kuwo\.cn$/i.test(parsedUrl.hostname) ||
+                          /(^|\.)kuwo\.com$/i.test(parsedUrl.hostname) ||
+                          /(^|\.)sycdn\.kuwo\.cn$/i.test(parsedUrl.hostname) ||
+                          /(^|\.)other\.web\..*kuwo/i.test(parsedUrl.hostname) ||
+                          /(^|\.)kuwoyy\.com$/i.test(parsedUrl.hostname) ||
+                          // 酷狗相关域名
                           /(^|\.)kugou\.com$/i.test(parsedUrl.hostname) ||
-                          /(^|\.)kugou\.cn$/i.test(parsedUrl.hostname);
+                          /(^|\.)kugou\.cn$/i.test(parsedUrl.hostname) ||
+                          /(^|\.)kgimg\.com$/i.test(parsedUrl.hostname) ||
+                          /(^|\.)kugouimg\.com$/i.test(parsedUrl.hostname) ||
+                          /(^|\.)trackercdn\.kugou\.com$/i.test(parsedUrl.hostname) ||
+                          // 妖狐API返回的音频URL可能来自这些域名
+                          /(^|\.)yaohud\.cn$/i.test(parsedUrl.hostname) ||
+                          // 其他可能需要代理的CDN域名
+                          /(^|\.)migu\.cn$/i.test(parsedUrl.hostname) ||
+                          /(^|\.)music\.126\.net$/i.test(parsedUrl.hostname) ||
+                          /(^|\.)kuai\.cdn\.net$/i.test(parsedUrl.hostname) ||
+                          // HTTP协议的音频URL也需要代理（转换为HTTPS）
+                          parsedUrl.protocol === "http:";
         
         if (needsProxy) {
+            debugLog(`[代理] 音频URL需要代理: ${parsedUrl.hostname} (${parsedUrl.protocol})`);
             return `/proxy?target=${encodeURIComponent(parsedUrl.toString())}`;
         }
         
-        // 其他URL保持原样
+        // 其他HTTPS URL保持原样
         return parsedUrl.toString();
     } catch (error) {
         console.warn("无法解析音频地址，跳过代理", error);
