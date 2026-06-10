@@ -767,13 +767,13 @@ const API_CONFIG = {
     // 主API (GD Studio) - 用户反馈速度更快
     primary: {
         name: "GD Studio",
-        baseUrl: "/api/proxy",
+        baseUrl: "/proxy",
         searchFormat: "gd",
     },
     // 备用API (TuneHub) - 通过代理调用
     fallback: {
         name: "TuneHub",
-        baseUrl: "/api/proxy?api=tunehub",
+        baseUrl: "/proxy?api=tunehub",
         searchFormat: "tunehub",
     }
 };
@@ -5058,7 +5058,7 @@ async function tryCheckSongPlayable(song) {
                 const gdData = await gdResp.json();
                 if (gdData && gdData.url) {
                     // 酷我的URL需要通过代理访问
-                    const finalUrl = source === "kuwo" ? `/api/proxy?target=${encodeURIComponent(gdData.url)}` : gdData.url;
+                    const finalUrl = source === "kuwo" ? `/proxy?target=${encodeURIComponent(gdData.url)}` : gdData.url;
                     return { playable: true, url: finalUrl, api: 'gd' };
                 }
             }
@@ -7093,7 +7093,7 @@ async function playSong(song, options = {}) {
                         if (data && data.url) {
                             // 酷我的URL需要通过代理访问
                             if (song.source === "kuwo" && data.url) {
-                                audioData = { url: `/api/proxy?target=${encodeURIComponent(data.url)}` };
+                                audioData = { url: `/proxy?target=${encodeURIComponent(data.url)}` };
                             } else {
                                 audioData = data;
                             }
@@ -7120,7 +7120,7 @@ async function playSong(song, options = {}) {
                         if (data && data.url) {
                             // 酷我的URL需要通过代理访问
                             if (song.source === "kuwo" && data.url) {
-                                audioData = { url: `/api/proxy?target=${encodeURIComponent(data.url)}` };
+                                audioData = { url: `/proxy?target=${encodeURIComponent(data.url)}` };
                             } else {
                                 audioData = data;
                             }
