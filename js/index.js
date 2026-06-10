@@ -4733,7 +4733,7 @@ function updateCurrentSongInfo(song, options = {}) {
         
         // 尝试加载图片，带重试机制
         const loadImage = async () => {
-            const maxRetries = isSlowSource ? 2 : 1;
+            const maxRetries = 1;
             let retryCount = 0;
             
             while (retryCount < maxRetries) {
@@ -4851,7 +4851,7 @@ async function performSearch(isLiveSearch = false) {
                 
                 // 第一轮：同时搜索所有平台
                 const searchPromises = allSources.map(s => 
-                    API.search(query, s, 20, state.searchPage)
+                    API.search(query, s, 50, state.searchPage)
                         .catch(() => [])
                 );
                 
@@ -4930,7 +4930,7 @@ async function performSearch(isLiveSearch = false) {
                 debugLog(`[聚合搜索] 完成: 共 ${results.length} 条合并结果`);
             } else {
                 // 普通模式：只搜索选定平台
-                results = await API.search(query, source, 20, state.searchPage);
+                results = await API.search(query, source, 50, state.searchPage);
             }
         } catch (error) {
             debugLog(`搜索整体失败: ${error.message}`);
@@ -5009,7 +5009,7 @@ async function loadMoreResults() {
             // 聚合模式：同时搜索所有平台
             const allSources = ['netease', 'kuwo', 'kugou'];
             const searchPromises = allSources.map(s => 
-                API.search(state.searchKeyword, s, 20, state.searchPage)
+                API.search(state.searchKeyword, s, 50, state.searchPage)
                     .catch(() => [])
             );
             const settledResults = await Promise.allSettled(searchPromises);
@@ -5036,7 +5036,7 @@ async function loadMoreResults() {
             const sourceOrder = { netease: 0, kuwo: 1, kugou: 2 };
             results.sort((a, b) => (sourceOrder[a.source] ?? 99) - (sourceOrder[b.source] ?? 99));
         } else {
-            results = await API.search(state.searchKeyword, source, 20, state.searchPage);
+            results = await API.search(state.searchKeyword, source, 50, state.searchPage);
         }
 
         if (results.length > 0) {
