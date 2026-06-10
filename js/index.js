@@ -647,7 +647,6 @@ const SOURCE_OPTIONS = [
     { value: "aggregate", label: "聚合搜索" },
     { value: "netease", label: "网易云音乐" },
     { value: "kuwo", label: "酷我音乐" },
-    { value: "qq", label: "QQ音乐" },
     { value: "kugou", label: "酷狗音乐" }
 ];
 
@@ -902,94 +901,6 @@ const API_KUWO = {
     },
 };
 
-// 新的QQ音乐API配置
-const API_QQ = {
-    baseUrl: "https://api.yaohud.cn/api/music/qq",
-    key: "nja5qfri5GBrsgfdK1j",
-    
-    // 搜索歌曲
-    search: async (keyword, count = 20) => {
-        const url = `${API_QQ.baseUrl}?key=${API_QQ.key}&msg=${encodeURIComponent(keyword)}&g=${Math.min(count, 50)}`;
-        
-        try {
-            debugLog(`[QQ音乐API] 搜索请求: ${url}`);
-            const response = await fetch(url);
-            
-            if (!response.ok) {
-                throw new Error(`请求失败: ${response.status}`);
-            }
-            
-            const data = await response.json();
-            debugLog(`[QQ音乐API] 搜索响应: ${JSON.stringify(data).substring(0, 200)}...`);
-            
-            if (data.code !== 200 || !data.data || !data.data.songs) {
-                return [];
-            }
-            
-            return data.data.songs.map(song => ({
-                id: song.mid,
-                name: song.name,
-                artist: song.singer,
-                album: song.album,
-                pic_id: song.mid,
-                url_id: song.mid,
-                lyric_id: song.mid,
-                source: "qq",
-                apiSource: "qq_api",
-            }));
-        } catch (error) {
-            debugLog(`[QQ音乐API] 搜索错误: ${error.message}`);
-            return [];
-        }
-    },
-    
-    // 获取单曲播放链接（通过关键词+序号）
-    getSongUrlByKeyword: async (keyword, index = 1, quality = "320") => {
-        const qualityMap = {
-            '999': 'flac',
-            '740': 'flac',
-            '320': '320',
-            '192': '128',
-            '128': '128'
-        };
-        const qqQuality = qualityMap[quality] || '320';
-        
-        const url = `${API_QQ.baseUrl}?key=${API_QQ.key}&msg=${encodeURIComponent(keyword)}&n=${index}&size=${qqQuality}`;
-        
-        try {
-            debugLog(`[QQ音乐API] 获取播放链接: ${url}`);
-            const response = await fetch(url);
-            
-            if (!response.ok) {
-                throw new Error(`请求失败: ${response.status}`);
-            }
-            
-            const data = await response.json();
-            debugLog(`[QQ音乐API] 播放响应: ${JSON.stringify(data).substring(0, 200)}...`);
-            
-            if (data.code === 200 && data.data && data.data.musicurl) {
-                return {
-                    url: data.data.musicurl,
-                    br: quality,
-                    size: 0,
-                    apiSource: "qq_api",
-                    picture: data.data.picture,
-                };
-            }
-            
-            return null;
-        } catch (error) {
-            debugLog(`[QQ音乐API] 获取播放链接错误: ${error.message}`);
-            return null;
-        }
-    },
-    
-    // 获取封面图片
-    getPicUrl: (mid) => {
-        return `https://y.qq.com/music/photo_new/T002R800x800M000${mid}.jpg`;
-    },
-};
-
 // 新的酷狗音乐API配置
 const API_KUGOU = {
     baseUrl: "https://api.yaohud.cn/api/music/kg",
@@ -1034,7 +945,9 @@ const API_KUGOU = {
     
     // 获取单曲播放链接（通过关键词+序号）
     getSongUrlByKeyword: async (keyword, index = 1, quality = "flac") => {
-        const url = `${API_KUGOU.baseUrl}?key=${API_KUGOU.key}&msg=${encodeURIComponent(keyword)}&n=${index}&quality=${quality}`;
+        // 从关键词中提取歌曲名（去掉歌手部分）
+        const songName = keyword.split(' ')[0] || keyword;
+        const url = `${API_KUGOU.baseUrl}?key=${API_KUGOU.key}&msg=${encodeURIComponent(songName)}&n=${index}&quality=${quality}`;
         
         try {
             debugLog(`[酷狗API] 获取播放链接: ${url}`);
@@ -1104,11 +1017,6 @@ const API = {
         // 酷我使用新的API
         if (source === "kuwo") {
             return await API_KUWO.search(keyword, count);
-        }
-        
-        // QQ音乐使用新的API
-        if (source === "qq") {
-            return await API_QQ.search(keyword, count);
         }
         
         // 酷狗音乐使用新的API
@@ -1211,17 +1119,6 @@ const API = {
             const result = await API_KUWO.getSongUrlByRid(song.id, quality);
             if (result && result.url) {
                 debugLog(`[酷我API] 成功获取播放链接: ${result.url.substring(0, 50)}...`);
-                return { ...result, usedQuality: quality };
-            }
-            return null;
-        }
-        
-        // QQ音乐使用新的API（通过关键词+序号获取）
-        if (song.source === "qq") {
-            const keyword = `${song.name} ${song.artist}`;
-            const result = await API_QQ.getSongUrlByKeyword(keyword, 1, quality);
-            if (result && result.url) {
-                debugLog(`[QQ音乐API] 成功获取播放链接: ${result.url.substring(0, 50)}...`);
                 return { ...result, usedQuality: quality };
             }
             return null;
@@ -4926,7 +4823,7 @@ async function performSearch(isLiveSearch = false) {
 
         // 执行搜索（聚合模式搜索所有平台，普通模式搜索单个平台）
         let results = [];
-        const allSources = ['netease', 'kuwo', 'qq', 'kugou'];
+        const allSources = ['netease', 'kuwo', 'kugou'];
         
         try {
             if (source === "aggregate") {
@@ -5072,16 +4969,6 @@ async function tryCheckSongPlayable(song) {
             return { playable: false };
         }
         
-        // QQ音乐使用新的API检查
-        if (source === "qq") {
-            const keyword = `${song.name} ${song.artist}`;
-            const result = await API_QQ.getSongUrlByKeyword(keyword, 1, "320");
-            if (result && result.url) {
-                return { playable: true, url: result.url, api: 'qq_api' };
-            }
-            return { playable: false };
-        }
-        
         // 酷狗音乐使用新的API检查
         if (source === "kugou") {
             const keyword = `${song.name} ${song.artist}`;
@@ -5117,7 +5004,7 @@ async function checkSearchResultsPlayability(hideUnplayable = false) {
     debugLog(`[可用性检查] 开始检查 ${items.length} 个结果${hideUnplayable ? '（聚合模式，将隐藏不可播歌曲）' : ''}`);
     
     // 1. 按源优先级排序：网易云优先（大概率能播），用户不用等检查完就能看到网易的结果
-    const sourcePriority = { netease: 0, kuwo: 1, qq: 2, kugou: 3 };
+    const sourcePriority = { netease: 0, kuwo: 1, kugou: 2 };
     state.searchResults.sort((a, b) =>
         (sourcePriority[a.source] ?? 99) - (sourcePriority[b.source] ?? 99)
     );
@@ -5282,7 +5169,7 @@ async function loadMoreResults() {
         let results;
         if (source === "aggregate") {
             // 聚合模式：同时搜索所有平台
-            const allSources = ['netease', 'kuwo', 'qq', 'kugou'];
+            const allSources = ['netease', 'kuwo', 'kugou'];
             const searchPromises = allSources.map(s => 
                 API.search(state.searchKeyword, s, 20, state.searchPage)
                     .catch(() => [])
@@ -5342,7 +5229,6 @@ function getSourceShortName(source) {
     const sourceMap = {
         'netease': '网易',
         'kuwo': '酷我',
-        'qq': 'QQ',
         'kugou': '酷狗'
     };
     if (!source || typeof source !== 'string') return '';
@@ -7031,7 +6917,7 @@ async function playSong(song, options = {}) {
         // 5. 获取实际音频流 URL（快速切换：无等待重试，快速降级）
         let quality = state.playbackQuality || '320';
         const availableQualities = ['999', '740', '320', '192', '128'];
-        const fallbackSources = ['netease', 'kuwo', 'qq', 'kugou'];
+        const fallbackSources = ['netease', 'kuwo', 'kugou'];
         
         let startIndex = availableQualities.indexOf(quality);
         if (startIndex === -1) startIndex = 0;
@@ -7065,24 +6951,6 @@ async function playSong(song, options = {}) {
                         }
                     } catch (e) {
                         debugLog(`[播放] 酷我API音质 ${q} 失败: ${e.message}`);
-                    }
-                }
-            } else if (song.source === "qq") {
-                // QQ音乐使用新的API
-                debugLog(`[播放] QQ音乐使用新API获取音频`);
-                const qqQualities = ['999', '320', '192', '128'];
-                const keyword = `${song.name} ${song.artist}`;
-                for (const q of qqQualities) {
-                    try {
-                        const result = await API_QQ.getSongUrlByKeyword(keyword, 1, q);
-                        if (result && result.url) {
-                            audioData = result;
-                            state.playbackQuality = q;
-                            debugLog(`[播放] QQ音乐API成功 (音质: ${q})`);
-                            break;
-                        }
-                    } catch (e) {
-                        debugLog(`[播放] QQ音乐API音质 ${q} 失败: ${e.message}`);
                     }
                 }
             } else if (song.source === "kugou") {
@@ -7180,7 +7048,6 @@ async function playSong(song, options = {}) {
         if (usedFallbackSource) {
             const sourceName = finalSource === "netease" ? "网易云" : 
                               finalSource === "kuwo" ? "酷我" : 
-                              finalSource === "qq" ? "QQ音乐" : 
                               finalSource === "kugou" ? "酷狗" : finalSource;
             showNotification(`已切换到 ${sourceName}源 播放`, 'info');
         }
