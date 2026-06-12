@@ -635,7 +635,7 @@ body.background-transitioning .background-stage__layer--transition {
     gap: 6px;
     background: none;
     border: none;
-    color: var(--accent-color, #1a73e8);
+    color: var(--primary-color);
     cursor: pointer;
     font-size: 14px;
     padding: 6px 10px;
