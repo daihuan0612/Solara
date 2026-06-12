@@ -1423,19 +1423,27 @@ const API = {
     getLyricWithFallback: async (song) => {
         const needNeteaseFirst = song.source === "kuwo" || song.source === "kugou";
 
-        // 酷我/酷狗：优先从网易云获取歌词
+        // 酷我/酷狗：先搜索网易云获取歌曲ID，再用ID获取歌词
         if (needNeteaseFirst) {
             try {
-                const neteaseUrl = `${API.baseUrl}?types=lyric&id=${encodeURIComponent(song.name)}&source=netease`;
-                debugLog(`[歌词] 酷我/酷狗优先尝试网易云: ${neteaseUrl}`);
-                const data = await API.fetchJson(neteaseUrl);
-                if (data && (data.lyric || data.lrc?.lyric || data.content)) {
-                    const lyricText = data.lyric || data.lrc?.lyric || data.content || data;
-                    debugLog(`[歌词] 网易云获取成功`);
-                    return { lyric: lyricText, apiSource: "netease_fallback" };
+                const searchUrl = `${API.baseUrl}?types=search&source=netease&name=${encodeURIComponent(song.name)}&count=1`;
+                debugLog(`[歌词] 搜索网易云获取歌曲ID: ${searchUrl}`);
+                const searchData = await API.fetchJson(searchUrl);
+                const neteaseSongId = Array.isArray(searchData) && searchData.length > 0 && (searchData[0].lyric_id || searchData[0].id);
+                if (neteaseSongId) {
+                    const lyricUrl = `${API.baseUrl}?types=lyric&id=${neteaseSongId}&source=netease`;
+                    debugLog(`[歌词] 通过网易云 id=${neteaseSongId} 获取歌词: ${lyricUrl}`);
+                    const data = await API.fetchJson(lyricUrl);
+                    if (data && (data.lyric || data.lrc?.lyric || data.content)) {
+                        const lyricText = data.lyric || data.lrc?.lyric || data.content || data;
+                        debugLog(`[歌词] 网易云获取成功`);
+                        return { lyric: lyricText, apiSource: "netease_fallback" };
+                    }
+                } else {
+                    debugLog(`[歌词] 网易云未找到歌曲: ${song.name}`);
                 }
             } catch (error) {
-                debugLog(`[歌词] 网易云获取失败: ${error.message}`);
+                debugLog(`[歌词] 网易云搜索/获取歌词失败: ${error.message}`);
             }
         }
 
@@ -1475,18 +1483,26 @@ const API = {
     getPicUrlWithFallback: async (song) => {
         const needNeteaseFirst = song.source === "kuwo" || song.source === "kugou";
 
-        // 酷我/酷狗：优先从网易云获取封面
+        // 酷我/酷狗：先搜索网易云获取歌曲pic_id，再拿pic_id获取封面
         if (needNeteaseFirst) {
             try {
-                const neteaseUrl = `${API.baseUrl}?types=pic&id=${encodeURIComponent(song.name)}&source=netease&size=500`;
-                debugLog(`[封面] 酷我/酷狗优先尝试网易云: ${neteaseUrl}`);
-                const data = await API.fetchJson(neteaseUrl);
-                if (data && data.url) {
-                    debugLog(`[封面] 网易云获取成功: ${data.url}`);
-                    return { url: data.url, apiSource: "netease_fallback" };
+                const searchUrl = `${API.baseUrl}?types=search&source=netease&name=${encodeURIComponent(song.name)}&count=1`;
+                debugLog(`[封面] 搜索网易云获取歌曲信息: ${searchUrl}`);
+                const searchData = await API.fetchJson(searchUrl);
+                const neteasePicId = Array.isArray(searchData) && searchData.length > 0 && searchData[0].pic_id;
+                if (neteasePicId) {
+                    const picUrl = `${API.baseUrl}?types=pic&id=${neteasePicId}&source=netease&size=500`;
+                    debugLog(`[封面] 通过网易云 pic_id=${neteasePicId} 获取封面: ${picUrl}`);
+                    const data = await API.fetchJson(picUrl);
+                    if (data && data.url) {
+                        debugLog(`[封面] 网易云获取成功: ${data.url}`);
+                        return { url: data.url, apiSource: "netease_fallback" };
+                    }
+                } else {
+                    debugLog(`[封面] 网易云未找到歌曲: ${song.name}`);
                 }
             } catch (error) {
-                debugLog(`[封面] 网易云获取失败: ${error.message}`);
+                debugLog(`[封面] 网易云搜索/获取封面失败: ${error.message}`);
             }
         }
 
@@ -5080,23 +5096,31 @@ function updateCurrentSongInfo(song, options = {}) {
                             debugLog(`直链封面加载失败: ${directErr.message}`);
                         }
 
-                        // 酷我/酷狗：尝试从网易云获取封面
+                        // 酷我/酷狗：先搜索网易云获取歌曲ID，再拿ID获取封面
                         if (song.source === "kuwo" || song.source === "kugou") {
                             try {
-                                const neteasePicUrl = `${API.baseUrl}?types=pic&id=${encodeURIComponent(song.name)}&source=netease&size=500`;
-                                debugLog(`[封面] 酷我/酷狗尝试从网易云获取封面: ${neteasePicUrl}`);
-                                const neteasePicData = await API.fetchJson(neteasePicUrl);
-                                if (neteasePicData && neteasePicData.url) {
-                                    const neteaseImageUrl = preferHttpsUrl(neteasePicData.url);
-                                    await loadImageWithTimeout(neteaseImageUrl, loadTimeout);
-                                    if (state.currentSong === song && updateBackground) {
-                                        setAlbumCoverImage(neteaseImageUrl);
-                                        scheduleDeferredPaletteUpdate(neteaseImageUrl, { immediate: true });
+                                const searchUrl = `${API.baseUrl}?types=search&source=netease&name=${encodeURIComponent(song.name)}&count=1`;
+                                debugLog(`[封面] 搜索网易云获取歌曲信息: ${searchUrl}`);
+                                const searchData = await API.fetchJson(searchUrl);
+                                const neteasePicId = Array.isArray(searchData) && searchData.length > 0 && searchData[0].pic_id;
+                                if (neteasePicId) {
+                                    const picUrl = `${API.baseUrl}?types=pic&id=${neteasePicId}&source=netease&size=500`;
+                                    debugLog(`[封面] 通过网易云 pic_id=${neteasePicId} 获取封面: ${picUrl}`);
+                                    const picData = await API.fetchJson(picUrl);
+                                    if (picData && picData.url) {
+                                        const neteaseImageUrl = preferHttpsUrl(picData.url);
+                                        await loadImageWithTimeout(neteaseImageUrl, loadTimeout);
+                                        if (state.currentSong === song && updateBackground) {
+                                            setAlbumCoverImage(neteaseImageUrl);
+                                            scheduleDeferredPaletteUpdate(neteaseImageUrl, { immediate: true });
+                                        }
+                                        return;
                                     }
-                                    return;
+                                } else {
+                                    debugLog(`[封面] 网易云未找到歌曲: ${song.name}`);
                                 }
                             } catch (neteaseErr) {
-                                debugLog(`[封面] 网易云封面获取失败: ${neteaseErr.message}`);
+                                debugLog(`[封面] 网易云搜索/获取封面失败: ${neteaseErr.message}`);
                             }
                         }
 
