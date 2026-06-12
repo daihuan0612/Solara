@@ -13,7 +13,7 @@ body.mobile-view {
     display: flex;
     justify-content: center;
     align-items: stretch;
-    padding: calc(env(safe-area-inset-top) + 12px) clamp(12px, 5vw, 24px) calc(env(safe-area-inset-bottom) + 20px);
+    padding: calc(env(safe-area-inset-top) + 4px) clamp(12px, 5vw, 24px) calc(env(safe-area-inset-bottom) + 8px);
     font-family: var(--font-main);
     background-attachment: fixed;
     box-sizing: border-box;
@@ -101,7 +101,7 @@ body.mobile-view .container {
     border-radius: 32px;
     padding: clamp(16px, 5vw, 28px);
     padding-top: calc(env(safe-area-inset-top) + clamp(10px, 3vw, 20px));
-    padding-bottom: calc(env(safe-area-inset-bottom) + clamp(14px, 4vw, 24px));
+    padding-bottom: calc(env(safe-area-inset-bottom) + clamp(6px, 2vw, 14px));
     box-shadow: 0 32px 90px rgba(0, 0, 0, 0.15);
     display: flex;
     flex-direction: column;
@@ -517,7 +517,7 @@ body.mobile-view .controls {
     box-shadow: none;
     margin: 0;
     padding: 0;
-    gap: clamp(16px, 5vw, 24px);
+    gap: clamp(10px, 3vw, 18px);
     align-items: stretch;
     margin-top: auto;
     grid-template-columns: unset;
