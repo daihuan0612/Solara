@@ -258,17 +258,6 @@ body.background-transitioning .background-stage__layer--transition {
         font-size: 0.8em;
         height: 36px;
     }
-    
-    .control-trailing #loadOnlineBtn {
-        padding: 8px 12px;
-        font-size: 0.8em;
-    }
-    
-    .control-trailing #loadOnlineBtn .btn-text {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-    }
 }
 
 /* 平板设备控制区域适配 */
@@ -286,12 +275,6 @@ body.background-transitioning .background-stage__layer--transition {
         flex: 1 1 100%;
         order: -1;
         margin-bottom: 8px;
-    }
-    
-    .control-trailing #loadOnlineBtn {
-        margin-left: 0;
-        flex: 1 1 100%;
-        justify-content: center;
     }
     
     .progress-container {
@@ -631,6 +614,64 @@ body.background-transitioning .background-stage__layer--transition {
     opacity: 1;
     overflow-y: auto;
     overflow-x: hidden;
+}
+
+/* 喜马拉雅专辑展开头部 */
+.xima-album-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    border-bottom: 1px solid var(--border-color, #e0e0e0);
+    background: var(--surface-color, #f5f5f5);
+    flex-shrink: 0;
+}
+
+.xima-back-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: none;
+    border: none;
+    color: var(--accent-color, #1a73e8);
+    cursor: pointer;
+    font-size: 14px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    white-space: nowrap;
+    transition: background 0.2s;
+}
+
+.xima-back-btn:hover {
+    background: rgba(0,0,0,0.05);
+}
+
+.xima-back-btn i {
+    font-size: 16px;
+}
+
+.xima-album-info {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+}
+
+.xima-album-title {
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--text-color, #333);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.xima-album-artist {
+    font-size: 12px;
+    color: var(--text-secondary-color, #888);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .search-result-item {
@@ -1205,7 +1246,7 @@ html.mobile-view .playlist-header .playlist-action-btn {
 
 /* 播放列表空状态的提示文本 */
 .playlist.empty::before {
-    content: "点击\"探索雷达\"加载在线音乐";
+    content: "搜索歌曲添加到播放列表";
     color: var(--text-secondary-color);
     font-style: italic;
     opacity: 0.7;
@@ -1763,26 +1804,6 @@ html.mobile-view .favorites .favorite-item-action--remove {
     transform: translateY(0); 
     box-shadow: 0 2px 5px rgba(0,0,0,0.1); 
 }
-.controls button#loadOnlineBtn {
-    width: auto;
-    border-radius: 25px;
-    padding: 0 25px;
-    gap: 10px;
-}
-.controls button#loadOnlineBtn .btn-text {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    line-height: 1;
-}
-.controls button#loadOnlineBtn .btn-text i {
-    line-height: 1;
-}
-.controls button#loadOnlineBtn .loader {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-}
 .controls button:disabled { 
     background: var(--text-secondary-color); 
     cursor: not-allowed; 
@@ -1885,11 +1906,6 @@ html:not(.mobile-view) #playModeBtn {
     flex: 1 0 auto; /* 占用剩余空间但不扩展 */
 }
 
-.control-trailing #loadOnlineBtn {
-    margin-left: auto;
-    align-self: center; /* 确保与其它元素垂直居中对齐 */
-}
-
 .volume-container {
     display: flex;
     align-items: center;
@@ -1898,7 +1914,7 @@ html:not(.mobile-view) #playModeBtn {
 }
 
 .volume-container input[type="range"] {
-    width: 110px;
+    width: 180px;
     height: 6px;
     border-radius: 999px;
     background: linear-gradient(to right, var(--primary-color) 0%, var(--primary-color) var(--volume-progress, 100%), rgba(255, 255, 255, 0.2) var(--volume-progress, 100%), rgba(255, 255, 255, 0.1) 100%);
