@@ -1314,7 +1314,7 @@ const API = {
     },
 
     getPicUrl: (song) => {
-        // 如果已有封面URL（妖狐API返回的picture/cover），直接使用
+        // 如果已有封面URL（妖狐API返回的picture/cover直链），直接使用
         if (song.pic_url) return song.pic_url;
         // 所有源统一走GD Studio代理获取封面
         return `${API.baseUrl}?types=pic&id=${song.pic_id || song.id}&source=${song.source || "netease"}&size=500`;
@@ -1414,19 +1414,17 @@ const API = {
             debugLog(`获取歌词失败: ${error.message}`);
         }
 
-        // Apple Music 源没有歌词，尝试从网易云回退获取
-        if (song.source === "apple") {
-            try {
-                const fallbackUrl = `${API.baseUrl}?types=lyric&id=${encodeURIComponent(song.name)}&source=netease`;
-                debugLog(`[歌词回退] 尝试从网易云获取歌词: ${fallbackUrl}`);
-                const data = await API.fetchJson(fallbackUrl);
-                if (data && (data.lyric || data.lrc?.lyric || data.content)) {
-                    const lyricText = data.lyric || data.lrc?.lyric || data.content || data;
-                    return { lyric: lyricText, apiSource: "gd" };
-                }
-            } catch (fallbackErr) {
-                debugLog(`[歌词回退] 网易云获取歌词失败: ${fallbackErr.message}`);
+        // GD 源无歌词时，用歌曲名从网易云回退获取
+        try {
+            const fallbackUrl = `${API.baseUrl}?types=lyric&id=${encodeURIComponent(song.name)}&source=netease`;
+            debugLog(`[歌词回退] 尝试从网易云获取歌词: ${fallbackUrl}`);
+            const data = await API.fetchJson(fallbackUrl);
+            if (data && (data.lyric || data.lrc?.lyric || data.content)) {
+                const lyricText = data.lyric || data.lrc?.lyric || data.content || data;
+                return { lyric: lyricText, apiSource: "gd" };
             }
+        } catch (fallbackErr) {
+            debugLog(`[歌词回退] 网易云获取歌词失败: ${fallbackErr.message}`);
         }
         
         return null;
@@ -5006,8 +5004,23 @@ function updateCurrentSongInfo(song, options = {}) {
                     retryCount++;
                     debugLog(`封面加载失败，重试 ${retryCount}/${maxRetries}: ${error.message}`);
 
-                    // 最后一次尝试失败，尝试从本地缓存加载（离线兜底）
+                    // 最后一次尝试失败
                     if (retryCount >= maxRetries) {
+                        // 尝试将 picUrl 作为直链图片加载（妖狐API返回的封面直链）
+                        try {
+                            debugLog(`尝试直链加载封面: ${picUrl}`);
+                            await loadImageWithTimeout(picUrl, loadTimeout);
+                            if (state.currentSong === song && updateBackground) {
+                                const httpsUrl = preferHttpsUrl(picUrl);
+                                setAlbumCoverImage(httpsUrl);
+                                scheduleDeferredPaletteUpdate(httpsUrl, { immediate: true });
+                            }
+                            return;
+                        } catch (directErr) {
+                            debugLog(`直链封面加载失败: ${directErr.message}`);
+                        }
+
+                        // 尝试从本地缓存加载（离线兜底）
                         try {
                             const songId = song.id || song.url_id || song.lyric_id;
                             if (songId) {
@@ -7858,34 +7871,11 @@ async function loadLyrics(song) {
     }
     
     try {
-        const lyricUrl = API.getLyric(song);
-        debugLog(`获取歌词URL: ${lyricUrl}`);
-
-        const lyricData = await API.fetchJson(lyricUrl);
-        debugLog(`歌词API返回数据: ${JSON.stringify(lyricData).substring(0, 200)}...`);
-
-        // 处理不同格式的歌词数据
-        let lyricText = '';
+        // 使用带兜底的歌词获取：GD源优先→网易云回退→暂无歌词
+        const lyricResult = await API.getLyricWithFallback(song);
         
-        if (typeof lyricData === 'string') {
-            // 如果直接返回字符串，可能就是歌词文本
-            lyricText = lyricData;
-        } else if (lyricData && lyricData.lyric) {
-            // 标准格式：{ lyric: "歌词文本" }
-            lyricText = lyricData.lyric;
-        } else if (lyricData && lyricData.data && lyricData.data.lyric) {
-            // 可能的格式：{ data: { lyric: "歌词文本" } }
-            lyricText = lyricData.data.lyric;
-        } else if (lyricData && lyricData.lrc && lyricData.lrc.lyric) {
-            // 网易云音乐API格式
-            lyricText = lyricData.lrc.lyric;
-        } else if (lyricData && lyricData.content) {
-            // 可能的格式：{ content: "歌词文本" }
-            lyricText = lyricData.content;
-        }
-        
-        if (lyricText && lyricText.trim()) {
-            parseLyrics(lyricText.trim());
+        if (lyricResult && lyricResult.lyric && lyricResult.lyric.trim()) {
+            parseLyrics(lyricResult.lyric.trim());
             dom.lyrics.classList.remove("empty");
             dom.lyrics.dataset.placeholder = "default";
             debugLog(`歌词加载成功: ${state.lyricsData.length} 行`);
