@@ -180,6 +180,7 @@ body.mobile-view .mobile-toolbar__button {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    margin-top: -4px;
     backdrop-filter: blur(8px);
     transition: background 0.25s ease, color 0.25s ease, border-color 0.25s ease;
 }
