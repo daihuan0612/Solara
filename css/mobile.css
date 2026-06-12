@@ -518,10 +518,6 @@ body.mobile-view .controls {
     grid-template-areas: unset;
 }
 
-body.mobile-view #loadOnlineBtn {
-    display: none;
-}
-
 body.mobile-view .progress-container {
     grid-area: unset;
     order: 1;
@@ -531,6 +527,25 @@ body.mobile-view .progress-container {
     row-gap: 8px;
     column-gap: 10px;
     align-items: center;
+}
+
+/* 移动端喜马拉雅专辑头部 */
+body.mobile-view .xima-album-header {
+    padding: 10px 8px;
+    gap: 8px;
+}
+
+body.mobile-view .xima-back-btn {
+    font-size: 13px;
+    padding: 6px 8px;
+}
+
+body.mobile-view .xima-album-title {
+    font-size: 13px;
+}
+
+body.mobile-view .xima-album-artist {
+    font-size: 11px;
 }
 
 body.mobile-view .progress-container input[type="range"] {
