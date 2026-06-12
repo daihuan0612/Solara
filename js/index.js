@@ -1049,6 +1049,7 @@ const API_APPLE = {
                     lyric_id: song.name + "_" + song.singer,
                     source: "apple",
                     apiSource: "apple_api",
+                    pic_url: song.pic || song.picture || song.cover || "",
                 }));
         } catch (error) {
             debugLog(`[Apple Music API] 搜索错误: ${error.message}`);
@@ -1308,6 +1309,10 @@ const API = {
         // 酷我走原生封面接口
         if (song.source === "kuwo" && (song.pic_id || song.id)) {
             return API_KUWO.getPicUrl(song.pic_id || song.id);
+        }
+        // Apple/喜马拉雅不支持GD Studio代理获取图片，返回空占位
+        if (song.source === "apple" || song.source === "xima") {
+            return "";
         }
         // 其他（网易云等）走GD Studio代理
         return `${API.baseUrl}?types=pic&id=${song.pic_id || song.id}&source=${song.source || "netease"}&size=500`;
@@ -5584,7 +5589,7 @@ function openImportSelectedMenu() {
     });
 }
 
-function importSelectedSearchResults(target = "playlist") {
+async function importSelectedSearchResults(target = "playlist") {
     ensureSelectedSearchResultsSet();
     if (state.selectedSearchResults.size === 0) {
         return;
@@ -5596,7 +5601,7 @@ function importSelectedSearchResults(target = "playlist") {
         return;
     }
 
-    const songsToAdd = indices
+    let songsToAdd = indices
         .map((index) => state.searchResults[index])
         .filter((song) => song && typeof song === "object");
 
@@ -5605,6 +5610,27 @@ function importSelectedSearchResults(target = "playlist") {
         showNotification("未找到可导入的歌曲", "warning");
         return;
     }
+
+    // 解析喜马拉雅专辑：展开为免费音轨再导入
+    const expandedSongs = [];
+    for (const song of songsToAdd) {
+        if (song.source === "xima" && !song.isXimaTrack) {
+            const parts = (song.url_id || "").split("|||");
+            if (parts.length === 2) {
+                const keyword = decodeURIComponent(parts[0]);
+                const albumIndex = parseInt(parts[1], 10);
+                if (!isNaN(albumIndex)) {
+                    const tracks = await API_XIMA.getAlbumTracks(keyword, albumIndex);
+                    if (tracks.length > 0) {
+                        expandedSongs.push(...tracks);
+                        continue;
+                    }
+                }
+            }
+        }
+        expandedSongs.push(song);
+    }
+    songsToAdd = expandedSongs;
 
     const processedIndices = [...indices];
     state.selectedSearchResults.clear();
@@ -7026,15 +7052,17 @@ async function updateMediaMetadataForLockScreen(song) {
         let coverUrl = ''; 
         if (song.pic_id || song.id) { 
             const picUrl = API.getPicUrl(song); 
-            try {
-                // 先请求API URL获取JSON对象，提取真正的图片URL
-                const picData = await API.fetchJson(picUrl);
-                if (picData && picData.url) {
-                    coverUrl = picData.url;
-                    if (coverUrl.startsWith('http://')) coverUrl = coverUrl.replace('http://', 'https://');
+            if (picUrl) {
+                try {
+                    // 先请求API URL获取JSON对象，提取真正的图片URL
+                    const picData = await API.fetchJson(picUrl);
+                    if (picData && picData.url) {
+                        coverUrl = picData.url;
+                        if (coverUrl.startsWith('http://')) coverUrl = coverUrl.replace('http://', 'https://');
+                    }
+                } catch (error) {
+                    console.warn('获取封面URL失败:', error);
                 }
-            } catch (error) {
-                console.warn('获取封面URL失败:', error);
             }
         } 
         if (!coverUrl) coverUrl = window.location.origin + '/favicon.png'; 
