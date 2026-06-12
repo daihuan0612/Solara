@@ -7385,7 +7385,6 @@ async function playSong(song, options = {}) {
         let selectedAudioUrl = null;
         let lastAudioError = null;
         let usedFallbackAudio = false;
-        
         for (const candidateUrl of candidateAudioUrls) {
             player.src = candidateUrl;
             state.currentAudioUrl = candidateUrl;
@@ -7471,72 +7470,58 @@ async function playSong(song, options = {}) {
             state.isPlaying = true;
             updatePlayPauseButton();
             if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
-            
 
-
-            // 给一点点缓冲
-            await new Promise(r => setTimeout(r, 50));
-
+            // ⚡️⚡️ 静音优先策略 ⚡️⚡️
+            // 浏览器自动播放策略只允许静音音频自动播放。
+            // 先静音播放，成功后再取消静音，确保自动播放成功。
             try {
-                // 尝试播放
-                const playResult = await player.play();
-                console.log('✅ 播放指令已发出，结果:', playResult);
-                console.log('🔊 音频状态检查:', {
-                    paused: player.paused,
-                    ended: player.ended,
-                    readyState: player.readyState,
-                    currentTime: player.currentTime,
-                    duration: player.duration
-                });
-
-
-
-                // ⚡️⚡️ [核心修复 1] 硬件通道强制握手 ⚡️⚡️
-                // 在 iOS 锁屏下，有时候 Audio 元素状态是 playing，但硬件通道没打开。
-                // 我们通过快速切换 muted 状态来“惊醒”音频守护进程。
-                if (isIOS) {
-                    setTimeout(() => {
-                        player.muted = true;
-                        player.volume = safeVolume;
-                        setTimeout(() => {
-                            player.muted = false; // 这一刻，声音应该出来了
-                            console.log('🔊 硬件通道强制握手完成');
-                        }, 50); // 50ms 的静音闪烁
-                    }, 100);
-                }
-                
-                // ⚡️⚡️ [核心修复 2] 延迟关闭守护进程 ⚡️⚡️
-                // 不要立即关闭！让 AudioContext 再跑 3 秒，和新歌重叠一会儿。
-                // 这就像接力赛，两人同跑一段距离再松手，防止掉棒。
-                if (isIOSPWA && window.solaraAudioGuard) {
-                    console.log('⏳ 守护进程将在 3 秒后退出...');
-                    setTimeout(() => {
-                        if (!player.paused) { // 只有还在播放才关闭
-                            window.solaraAudioGuard.stop();
-                            console.log('🛑 守护进程安全退出');
-                        }
-                    }, 3000);
-                }
-                
-                // 再次刷新锁屏信息，确保 metadata 没被系统清空
-                setTimeout(() => updateMediaMetadataForLockScreen(song), 500);
-
+                player.muted = true;
+                player.volume = safeVolume;
+                await player.play();
+                console.log('静音播放成功，准备取消静音');
+                // 短暂延迟后取消静音
+                await new Promise(r => setTimeout(r, 100));
+                player.muted = false;
             } catch (error) {
-                console.warn('⚠️ 播放受阻，尝试强力修复:', error);
-                // 兜底策略：如果播放失败，不关闭守护进程，甚至尝试重新加载
+                console.warn('静音播放也失败了:', error);
+                // 最后手段：直接尝试一次
                 try {
-                    player.muted = true;
                     await player.play();
-                    player.muted = false;
                 } catch (e) {
+                    console.error('自动播放彻底失败:', e);
                     state.isPlaying = false;
                     updatePlayPauseButton();
-                    // 播放失败也延迟关闭，或者不关闭
                     if (isIOSPWA && window.solaraAudioGuard) {
                         setTimeout(() => window.solaraAudioGuard.stop(), 2000);
                     }
                 }
             }
+
+            // ⚡️⚡️ [核心修复 1] 硬件通道强制握手 ⚡️⚡️
+            if (isIOS) {
+                setTimeout(() => {
+                    player.muted = true;
+                    player.volume = safeVolume;
+                    setTimeout(() => {
+                        player.muted = false;
+                        console.log('🔊 硬件通道强制握手完成');
+                    }, 50);
+                }, 100);
+            }
+
+            // ⚡️⚡️ [核心修复 2] 延迟关闭守护进程 ⚡️⚡️
+            if (isIOSPWA && window.solaraAudioGuard) {
+                console.log('⏳ 守护进程将在 3 秒后退出...');
+                setTimeout(() => {
+                    if (!player.paused) {
+                        window.solaraAudioGuard.stop();
+                        console.log('🛑 守护进程安全退出');
+                    }
+                }, 3000);
+            }
+
+            setTimeout(() => updateMediaMetadataForLockScreen(song), 500);
+
         } else {
             state.isPlaying = false;
             updatePlayPauseButton();
