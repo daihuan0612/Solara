@@ -131,9 +131,13 @@ body.mobile-view.dark-mode .container::after {
     background: radial-gradient(100% 100% at 50% 0%, rgba(255, 255, 255, 0.08) 0%, transparent 65%);
 }
 
-body.mobile-view .header,
-body.mobile-view .theme-switch-wrapper,
-body.mobile-view .mobile-toolbar {
+/* 移动端隐藏桌面 header，使用移动端 toolbar */
+body.mobile-view .header {
+    display: none;
+}
+
+body.mobile-view .mobile-toolbar,
+body.mobile-view .theme-switch-wrapper {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -163,6 +167,7 @@ body.mobile-view .mobile-toolbar__actions {
     display: flex;
     align-items: center;
     gap: 10px;
+    margin-left: auto;
 }
 
 body.mobile-view .mobile-toolbar__button {
