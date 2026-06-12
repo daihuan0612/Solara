@@ -7910,7 +7910,7 @@ async function loadLyrics(song) {
             debugLog(`缓存歌词加载失败: ${cacheErr.message}`);
         }
         
-        setLyricsContentHtml("<div>歌词加载失败</div>");
+        setLyricsContentHtml("<div>暂无歌词</div>");
         dom.lyrics.classList.add("empty");
         dom.lyrics.dataset.placeholder = "message";
         state.lyricsData = [];
