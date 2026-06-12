@@ -70,8 +70,10 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
     const url = new URL(event.request.url);
 
-    // 1. 音频缓存请求（由主线程写入 Cache API）
-    if (url.pathname.startsWith('/cached-audio/')) {
+    // 1. 缓存资源请求（音频/封面/歌词，由主线程写入 Cache API）
+    if (url.pathname.startsWith('/cached-audio/') ||
+        url.pathname.startsWith('/cached-cover/') ||
+        url.pathname.startsWith('/cached-lyric/')) {
         event.respondWith(cacheAudioFetch(event));
         return;
     }
@@ -227,5 +229,44 @@ self.addEventListener('message', async event => {
         const cache = await caches.open(CACHE_NAMES.audio);
         await cache.delete(`/cached-audio/${songId}`);
         event.source.postMessage({ type: 'AUDIO_CACHE_DELETED', songId });
+    }
+
+    // =============================================
+    // 通用资源缓存（封面、歌词等）
+    // =============================================
+    if (event.data && event.data.type === 'CACHE_RESOURCE') {
+        const { resourceId, url, tag } = event.data;  // tag = 'cover' or 'lyric'
+        try {
+            const response = await fetch(url);
+            if (response.ok) {
+                const cache = await caches.open(CACHE_NAMES.audio);
+                const cacheKey = `/cached-${tag}/${resourceId}`;
+                await cache.put(cacheKey, response);
+                event.source.postMessage({ type: 'RESOURCE_CACHED', resourceId, success: true });
+            } else {
+                event.source.postMessage({ type: 'RESOURCE_CACHED', resourceId, success: false, reason: 'fetch_failed' });
+            }
+        } catch (e) {
+            event.source.postMessage({ type: 'RESOURCE_CACHED', resourceId, success: false, reason: e.message });
+        }
+    }
+
+    if (event.data && event.data.type === 'CHECK_RESOURCE_CACHE') {
+        const { resourceId, tag } = event.data;
+        try {
+            const cache = await caches.open(CACHE_NAMES.audio);
+            const cached = await cache.match(`/cached-${tag}/${resourceId}`);
+            event.source.postMessage({ type: 'RESOURCE_CACHE_STATUS', resourceId, cached: !!cached });
+        } catch (e) {
+            event.source.postMessage({ type: 'RESOURCE_CACHE_STATUS', resourceId, cached: false });
+        }
+    }
+
+    if (event.data && event.data.type === 'DELETE_RESOURCE_CACHE') {
+        const { resourceId, tag } = event.data;
+        try {
+            const cache = await caches.open(CACHE_NAMES.audio);
+            await cache.delete(`/cached-${tag}/${resourceId}`);
+        } catch (e) { /* 静默 */ }
     }
 });
