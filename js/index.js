@@ -7168,6 +7168,9 @@ async function playSong(song, options = {}) {
             // 给一点缓冲时间让硬件释放
             await new Promise(r => setTimeout(r, 30));
         }
+        
+        // 显示加载提示
+        showNotification("正在加载...");
 
         // 4. 检查本地缓存是否有已完整播放的歌曲
         const songId = song.id || song.url_id || song.lyric_id;
@@ -7391,7 +7394,7 @@ async function playSong(song, options = {}) {
                             resolved = true;
                             reject(new Error('音频加载超时'));
                         }
-                    }, 30000);
+                    }, 10000);
                     
                     const done = (event) => {
                         if(!resolved) {
@@ -7544,6 +7547,15 @@ async function playSong(song, options = {}) {
         state.isPlaying = false;
         updatePlayPauseButton();
         if (isIOSPWA && window.solaraAudioGuard) window.solaraAudioGuard.stop();
+        // 用户可见的失败提示
+        const msg = error.message || "未知错误";
+        if (msg.includes("超时")) {
+            showNotification("加载超时，请检查网络或切换音源", "error");
+        } else if (msg.includes("获取音频播放地址")) {
+            showNotification("该歌曲在当前音源不可用", "error");
+        } else {
+            showNotification("播放失败，请稍后重试", "error");
+        }
         return false;
     } finally {
         state._isPlayingSong = false;
