@@ -1316,15 +1316,7 @@ const API = {
     getPicUrl: (song) => {
         // 如果已有封面URL（妖狐API返回的picture/cover），直接使用
         if (song.pic_url) return song.pic_url;
-        // 酷我走原生封面接口
-        if (song.source === "kuwo" && (song.pic_id || song.id)) {
-            return API_KUWO.getPicUrl(song.pic_id || song.id);
-        }
-        // Apple/喜马拉雅不支持GD Studio代理获取图片，返回空占位
-        if (song.source === "apple" || song.source === "xima") {
-            return "";
-        }
-        // 其他（网易云等）走GD Studio代理
+        // 所有源统一走GD Studio代理获取封面
         return `${API.baseUrl}?types=pic&id=${song.pic_id || song.id}&source=${song.source || "netease"}&size=500`;
     },
 
