@@ -15,7 +15,6 @@ const dom = {
     mobileInlineLyricsContent: document.getElementById("mobileInlineLyricsContent"),
     audioPlayer: document.getElementById("audioPlayer"),
     themeToggleButton: document.getElementById("themeToggleButton"),
-    loadOnlineBtn: document.getElementById("loadOnlineBtn"),
     showPlaylistBtn: document.getElementById("showPlaylistBtn"),
     showLyricsBtn: document.getElementById("showLyricsBtn"),
     searchInput: document.getElementById("searchInput"),
@@ -63,7 +62,6 @@ const dom = {
     mobileExportFavoritesBtn: document.getElementById("mobileExportFavoritesBtn"),
     mobileClearFavoritesBtn: document.getElementById("mobileClearFavoritesBtn"),
     mobileOverlayScrim: document.getElementById("mobileOverlayScrim"),
-    mobileExploreButton: document.getElementById("mobileExploreButton"),
     mobileQualityToggle: document.getElementById("mobileQualityToggle"),
     mobileQualityLabel: document.getElementById("mobileQualityLabel"),
     mobilePanel: document.getElementById("mobilePanel"),
@@ -665,7 +663,9 @@ const SOURCE_OPTIONS = [
     { value: "aggregate", label: "聚合搜索" },
     { value: "netease", label: "网易云音乐" },
     { value: "kuwo", label: "酷我音乐" },
-    { value: "kugou", label: "酷狗音乐" }
+    { value: "kugou", label: "酷狗音乐" },
+    { value: "apple", label: "Apple Music" },
+    { value: "xima", label: "喜马拉雅" }
 ];
 
 function normalizeSource(value) {
@@ -685,6 +685,8 @@ const SOURCE_QUALITY_MAP = {
     netease: ['128', '192', '320', '999'],
     kuwo: ['320', '192', '128'],  // 酷我免费音质：SQ(320k)/exhigh(192k)/Standard(128k)
     kugou: ['320', '128'],  // 酷狗免费音质：320kbps MP3 和 128kbps MP3
+    apple: ['128'],  // Apple Music 仅一种音质（AAC 256kbps）
+    xima: ['128'],  // 喜马拉雅仅一种音质（MP3）
 };
 
 function getSupportedQualities(source) {
@@ -813,7 +815,7 @@ const API_KUWO = {
         
         try {
             debugLog(`[酷我API] 搜索请求: ${url}`);
-            const response = await fetch(url);
+            const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
             
             if (!response.ok) {
                 throw new Error(`请求失败: ${response.status}`);
@@ -844,7 +846,7 @@ const API_KUWO = {
     },
     
     // 获取单曲播放链接（通过关键词+序号）
-    getSongUrlByKeyword: async (keyword, index = 1, quality = "320k") => {
+    getSongUrlByKeyword: async (keyword, index = 1, quality = "320") => {
         const qualityMap = {
             '320': 'SQ',
             '192': 'exhigh',
@@ -882,7 +884,7 @@ const API_KUWO = {
     },
     
     // 获取单曲播放链接（通过RID）
-    getSongUrlByRid: async (rid, quality = "320k") => {
+    getSongUrlByRid: async (rid, quality = "320") => {
         const qualityMap = {
             '320': 'SQ',
             '192': 'exhigh',
@@ -1010,6 +1012,199 @@ const API_KUGOU = {
     },
 };
 
+// Apple Music API 配置
+const API_APPLE = {
+    baseUrl: "https://api.yaohud.cn/api/music/apple",
+    key: "nja5qfri5GBrsgfdK1j",
+
+    // 搜索歌曲（自动过滤[收费]歌曲）
+    search: async (keyword, count = 20) => {
+        const url = `${API_APPLE.baseUrl}?key=${API_APPLE.key}&msg=${encodeURIComponent(keyword)}&g=${Math.min(count, 50)}`;
+
+        try {
+            debugLog(`[Apple Music API] 搜索请求: ${url}`);
+            const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
+
+            if (!response.ok) throw new Error(`请求失败: ${response.status}`);
+
+            const data = await response.json();
+            debugLog(`[Apple Music API] 搜索响应: ${JSON.stringify(data).substring(0, 200)}...`);
+
+            if (data.code !== 200 || !data.data || !data.data.songs) {
+                return [];
+            }
+
+            return data.data.songs
+                .filter(song => {
+                    const isPaid = song.pay === "[收费]" || (song.text && song.text.includes("[收费]"));
+                    return !isPaid;
+                })
+                .map((song, index) => ({
+                    id: song.name + "_" + song.singer,
+                    name: song.name,
+                    artist: song.singer,
+                    album: song.album,
+                    pic_id: song.name + "_" + song.singer,
+                    url_id: song.name + "_" + song.singer,
+                    lyric_id: song.name + "_" + song.singer,
+                    source: "apple",
+                    apiSource: "apple_api",
+                }));
+        } catch (error) {
+            debugLog(`[Apple Music API] 搜索错误: ${error.message}`);
+            return [];
+        }
+    },
+
+    // 获取单曲播放链接（通过索引）
+    getSongUrlByIndex: async (keyword, index = 1) => {
+        const url = `${API_APPLE.baseUrl}?key=${API_APPLE.key}&msg=${encodeURIComponent(keyword)}&n=${index}`;
+
+        try {
+            debugLog(`[Apple Music API] 获取播放链接: ${url}`);
+            const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
+
+            if (!response.ok) throw new Error(`请求失败: ${response.status}`);
+
+            const data = await response.json();
+            debugLog(`[Apple Music API] 单曲响应: ${JSON.stringify(data).substring(0, 200)}...`);
+
+            if (data.code === 200 && data.data && data.data.music_url) {
+                return {
+                    url: data.data.music_url,
+                    br: 256,
+                    size: 0,
+                    apiSource: "apple_api",
+                    picture: data.data.cover,
+                };
+            }
+
+            return null;
+        } catch (error) {
+            debugLog(`[Apple Music API] 获取播放链接错误: ${error.message}`);
+            return null;
+        }
+    },
+};
+
+// 喜马拉雅API配置（听书/相声/有声小说）
+const API_XIMA = {
+    baseUrl: "https://api.yaohud.cn/api/music/xima",
+    key: "nja5qfri5GBrsgfdK1j",
+
+    // 搜索专辑（自动过滤付费专辑）
+    search: async (keyword, count = 20) => {
+        const url = `${API_XIMA.baseUrl}?key=${API_XIMA.key}&msg=${encodeURIComponent(keyword)}&g=${Math.min(count, 50)}`;
+
+        try {
+            debugLog(`[喜马拉雅API] 搜索请求: ${url}`);
+            const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
+
+            if (!response.ok) throw new Error(`请求失败: ${response.status}`);
+
+            const data = await response.json();
+            debugLog(`[喜马拉雅API] 搜索响应: ${JSON.stringify(data).substring(0, 200)}...`);
+
+            if (data.code !== 200 || !data.data || !data.data.albums) {
+                return [];
+            }
+
+            return data.data.albums
+                .filter(album => album.isPaid !== "收费")  // 过滤付费专辑
+                .map((album) => ({
+                    id: "xima_" + album.title + "_" + album.anchorName,
+                    name: album.title,
+                    artist: album.anchorName,
+                    album: album.title,
+                    pic_id: album.picture || "",
+                    url_id: encodeURIComponent(keyword) + "|||" + album.n,
+                    lyric_id: "xima_" + album.title + "_" + album.anchorName,
+                    source: "xima",
+                    apiSource: "xima_api",
+                    pic_url: album.picture || "",  // 封面URL直接可用
+                    duration: 0,  // 专辑时长需展开才能获取
+                }));
+        } catch (error) {
+            debugLog(`[喜马拉雅API] 搜索错误: ${error.message}`);
+            return [];
+        }
+    },
+
+    // 获取专辑内第一个免费音频的播放链接
+    getTrackUrlByAlbumIndex: async (keyword, albumIndex) => {
+        const url = `${API_XIMA.baseUrl}?key=${API_XIMA.key}&msg=${encodeURIComponent(keyword)}&n=${albumIndex}&g=1`;
+
+        try {
+            debugLog(`[喜马拉雅API] 获取专辑音频: ${url}`);
+            const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
+
+            if (!response.ok) throw new Error(`请求失败: ${response.status}`);
+
+            const data = await response.json();
+            debugLog(`[喜马拉雅API] 专辑响应: ${JSON.stringify(data).substring(0, 200)}...`);
+
+            if (data.code === 200 && data.data && Array.isArray(data.data.audioList)) {
+                // 取第一个免费音频
+                const freeTrack = data.data.audioList.find(t => t.isPaid === false || t.pay === "免费");
+                if (freeTrack && freeTrack.musicurl) {
+                    return {
+                        url: freeTrack.musicurl,
+                        br: 128,
+                        size: 0,
+                        apiSource: "xima_api",
+                        picture: freeTrack.picture || data.data.albumMeta?.picture || "",
+                    };
+                }
+            }
+
+            return null;
+        } catch (error) {
+            debugLog(`[喜马拉雅API] 获取音频链接错误: ${error.message}`);
+            return null;
+        }
+    },
+
+    // 获取专辑内所有免费音轨
+    getAlbumTracks: async (keyword, albumIndex) => {
+        const url = `${API_XIMA.baseUrl}?key=${API_XIMA.key}&msg=${encodeURIComponent(keyword)}&n=${albumIndex}&g=50`;
+
+        try {
+            debugLog(`[喜马拉雅API] 获取专辑音轨列表: ${url}`);
+            const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
+
+            if (!response.ok) throw new Error(`请求失败: ${response.status}`);
+
+            const data = await response.json();
+
+            if (data.code === 200 && data.data && Array.isArray(data.data.audioList)) {
+                const tracks = data.data.audioList
+                    .filter(t => t.isPaid === false || t.pay === "免费")
+                    .map((t, i) => ({
+                        id: "xima_track_" + (t.orderNo || i) + "_" + (t.title || "").replace(/\s+/g, '_'),
+                        name: t.title || ("第" + ((t.orderNo || i) + 1) + "集"),
+                        artist: data.data.albumMeta?.anchorName || "",
+                        album: data.data.albumMeta?.albumTitle || keyword,
+                        pic_id: t.picture || "",
+                        url_id: t.musicurl || "",
+                        lyric_id: "xima_track_" + (t.orderNo || i),
+                        source: "xima",
+                        apiSource: "xima_api",
+                        pic_url: t.picture || "",
+                        isXimaTrack: true,
+                        duration: t.duration || 0,
+                    }));
+                debugLog(`[喜马拉雅API] 专辑共 ${tracks.length} 个免费音轨`);
+                return tracks;
+            }
+
+            return [];
+        } catch (error) {
+            debugLog(`[喜马拉雅API] 获取专辑音轨列表错误: ${error.message}`);
+            return [];
+        }
+    },
+};
+
 const API = {
     baseUrl: API_CONFIG.primary.baseUrl,
 
@@ -1048,7 +1243,17 @@ const API = {
         if (source === "kugou") {
             return await API_KUGOU.search(keyword, count);
         }
-        
+
+        // Apple Music 使用新的API
+        if (source === "apple") {
+            return await API_APPLE.search(keyword, count);
+        }
+
+        // 喜马拉雅使用新的API
+        if (source === "xima") {
+            return await API_XIMA.search(keyword, count);
+        }
+
         // 网易云使用GD Studio API
         const url = `${API.baseUrl}?types=search&source=${source}&name=${encodeURIComponent(keyword)}&count=${count}&pages=${page}`;
 
@@ -1076,57 +1281,20 @@ const API = {
         }
     },
 
-    getRadarPlaylist: async (playlistId = "3778678", options = {}) => {
-        let limit = 50;
-        let offset = 0;
-
-        if (typeof options === "number") {
-            limit = options;
-        } else if (options && typeof options === "object") {
-            if (Number.isFinite(options.limit)) {
-                limit = options.limit;
-            } else if (Number.isFinite(options.count)) {
-                limit = options.count;
-            }
-            if (Number.isFinite(options.offset)) {
-                offset = options.offset;
-            }
-        }
-
-        limit = Math.max(1, Math.min(200, Math.trunc(limit)) || 50);
-        offset = Math.max(0, Math.trunc(offset) || 0);
-
-        const params = new URLSearchParams({
-            types: "playlist",
-            id: playlistId,
-            limit: String(limit),
-            offset: String(offset),
-        });
-        const url = `${API.baseUrl}?${params.toString()}`;
-
-        try {
-            const data = await API.fetchJson(url);
-            const tracks = data && data.playlist && Array.isArray(data.playlist.tracks)
-                ? data.playlist.tracks.slice(0, limit)
-                : [];
-
-            if (tracks.length === 0) throw new Error("No tracks found");
-
-            return tracks.map(track => ({
-                id: track.id,
-                name: track.name,
-                artist: Array.isArray(track.ar) ? track.ar.map(artist => artist.name).join(" / ") : "",
-                source: "netease",
-                lyric_id: track.id,
-                pic_id: track.al?.pic_str || track.al?.pic || track.al?.picUrl || "",
-            }));
-        } catch (error) {
-            console.error("API request failed:", error);
-            throw error;
-        }
-    },
-
     getSongUrl: (song, quality = "999") => {
+        // 喜马拉雅/Apple Music使用各自的API获取音频，不走GD Studio
+        if (song.source === "xima" || song.source === "apple") {
+            if (song.source === "xima") {
+                const parts = (song.url_id || "").split("|||");
+                if (parts.length === 2) {
+                    const keyword = decodeURIComponent(parts[0]);
+                    return `https://api.yaohud.cn/api/music/xima?key=${API_XIMA.key}&msg=${encodeURIComponent(keyword)}&n=${parseInt(parts[1], 10)}&g=1`;
+                }
+            }
+            if (song.source === "apple") {
+                return `https://api.yaohud.cn/api/music/apple?key=${API_APPLE.key}&msg=${encodeURIComponent(song.name + " " + song.artist)}&n=1`;
+            }
+        }
         return `${API.baseUrl}?types=url&id=${song.id}&source=${song.source || "netease"}&br=${quality}`;
     },
 
@@ -1168,7 +1336,39 @@ const API = {
             }
             return null;
         }
-        
+
+        // Apple Music 使用新的API
+        if (song.source === "apple") {
+            const keyword = `${song.name} ${song.artist}`;
+            const result = await API_APPLE.getSongUrlByIndex(keyword, 1);
+            if (result && result.url) {
+                debugLog(`[Apple Music API] 成功获取播放链接: ${result.url.substring(0, 50)}...`);
+                return { ...result, usedQuality: "128" };
+            }
+            return null;
+        }
+
+        // 喜马拉雅使用新的API
+        if (song.source === "xima") {
+            // 如果是展开后的音轨（有isXimaTrack标记），url_id就是直接音频链接
+            if (song.isXimaTrack && song.url_id) {
+                debugLog(`[喜马拉雅API] 音轨直链: ${song.url_id.substring(0, 50)}...`);
+                return { url: song.url_id, br: 128, size: 0, apiSource: "xima_api", picture: song.pic_url, usedQuality: "128" };
+            }
+            // 专辑：通过url_id中的关键词+专辑索引获取音频
+            const parts = (song.url_id || "").split("|||");
+            if (parts.length === 2) {
+                const keyword = decodeURIComponent(parts[0]);
+                const albumIndex = parseInt(parts[1], 10);
+                const result = await API_XIMA.getTrackUrlByAlbumIndex(keyword, albumIndex);
+                if (result && result.url) {
+                    debugLog(`[喜马拉雅API] 成功获取播放链接: ${result.url.substring(0, 50)}...`);
+                    return { ...result, usedQuality: "128" };
+                }
+            }
+            return null;
+        }
+
         // 网易云使用GD Studio API
         const availableQualities = ['999', '320', '192', '128'];
         
@@ -1205,6 +1405,21 @@ const API = {
             }
         } catch (error) {
             debugLog(`获取歌词失败: ${error.message}`);
+        }
+
+        // Apple Music 源没有歌词，尝试从网易云回退获取
+        if (song.source === "apple") {
+            try {
+                const fallbackUrl = `${API.baseUrl}?types=lyric&id=${encodeURIComponent(song.name)}&source=netease`;
+                debugLog(`[歌词回退] 尝试从网易云获取歌词: ${fallbackUrl}`);
+                const data = await API.fetchJson(fallbackUrl);
+                if (data && (data.lyric || data.lrc?.lyric || data.content)) {
+                    const lyricText = data.lyric || data.lrc?.lyric || data.content || data;
+                    return { lyric: lyricText, apiSource: "gd" };
+                }
+            } catch (fallbackErr) {
+                debugLog(`[歌词回退] 网易云获取歌词失败: ${fallbackErr.message}`);
+            }
         }
         
         return null;
@@ -1349,6 +1564,8 @@ const state = {
     needUpdateOnUnlock: false, // 新增：iOS PWA 解锁后是否需要更新UI
     pendingStealthUpdate: null, // 新增：隐身模式下待更新的信息
     forceUIUpdate: false, // 新增：强制UI更新标志
+    ximaAlbumView: null,  // 喜马拉雅专辑展开视图 { keyword, album }
+    ximaBackResults: [],  // 展开专辑前的搜索结果备份
 };
 
 let importSelectedMenuOutsideHandler = null;
@@ -4050,16 +4267,6 @@ function setupInteractions() {
         });
     }
 
-    dom.loadOnlineBtn.addEventListener("click", exploreOnlineMusic);
-    if (dom.mobileExploreButton) {
-        dom.mobileExploreButton.addEventListener("click", (event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            closeAllMobileOverlays();
-            exploreOnlineMusic();
-        });
-    }
-
     if (dom.importPlaylistBtn && dom.importPlaylistInput) {
         dom.importPlaylistBtn.addEventListener("click", () => {
             dom.importPlaylistInput.value = "";
@@ -4879,7 +5086,7 @@ async function performSearch(isLiveSearch = false) {
 
         // 执行搜索（聚合模式搜索所有平台，普通模式搜索单个平台）
         let results = [];
-        const allSources = ['netease', 'kuwo', 'kugou'];
+        const allSources = ['netease', 'kuwo', 'kugou', 'apple', 'xima'];
         
         try {
             if (source === "aggregate") {
@@ -4898,7 +5105,7 @@ async function performSearch(isLiveSearch = false) {
                 // 收集结果，并记录哪些平台需要重试
                 const allResults = [];
                 const retryPlatforms = [];
-                let platformCounts = { netease: 0, kuwo: 0, joox: 0 };
+                let platformCounts = { netease: 0, kuwo: 0, kugou: 0, apple: 0, xima: 0 };
                 
                 for (let i = 0; i < settledResults.length; i++) {
                     const platform = allSources[i];
@@ -4949,7 +5156,7 @@ async function performSearch(isLiveSearch = false) {
                     }
                 }
                 
-                debugLog(`[聚合搜索] 各平台结果数: 网易=${platformCounts.netease}, 酷我=${platformCounts.kuwo}, 酷狗=${platformCounts.kugou}`);
+                debugLog(`[聚合搜索] 各平台结果数: 网易=${platformCounts.netease}, 酷我=${platformCounts.kuwo}, 酷狗=${platformCounts.kugou}, Apple=${platformCounts.apple}, 喜马=${platformCounts.xima}`);
                 
                 // 去重：同平台+同歌名视为重复
                 const seen = new Set();
@@ -4962,7 +5169,7 @@ async function performSearch(isLiveSearch = false) {
                 }
                 
                 // 按来源分组排序：网易云 > 酷我 > 酷狗，避免结果穿插
-                const sourceOrder = { netease: 0, kuwo: 1, kugou: 2 };
+                const sourceOrder = { netease: 0, kuwo: 1, kugou: 2, apple: 3, xima: 4 };
                 results.sort((a, b) => (sourceOrder[a.source] ?? 99) - (sourceOrder[b.source] ?? 99));
                 
                 debugLog(`[聚合搜索] 完成: 共 ${results.length} 条合并结果`);
@@ -5045,7 +5252,7 @@ async function loadMoreResults() {
         let results;
         if (source === "aggregate") {
             // 聚合模式：同时搜索所有平台
-            const allSources = ['netease', 'kuwo', 'kugou'];
+            const allSources = ['netease', 'kuwo', 'kugou', 'apple', 'xima'];
             const searchPromises = allSources.map(s => 
                 API.search(state.searchKeyword, s, 50, state.searchPage)
                     .catch(() => [])
@@ -5070,8 +5277,8 @@ async function loadMoreResults() {
                 }
             }
             
-            // 按来源分组排序：网易云 > 酷我 > 酷狗
-            const sourceOrder = { netease: 0, kuwo: 1, kugou: 2 };
+            // 按来源分组排序：网易云 > 酷我 > 酷狗 > Apple > 喜马
+            const sourceOrder = { netease: 0, kuwo: 1, kugou: 2, apple: 3, xima: 4 };
             results.sort((a, b) => (sourceOrder[a.source] ?? 99) - (sourceOrder[b.source] ?? 99));
         } else {
             results = await API.search(state.searchKeyword, source, 50, state.searchPage);
@@ -5125,7 +5332,9 @@ function getSourceShortName(source) {
     const sourceMap = {
         'netease': '网易',
         'kuwo': '酷我',
-        'kugou': '酷狗'
+        'kugou': '酷狗',
+        'apple': 'Apple',
+        'xima': '喜马'
     };
     if (!source || typeof source !== 'string') return '';
     return sourceMap[source.toLowerCase()] || '';
@@ -5188,12 +5397,23 @@ function createSearchResultItem(song, index) {
     const playButton = document.createElement("button");
     playButton.className = "action-btn play";
     playButton.type = "button";
-    playButton.title = "播放";
-    playButton.innerHTML = '<i class="fas fa-play"></i>';
-    playButton.addEventListener("click", (event) => {
-        event.stopPropagation();
-        playSearchResult(index);
-    });
+
+    // 喜马拉雅专辑：点击展开音轨列表
+    if (song.source === "xima" && !song.isXimaTrack && !state.ximaAlbumView) {
+        playButton.title = "展开专辑";
+        playButton.innerHTML = '<i class="fas fa-list"></i>';
+        playButton.addEventListener("click", (event) => {
+            event.stopPropagation();
+            showXimaAlbumTracks(state.searchResults[index]);
+        });
+    } else {
+        playButton.title = "播放";
+        playButton.innerHTML = '<i class="fas fa-play"></i>';
+        playButton.addEventListener("click", (event) => {
+            event.stopPropagation();
+            playSearchResult(index);
+        });
+    }
 
     const downloadButton = document.createElement("button");
     downloadButton.className = "action-btn download";
@@ -5495,6 +5715,33 @@ function displaySearchResults(newItems, options = {}) {
         resetSelectedSearchResults();
     }
 
+    // 喜马拉雅专辑视图：顶部显示返回按钮
+    if (reset && options.isXimaAlbum && state.ximaAlbumView) {
+        const backHeader = document.createElement("div");
+        backHeader.className = "xima-album-header";
+
+        const backBtn = document.createElement("button");
+        backBtn.className = "xima-back-btn";
+        backBtn.type = "button";
+        backBtn.innerHTML = '<i class="fas fa-arrow-left"></i> 返回专辑列表';
+        backBtn.addEventListener("click", () => exitXimaAlbumView());
+        backHeader.appendChild(backBtn);
+
+        const info = document.createElement("div");
+        info.className = "xima-album-info";
+        const titleSpan = document.createElement("span");
+        titleSpan.className = "xima-album-title";
+        titleSpan.textContent = state.ximaAlbumView.album.name || "";
+        const artistSpan = document.createElement("span");
+        artistSpan.className = "xima-album-artist";
+        artistSpan.textContent = state.ximaAlbumView.album.artist || "";
+        info.appendChild(titleSpan);
+        info.appendChild(artistSpan);
+        backHeader.appendChild(info);
+
+        container.appendChild(backHeader);
+    }
+
     const existingLoadMore = container.querySelector("#loadMoreBtn");
     if (existingLoadMore) {
         existingLoadMore.remove();
@@ -5657,6 +5904,52 @@ async function playSearchResult(index) {
         console.error("播放失败:", error);
         showNotification("播放失败，请稍后重试", "error");
     }
+}
+
+// 喜马拉雅专辑展开：拉取音轨列表替换搜索结果
+async function showXimaAlbumTracks(album) {
+    const keyword = state.searchKeyword;
+    const parts = (album.url_id || "").split("|||");
+    if (parts.length !== 2) return;
+
+    const albumIndex = parseInt(parts[1], 10);
+    showNotification("正在加载专辑音轨...");
+
+    // 备份当前搜索结果
+    state.ximaBackResults = [...state.searchResults];
+    state.ximaAlbumView = { keyword, album, albumIndex };
+
+    // 拉取音轨
+    const tracks = await API_XIMA.getAlbumTracks(keyword, albumIndex);
+    if (tracks.length === 0) {
+        showNotification("该专辑暂无免费内容", "info");
+        state.ximaAlbumView = null;
+        state.ximaBackResults = [];
+        return;
+    }
+
+    // 替换搜索结果
+    state.searchResults = tracks;
+    state.renderedSearchCount = 0;
+    state.hasMoreResults = false;
+
+    // 渲染时在顶部插入返回按钮
+    displaySearchResults(tracks, { reset: true, isXimaAlbum: true });
+    showNotification(`找到 ${tracks.length} 集免费内容`, "success");
+}
+
+// 退出喜马拉雅专辑视图，恢复搜索结果
+function exitXimaAlbumView() {
+    if (!state.ximaAlbumView || state.ximaBackResults.length === 0) return;
+
+    state.searchResults = state.ximaBackResults;
+    state.ximaAlbumView = null;
+    state.ximaBackResults = [];
+    state.renderedSearchCount = 0;
+    state.hasMoreResults = true;
+
+    displaySearchResults(state.searchResults, { reset: true });
+    showNotification("已返回专辑列表", "info");
 }
 
 function resolveSongId(song) {
@@ -6902,15 +7195,20 @@ async function playSong(song, options = {}) {
                 // 酷狗音乐使用新API
                 debugLog(`[播放] 酷狗音乐使用新API获取音频`);
                 const keyword = `${song.name} ${song.artist}`;
+                // 酷狗API音质映射：flac/viper_*需VIP→用320，192不存在→用128
+                const kgQualityMap = { '999': '320', '740': '320', '320': '320', '192': '128', '128': '128' };
+                // 去重：同一API音质只请求一次，保留最高的用户音质标签
+                const kgUnique = new Map();
+                for (const q of qualitiesToTry) {
+                    const apiQ = kgQualityMap[q] || '320';
+                    if (!kgUnique.has(apiQ)) kgUnique.set(apiQ, q);
+                }
                 const results = await Promise.allSettled(
-                    qualitiesToTry.map(async (q) => {
+                    [...kgUnique.entries()].map(async ([apiQ, userQ]) => {
                         try {
-                            // 酷狗API音质映射：flac/viper_*需VIP→用320，192不存在→用128
-                            const kgQualityMap = { '999': '320', '740': '320', '320': '320', '192': '128', '128': '128' };
-                            const kgQuality = kgQualityMap[q] || '320';
-                            const result = await API_KUGOU.getSongUrlByKeyword(keyword, 1, kgQuality);
+                            const result = await API_KUGOU.getSongUrlByKeyword(keyword, 1, apiQ);
                             if (result && result.url) {
-                                return { quality: q, data: result };
+                                return { quality: userQ, data: result };
                             }
                         } catch {}
                         return null;
@@ -6922,6 +7220,35 @@ async function playSong(song, options = {}) {
                     audioData = success.value.data;
                     state.playbackQuality = success.value.quality;
                     debugLog(`[播放] 酷狗音乐API成功 (音质: ${success.value.quality})`);
+                }
+            } else if (song.source === "apple") {
+                // Apple Music 使用新API
+                debugLog(`[播放] Apple Music使用新API获取音频`);
+                const keyword = `${song.name} ${song.artist}`;
+                const result = await API_APPLE.getSongUrlByIndex(keyword, 1);
+                if (result && result.url) {
+                    audioData = result;
+                    debugLog(`[播放] Apple Music API成功`);
+                }
+            } else if (song.source === "xima") {
+                // 喜马拉雅使用新API
+                debugLog(`[播放] 喜马拉雅使用新API获取音频`);
+                if (song.isXimaTrack && song.url_id) {
+                    // 展开后的音轨：url_id就是直接音频链接
+                    audioData = { url: song.url_id, br: 128, size: 0, apiSource: "xima_api", picture: song.pic_url };
+                    debugLog(`[播放] 喜马拉雅音轨直链成功`);
+                } else {
+                    // 专辑：通过url_id中的关键词+专辑索引获取音频
+                    const parts = (song.url_id || "").split("|||");
+                    if (parts.length === 2) {
+                        const ximaKeyword = decodeURIComponent(parts[0]);
+                        const albumIndex = parseInt(parts[1], 10);
+                        const result = await API_XIMA.getTrackUrlByAlbumIndex(ximaKeyword, albumIndex);
+                        if (result && result.url) {
+                            audioData = result;
+                            debugLog(`[播放] 喜马拉雅API成功`);
+                        }
+                    }
                 }
             } else {
                 // 网易云使用GD Studio API
@@ -7467,145 +7794,6 @@ function updateOnlineHighlight() {
     });
 }
 
-const EXPLORE_RADAR_GENRES = [
-    "排行榜",
-    "每日排行榜",
-    "每日排行",
-    "民谣",
-];
-
-function pickRandomExploreGenre() {
-    if (!Array.isArray(EXPLORE_RADAR_GENRES) || EXPLORE_RADAR_GENRES.length === 0) {
-        return "流行";
-    }
-    const index = Math.floor(Math.random() * EXPLORE_RADAR_GENRES.length);
-    return EXPLORE_RADAR_GENRES[index];
-}
-
-const EXPLORE_RADAR_SOURCES = ["netease"];
-
-function pickRandomExploreSource() {
-    if (!Array.isArray(EXPLORE_RADAR_SOURCES) || EXPLORE_RADAR_SOURCES.length === 0) {
-        return "netease";
-    }
-    const index = Math.floor(Math.random() * EXPLORE_RADAR_SOURCES.length);
-    return EXPLORE_RADAR_SOURCES[index];
-}
-
-// 探索雷达：通过代理后端随机搜歌并刷新播放列表
-async function exploreOnlineMusic() {
-    const desktopButton = dom.loadOnlineBtn;
-    const mobileButton = dom.mobileExploreButton;
-    const btnText = desktopButton ? desktopButton.querySelector(".btn-text") : null;
-    const loader = desktopButton ? desktopButton.querySelector(".loader") : null;
-
-    const setLoadingState = (isLoading) => {
-        if (desktopButton) {
-            desktopButton.disabled = isLoading;
-            desktopButton.classList.toggle("is-loading", Boolean(isLoading));
-            if (btnText) {
-                btnText.style.display = isLoading ? "none" : "";
-            }
-            if (loader) {
-                loader.style.display = isLoading ? "inline-flex" : "none";
-            }
-        }
-        if (mobileButton) {
-            mobileButton.disabled = isLoading;
-            mobileButton.setAttribute("aria-disabled", isLoading ? "true" : "false");
-        }
-    };
-
-    try {
-        setLoadingState(true);
-
-        const randomGenre = pickRandomExploreGenre();
-        const source = pickRandomExploreSource();
-        const results = await API.search(randomGenre, source, 10, 1);
-
-        if (!Array.isArray(results) || results.length === 0) {
-            showNotification("探索雷达：未找到歌曲", "error");
-            debugLog(`探索雷达未找到歌曲，关键词：${randomGenre}，音源：${source}`);
-            return;
-        }
-
-        const normalizedSongs = results.map((song) => ({
-            id: song.id,
-            name: song.name,
-            artist: Array.isArray(song.artist) ? song.artist.join(" / ") : (song.artist || "未知艺术家"),
-            album: song.album || "",
-            source: song.source || source,
-            lyric_id: song.lyric_id || song.id,
-            pic_id: song.pic_id || song.pic || "",
-            url_id: song.url_id,
-        }));
-
-        const existingSongs = Array.isArray(state.playlistSongs) ? state.playlistSongs.slice() : [];
-        const existingKeys = new Set(existingSongs
-            .map((song) => getSongKey(song))
-            .filter((key) => typeof key === "string" && key.length > 0));
-
-        const appendedSongs = [];
-        for (const song of normalizedSongs) {
-            const key = getSongKey(song);
-            if (key && existingKeys.has(key)) {
-                continue;
-            }
-            appendedSongs.push(song);
-            if (key) {
-                existingKeys.add(key);
-            }
-        }
-
-        if (appendedSongs.length === 0) {
-            showNotification("探索雷达：本次未找到新的歌曲，当前列表已包含这些曲目", "info");
-            debugLog(`探索雷达无新增歌曲，关键词：${randomGenre}`);
-            return;
-        }
-
-        // 优化1：分批添加歌曲，减少UI阻塞
-        const batchSize = 10;
-        const totalAppended = appendedSongs.length;
-        
-        for (let i = 0; i < totalAppended; i += batchSize) {
-            const batch = appendedSongs.slice(i, i + batchSize);
-            state.playlistSongs = [...existingSongs, ...appendedSongs.slice(0, i + batchSize)];
-            state.onlineSongs = state.playlistSongs.slice();
-            state.currentPlaylist = "playlist";
-            state.currentList = "playlist";
-            
-            // 渲染当前批次
-            renderPlaylist();
-            updatePlaylistHighlight();
-            
-            // 等待一小段时间，让UI有时间更新
-            if (i + batchSize < totalAppended) {
-                await new Promise(resolve => setTimeout(resolve, 50));
-            }
-        }
-
-        showNotification(`探索雷达：新增${appendedSongs.length}首 ${randomGenre} 歌曲`);
-        debugLog(`探索雷达加载成功，关键词：${randomGenre}，音源：${source}，新增歌曲数：${appendedSongs.length}`);
-
-        const shouldAutoplay = existingSongs.length === 0 && state.playlistSongs.length > 0;
-        if (shouldAutoplay) {
-            // 优化2：预加载第一首歌的音频，减少播放延迟
-            const firstSong = state.playlistSongs[0];
-            if (firstSong) {
-                // 直接播放，不再预加载，避免可能的abort错误
-                await playPlaylistSong(0);
-            }
-        } else {
-            savePlayerState();
-        }
-    } catch (error) {
-        console.error("探索雷达错误:", error);
-        showNotification("探索雷达获取失败，请稍后重试", "error");
-    } finally {
-        setLoadingState(false);
-    }
-}
-
 // 修复：加载歌词
 async function loadLyrics(song) {
     // 如果是隐身模式，跳过歌词加载
@@ -7872,27 +8060,50 @@ async function downloadSong(song, quality = "320") {
     try {
         showNotification("正在准备下载...");
 
-        const audioUrl = API.getSongUrl(song, quality);
-        const audioData = await API.fetchJson(audioUrl);
+        let realUrl = null;
 
-        if (audioData && audioData.url) {
-            const proxiedAudioUrl = buildAudioProxyUrl(audioData.url);
-            const preferredAudioUrl = preferHttpsUrl(audioData.url);
+        // 喜马拉雅/Apple Music走各自的API解析
+        if (song.source === "xima") {
+            if (song.isXimaTrack && song.url_id) {
+                realUrl = song.url_id;
+            } else {
+                const parts = (song.url_id || "").split("|||");
+                if (parts.length === 2) {
+                    const keyword = decodeURIComponent(parts[0]);
+                    const albumIndex = parseInt(parts[1], 10);
+                    const result = await API_XIMA.getTrackUrlByAlbumIndex(keyword, albumIndex);
+                    if (result && result.url) realUrl = result.url;
+                }
+            }
+        } else if (song.source === "apple") {
+            const keyword = `${song.name} ${song.artist}`;
+            const result = await API_APPLE.getSongUrlByIndex(keyword, 1);
+            if (result && result.url) realUrl = result.url;
+        } else {
+            // 其他源走GD Studio
+            const audioUrl = API.getSongUrl(song, quality);
+            const audioData = await API.fetchJson(audioUrl);
+            if (audioData && audioData.url) realUrl = audioData.url;
+        }
 
-            if (proxiedAudioUrl !== audioData.url) {
+        if (realUrl) {
+            const proxiedAudioUrl = buildAudioProxyUrl(realUrl);
+            const preferredAudioUrl = preferHttpsUrl(realUrl);
+
+            if (proxiedAudioUrl !== realUrl) {
                 debugLog(`下载链接已通过代理转换为 HTTPS: ${proxiedAudioUrl}`);
-            } else if (preferredAudioUrl !== audioData.url) {
+            } else if (preferredAudioUrl !== realUrl) {
                 debugLog(`下载链接由 HTTP 升级为 HTTPS: ${preferredAudioUrl}`);
             }
 
-            const downloadUrl = proxiedAudioUrl || preferredAudioUrl || audioData.url;
+            const downloadUrl = proxiedAudioUrl || preferredAudioUrl || realUrl;
 
             const link = document.createElement("a");
             link.href = downloadUrl;
             const preferredExtension = quality === "999" || quality === "flac" || quality === "flac24bit" ? "flac" : quality === "740" ? "ape" : "mp3";
             const fileExtension = (() => {
                 try {
-                    const url = new URL(audioData.url);
+                    const url = new URL(downloadUrl);
                     const pathname = url.pathname || "";
                     const match = pathname.match(/\.([a-z0-9]+)$/i);
                     if (match) {
