@@ -1219,12 +1219,13 @@ const API_XIMA = {
 const API = {
     baseUrl: API_CONFIG.primary.baseUrl,
 
-    fetchJson: async (url) => {
+    fetchJson: async (url, timeoutMs = 8000) => {
         try {
             const response = await fetch(url, {
                 headers: {
                     "Accept": "application/json",
                 },
+                signal: AbortSignal.timeout(timeoutMs),
             });
 
             if (!response.ok) {
@@ -1265,30 +1266,50 @@ const API = {
             return await API_XIMA.search(keyword, count);
         }
 
-        // 网易云使用GD Studio API
-        const url = `${API.baseUrl}?types=search&source=${source}&name=${encodeURIComponent(keyword)}&count=${count}&pages=${page}`;
+        // 网易云使用GD Studio API（带自动重试）
+        const searchUrl = (retryCount) => {
+            let url = `${API.baseUrl}?types=search&source=${source}&name=${encodeURIComponent(keyword)}&count=${count}&pages=${page}`;
+            if (retryCount > 0) url += `&_retry=${retryCount}_${Date.now()}`;
+            return url;
+        };
 
-        try {
-            debugLog(`API请求: ${url}`);
-            const data = await API.fetchJson(url);
-            debugLog(`API响应: ${JSON.stringify(data).substring(0, 200)}...`);
+        for (let attempt = 1; attempt <= 3; attempt++) {
+            try {
+                const url = searchUrl(attempt - 1);
+                debugLog(`API请求 (第${attempt}次): ${url}`);
+                const data = await API.fetchJson(url);
+                debugLog(`API响应: ${JSON.stringify(data).substring(0, 200)}...`);
 
-            if (!Array.isArray(data)) throw new Error("搜索结果格式错误");
+                if (!Array.isArray(data)) {
+                    throw new Error("搜索结果格式错误");
+                }
 
-            return data.map(song => ({
-                id: song.id,
-                name: song.name,
-                artist: song.artist,
-                album: song.album,
-                pic_id: song.pic_id,
-                url_id: song.url_id,
-                lyric_id: song.lyric_id,
-                source: song.source,
-                apiSource: "gd",
-            }));
-        } catch (error) {
-            debugLog(`API错误: ${error.message}`);
-            throw error;
+                if (data.length === 0 && attempt < 3) {
+                    debugLog(`API返回空结果，第${attempt + 1}次重试...`);
+                    await new Promise(r => setTimeout(r, 500 * attempt));
+                    continue;
+                }
+
+                return data.map(song => ({
+                    id: song.id,
+                    name: song.name,
+                    artist: song.artist,
+                    album: song.album,
+                    pic_id: song.pic_id,
+                    url_id: song.url_id,
+                    lyric_id: song.lyric_id,
+                    source: song.source,
+                    apiSource: "gd",
+                }));
+            } catch (error) {
+                debugLog(`API错误 (第${attempt}次): ${error.message}`);
+                if (attempt < 3) {
+                    await new Promise(r => setTimeout(r, 500 * attempt));
+                } else {
+                    debugLog(`API搜索失败，返回空数组`);
+                    return [];
+                }
+            }
         }
     },
 
