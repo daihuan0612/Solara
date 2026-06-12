@@ -1421,6 +1421,25 @@ const API = {
     },
 
     getLyricWithFallback: async (song) => {
+        const needNeteaseFirst = song.source === "kuwo" || song.source === "kugou";
+
+        // 酷我/酷狗：优先从网易云获取歌词
+        if (needNeteaseFirst) {
+            try {
+                const neteaseUrl = `${API.baseUrl}?types=lyric&id=${encodeURIComponent(song.name)}&source=netease`;
+                debugLog(`[歌词] 酷我/酷狗优先尝试网易云: ${neteaseUrl}`);
+                const data = await API.fetchJson(neteaseUrl);
+                if (data && (data.lyric || data.lrc?.lyric || data.content)) {
+                    const lyricText = data.lyric || data.lrc?.lyric || data.content || data;
+                    debugLog(`[歌词] 网易云获取成功`);
+                    return { lyric: lyricText, apiSource: "netease_fallback" };
+                }
+            } catch (error) {
+                debugLog(`[歌词] 网易云获取失败: ${error.message}`);
+            }
+        }
+
+        // 标准路径：尝试GD Studio获取歌词（使用歌曲自身源）
         try {
             const url = API.getLyric(song);
             debugLog(`获取歌词: ${url}`);
@@ -1435,23 +1454,43 @@ const API = {
             debugLog(`获取歌词失败: ${error.message}`);
         }
 
-        // GD 源无歌词时，用歌曲名从网易云回退获取
-        try {
-            const fallbackUrl = `${API.baseUrl}?types=lyric&id=${encodeURIComponent(song.name)}&source=netease`;
-            debugLog(`[歌词回退] 尝试从网易云获取歌词: ${fallbackUrl}`);
-            const data = await API.fetchJson(fallbackUrl);
-            if (data && (data.lyric || data.lrc?.lyric || data.content)) {
-                const lyricText = data.lyric || data.lrc?.lyric || data.content || data;
-                return { lyric: lyricText, apiSource: "gd" };
+        // 非酷我/酷狗 → GD Studio 无歌词时，用歌曲名从网易云回退获取
+        if (!needNeteaseFirst) {
+            try {
+                const fallbackUrl = `${API.baseUrl}?types=lyric&id=${encodeURIComponent(song.name)}&source=netease`;
+                debugLog(`[歌词回退] 尝试从网易云获取歌词: ${fallbackUrl}`);
+                const data = await API.fetchJson(fallbackUrl);
+                if (data && (data.lyric || data.lrc?.lyric || data.content)) {
+                    const lyricText = data.lyric || data.lrc?.lyric || data.content || data;
+                    return { lyric: lyricText, apiSource: "gd" };
+                }
+            } catch (fallbackErr) {
+                debugLog(`[歌词回退] 网易云获取歌词失败: ${fallbackErr.message}`);
             }
-        } catch (fallbackErr) {
-            debugLog(`[歌词回退] 网易云获取歌词失败: ${fallbackErr.message}`);
         }
         
         return null;
     },
 
     getPicUrlWithFallback: async (song) => {
+        const needNeteaseFirst = song.source === "kuwo" || song.source === "kugou";
+
+        // 酷我/酷狗：优先从网易云获取封面
+        if (needNeteaseFirst) {
+            try {
+                const neteaseUrl = `${API.baseUrl}?types=pic&id=${encodeURIComponent(song.name)}&source=netease&size=500`;
+                debugLog(`[封面] 酷我/酷狗优先尝试网易云: ${neteaseUrl}`);
+                const data = await API.fetchJson(neteaseUrl);
+                if (data && data.url) {
+                    debugLog(`[封面] 网易云获取成功: ${data.url}`);
+                    return { url: data.url, apiSource: "netease_fallback" };
+                }
+            } catch (error) {
+                debugLog(`[封面] 网易云获取失败: ${error.message}`);
+            }
+        }
+
+        // 标准路径：尝试GD Studio获取封面（使用歌曲自身源）
         try {
             const url = API.getPicUrl(song);
             debugLog(`获取封面: ${url}`);
@@ -5039,6 +5078,26 @@ function updateCurrentSongInfo(song, options = {}) {
                             return;
                         } catch (directErr) {
                             debugLog(`直链封面加载失败: ${directErr.message}`);
+                        }
+
+                        // 酷我/酷狗：尝试从网易云获取封面
+                        if (song.source === "kuwo" || song.source === "kugou") {
+                            try {
+                                const neteasePicUrl = `${API.baseUrl}?types=pic&id=${encodeURIComponent(song.name)}&source=netease&size=500`;
+                                debugLog(`[封面] 酷我/酷狗尝试从网易云获取封面: ${neteasePicUrl}`);
+                                const neteasePicData = await API.fetchJson(neteasePicUrl);
+                                if (neteasePicData && neteasePicData.url) {
+                                    const neteaseImageUrl = preferHttpsUrl(neteasePicData.url);
+                                    await loadImageWithTimeout(neteaseImageUrl, loadTimeout);
+                                    if (state.currentSong === song && updateBackground) {
+                                        setAlbumCoverImage(neteaseImageUrl);
+                                        scheduleDeferredPaletteUpdate(neteaseImageUrl, { immediate: true });
+                                    }
+                                    return;
+                                }
+                            } catch (neteaseErr) {
+                                debugLog(`[封面] 网易云封面获取失败: ${neteaseErr.message}`);
+                            }
                         }
 
                         // 尝试从本地缓存加载（离线兜底）
