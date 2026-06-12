@@ -155,16 +155,6 @@ body.mobile-view .mobile-toolbar__title {
     user-select: none;
 }
 
-/* 移动端：.header 内 h1 居中，隐藏 warning（桌面提示） */
-body.mobile-view .header {
-    justify-content: center;
-    text-align: center;
-}
-
-body.mobile-view .header .warning {
-    display: none;
-}
-
 body.mobile-view.dark-mode .mobile-toolbar__title {
     color: #ffffff;
 }
