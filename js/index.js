@@ -680,11 +680,11 @@ const QUALITY_OPTIONS = [
     { value: "999", label: "无损音质", description: "FLAC" }
 ];
 
-// 各来源支持的音质列表
+// 各来源支持的音质列表（仅免费可用音质）
 const SOURCE_QUALITY_MAP = {
     netease: ['128', '192', '320', '999'],
-    kuwo: ['128', '192', '320', '999'],
-    kugou: ['128', '192', '320', '999'],
+    kuwo: ['320', '192', '128'],  // 酷我免费音质：SQ(320k)/exhigh(192k)/Standard(128k)
+    kugou: ['320', '128'],  // 酷狗免费音质：320kbps MP3 和 128kbps MP3
 };
 
 function getSupportedQualities(source) {
@@ -846,13 +846,11 @@ const API_KUWO = {
     // 获取单曲播放链接（通过关键词+序号）
     getSongUrlByKeyword: async (keyword, index = 1, quality = "320k") => {
         const qualityMap = {
-            '999': 'hires',
-            '740': 'lossless',
             '320': 'SQ',
             '192': 'exhigh',
             '128': 'Standard'
         };
-        const kuwoQuality = qualityMap[quality] || 'SQ';
+        const kuwoQuality = qualityMap[quality] || 'SQ'; // 999(hires)/740(lossless)需VIP→降级SQ
         
         const url = `${API_KUWO.baseUrl}?key=${API_KUWO.key}&msg=${encodeURIComponent(keyword)}&n=${index}&size=${kuwoQuality}`;
         
@@ -886,13 +884,11 @@ const API_KUWO = {
     // 获取单曲播放链接（通过RID）
     getSongUrlByRid: async (rid, quality = "320k") => {
         const qualityMap = {
-            '999': 'hires',
-            '740': 'lossless',
             '320': 'SQ',
             '192': 'exhigh',
             '128': 'Standard'
         };
-        const kuwoQuality = qualityMap[quality] || 'SQ';
+        const kuwoQuality = qualityMap[quality] || 'SQ'; // 999(hires)/740(lossless)需VIP→降级SQ
         
         const url = `${API_KUWO.baseUrl}?key=${API_KUWO.key}&action=song&id=${rid}&size=${kuwoQuality}`;
         
@@ -973,7 +969,7 @@ const API_KUGOU = {
     },
     
     // 获取单曲播放链接（通过关键词+序号）
-    getSongUrlByKeyword: async (keyword, index = 1, quality = "flac") => {
+    getSongUrlByKeyword: async (keyword, index = 1, quality = "320") => {
         // 从关键词中提取歌曲名（去掉歌手部分）
         const songName = keyword.split(' ')[0] || keyword;
         const url = `${API_KUGOU.baseUrl}?key=${API_KUGOU.key}&msg=${encodeURIComponent(songName)}&n=${index}&quality=${quality}`;
@@ -1139,7 +1135,14 @@ const API = {
     },
 
     getPicUrl: (song) => {
-        return `${API.baseUrl}?types=pic&id=${song.pic_id}&source=${song.source || "netease"}&size=500`;
+        // 如果已有封面URL（妖狐API返回的picture/cover），直接使用
+        if (song.pic_url) return song.pic_url;
+        // 酷我走原生封面接口
+        if (song.source === "kuwo" && (song.pic_id || song.id)) {
+            return API_KUWO.getPicUrl(song.pic_id || song.id);
+        }
+        // 其他（网易云等）走GD Studio代理
+        return `${API.baseUrl}?types=pic&id=${song.pic_id || song.id}&source=${song.source || "netease"}&size=500`;
     },
 
     getAudioUrlWithFallback: async (song, quality = "320") => {
@@ -1156,7 +1159,8 @@ const API = {
         // 酷狗音乐使用新的API（通过关键词+序号获取）
         if (song.source === "kugou") {
             const keyword = `${song.name} ${song.artist}`;
-            const kugouQuality = quality === '999' ? 'flac' : quality === '740' ? 'flac' : quality;
+            const kgQualityMap2 = { '999': '320', '740': '320', '320': '320', '192': '128', '128': '128' };
+            const kugouQuality = kgQualityMap2[quality] || '320';
             const result = await API_KUGOU.getSongUrlByKeyword(keyword, 1, kugouQuality);
             if (result && result.url) {
                 debugLog(`[酷狗API] 成功获取播放链接: ${result.url.substring(0, 50)}...`);
@@ -4785,9 +4789,28 @@ function updateCurrentSongInfo(song, options = {}) {
                 } catch (error) {
                     retryCount++;
                     debugLog(`封面加载失败，重试 ${retryCount}/${maxRetries}: ${error.message}`);
-                    
-                    // 最后一次尝试失败，显示占位符
+
+                    // 最后一次尝试失败，尝试从本地缓存加载（离线兜底）
                     if (retryCount >= maxRetries) {
+                        try {
+                            const songId = song.id || song.url_id || song.lyric_id;
+                            if (songId) {
+                                const isCached = await AudioCache.isResourceCached(songId, 'cover');
+                                if (isCached) {
+                                    const cachedCoverUrl = AudioCache.getResourceUrl(songId, 'cover');
+                                    debugLog(`[缓存] 从本地缓存加载封面: ${cachedCoverUrl}`);
+                                    await loadImageWithTimeout(cachedCoverUrl, loadTimeout);
+                                    if (state.currentSong === song && updateBackground) {
+                                        setAlbumCoverImage(cachedCoverUrl);
+                                        scheduleDeferredPaletteUpdate(cachedCoverUrl, { immediate: true });
+                                    }
+                                    return;
+                                }
+                            }
+                        } catch (cacheErr) {
+                            debugLog(`缓存封面加载失败: ${cacheErr.message}`);
+                        }
+
                         if (state.currentSong === song && updateBackground) {
                             cancelDeferredPaletteUpdate();
                             showAlbumCoverPlaceholder();
@@ -6262,11 +6285,13 @@ function removeFavoriteAtIndex(index) {
     }
     const [removed] = favorites.splice(index, 1);
 
-    // 移除收藏时同步删除本地缓存
+    // 移除收藏时同步删除本地缓存（音频+封面+歌词）
     if (removed) {
         const songId = removed.id || removed.url_id || removed.lyric_id;
         if (songId) {
             AudioCache.remove(songId);
+            AudioCache.removeResource(songId, 'cover').catch(() => {});
+            AudioCache.removeResource(songId, 'lyric').catch(() => {});
         }
     }
 
@@ -6326,14 +6351,39 @@ function toggleFavorite(song) {
     }
 }
 
-// 收藏歌曲时后台自动缓存音频
+// 收藏歌曲时后台自动缓存音频 + 封面 + 歌词
 async function cacheFavoriteAudio(song, songId) {
     try {
         const result = await API.getAudioUrlWithFallback(song, "320");
         if (result && result.url) {
             const cached = await AudioCache.cache(songId, result.url);
             if (cached) {
-                debugLog(`[缓存] 已缓存收藏歌曲: ${song.name}`);
+                debugLog(`[缓存] 已缓存收藏歌曲音频: ${song.name}`);
+            }
+        }
+
+        // 缓存封面图片（先解析代理URL，缓存真实图片）
+        const coverUrl = API.getPicUrl(song);
+        if (coverUrl) {
+            try {
+                const picData = await API.fetchJson(coverUrl);
+                if (picData && picData.url) {
+                    const coverCached = await AudioCache.cacheResource(songId, picData.url, 'cover');
+                    if (coverCached) {
+                        debugLog(`[缓存] 已缓存封面: ${song.name}`);
+                    }
+                }
+            } catch (e) {
+                debugLog(`[缓存] 封面解析失败: ${song.name}`, e.message);
+            }
+        }
+
+        // 缓存歌词
+        const lyricUrl = API.getLyric(song);
+        if (lyricUrl) {
+            const lyricCached = await AudioCache.cacheResource(songId, lyricUrl, 'lyric');
+            if (lyricCached) {
+                debugLog(`[缓存] 已缓存歌词: ${song.name}`);
             }
         }
     } catch (e) {
@@ -6416,9 +6466,19 @@ function clearFavorites() {
         return;
     }
 
-    if (!window.confirm("确定清空收藏列表吗？")) {
+    if (!window.confirm("确定清空收藏列表吗？（所有缓存的音频/封面/歌词将被删除）")) {
         return;
     }
+
+    // 清空前逐个删除缓存
+    favorites.forEach(song => {
+        const songId = song.id || song.url_id || song.lyric_id;
+        if (songId) {
+            AudioCache.remove(songId);
+            AudioCache.removeResource(songId, 'cover').catch(() => {});
+            AudioCache.removeResource(songId, 'lyric').catch(() => {});
+        }
+    });
 
     state.favoriteSongs = [];
     state.currentFavoriteIndex = 0;
@@ -6845,7 +6905,9 @@ async function playSong(song, options = {}) {
                 const results = await Promise.allSettled(
                     qualitiesToTry.map(async (q) => {
                         try {
-                            const kgQuality = q === '999' ? 'flac' : q === '740' ? 'flac' : q;
+                            // 酷狗API音质映射：flac/viper_*需VIP→用320，192不存在→用128
+                            const kgQualityMap = { '999': '320', '740': '320', '320': '320', '192': '128', '128': '128' };
+                            const kgQuality = kgQualityMap[q] || '320';
                             const result = await API_KUGOU.getSongUrlByKeyword(keyword, 1, kgQuality);
                             if (result && result.url) {
                                 return { quality: q, data: result };
@@ -6898,6 +6960,12 @@ async function playSong(song, options = {}) {
         }
         
         const originalAudioUrl = audioData.url;
+        
+        // 保存封面URL（妖狐API返回的picture/cover字段）
+        if (audioData.picture) {
+            song.pic_url = audioData.picture;
+            debugLog(`[播放] 保存封面URL: ${audioData.picture.substring(0, 60)}...`);
+        }
         
         // 妖狐API返回的音频URL可直接播放，跳过代理（本地测试已验证）
         const isYaohudSource = audioData.apiSource === "kuwo_api" || audioData.apiSource === "kugou_api";
@@ -7588,6 +7656,44 @@ async function loadLyrics(song) {
         }
     } catch (error) {
         console.error("加载歌词失败:", error);
+        
+        // 离线时尝试从缓存加载
+        try {
+            const songId = song.id || song.url_id || song.lyric_id;
+            if (songId) {
+                const isCached = await AudioCache.isResourceCached(songId, 'lyric');
+                if (isCached) {
+                    const cachedUrl = AudioCache.getResourceUrl(songId, 'lyric');
+                    debugLog(`[缓存] 从本地缓存加载歌词: ${cachedUrl}`);
+                    const cachedResp = await fetch(cachedUrl);
+                    const lyricData = await cachedResp.json();
+                    
+                    let lyricText = '';
+                    if (typeof lyricData === 'string') {
+                        lyricText = lyricData;
+                    } else if (lyricData && lyricData.lyric) {
+                        lyricText = lyricData.lyric;
+                    } else if (lyricData && lyricData.data && lyricData.data.lyric) {
+                        lyricText = lyricData.data.lyric;
+                    } else if (lyricData && lyricData.lrc && lyricData.lrc.lyric) {
+                        lyricText = lyricData.lrc.lyric;
+                    } else if (lyricData && lyricData.content) {
+                        lyricText = lyricData.content;
+                    }
+                    
+                    if (lyricText && lyricText.trim()) {
+                        parseLyrics(lyricText.trim());
+                        dom.lyrics.classList.remove("empty");
+                        dom.lyrics.dataset.placeholder = "default";
+                        debugLog(`[缓存] 缓存歌词加载成功: ${state.lyricsData.length} 行`);
+                        return;
+                    }
+                }
+            }
+        } catch (cacheErr) {
+            debugLog(`缓存歌词加载失败: ${cacheErr.message}`);
+        }
+        
         setLyricsContentHtml("<div>歌词加载失败</div>");
         dom.lyrics.classList.add("empty");
         dom.lyrics.dataset.placeholder = "message";
@@ -8227,6 +8333,65 @@ const AudioCache = {
         if (!this.swReg) return;
         try {
             this.swReg.active.postMessage({ type: 'DELETE_AUDIO_CACHE', songId: String(songId) });
+        } catch (e) { /* 静默 */ }
+    },
+
+    // =============================================
+    // 通用资源缓存（封面、歌词等）
+    // =============================================
+
+    // 缓存资源
+    async cacheResource(resourceId, url, tag) {
+        if (!this.swReg || !url) return false;
+        try {
+            return new Promise((resolve) => {
+                const channel = new MessageChannel();
+                const timeout = setTimeout(() => resolve(false), 15000);
+                channel.port1.onmessage = (e) => {
+                    clearTimeout(timeout);
+                    resolve(e.data.success === true);
+                };
+                this.swReg.active.postMessage(
+                    { type: 'CACHE_RESOURCE', resourceId: String(resourceId), url, tag },
+                    [channel.port2]
+                );
+            });
+        } catch (e) {
+            return false;
+        }
+    },
+
+    // 检查资源是否已缓存
+    async isResourceCached(resourceId, tag) {
+        if (!this.swReg) return false;
+        try {
+            return new Promise((resolve) => {
+                const channel = new MessageChannel();
+                const timeout = setTimeout(() => resolve(false), 5000);
+                channel.port1.onmessage = (e) => {
+                    clearTimeout(timeout);
+                    resolve(e.data.cached === true);
+                };
+                this.swReg.active.postMessage(
+                    { type: 'CHECK_RESOURCE_CACHE', resourceId: String(resourceId), tag },
+                    [channel.port2]
+                );
+            });
+        } catch (e) {
+            return false;
+        }
+    },
+
+    // 获取缓存的资源 URL
+    getResourceUrl(resourceId, tag) {
+        return `/cached-${tag}/${resourceId}`;
+    },
+
+    // 删除缓存的资源
+    async removeResource(resourceId, tag) {
+        if (!this.swReg) return;
+        try {
+            this.swReg.active.postMessage({ type: 'DELETE_RESOURCE_CACHE', resourceId: String(resourceId), tag });
         } catch (e) { /* 静默 */ }
     }
 };
