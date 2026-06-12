@@ -2375,7 +2375,7 @@ input[type="range"]:active::-moz-range-thumb {
     position: fixed;
     top: 20px;
     right: 20px;
-    background: var(--success-color);
+    background: var(--primary-color);
     color: white;
     padding: 12px 20px;
     border-radius: 8px;
