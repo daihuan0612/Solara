@@ -642,13 +642,18 @@ function buildAudioProxyUrl(url) {
                           // 其他可能需要代理的CDN域名
                           /(^|\.)migu\.cn$/i.test(parsedUrl.hostname) ||
                           /(^|\.)music\.126\.net$/i.test(parsedUrl.hostname) ||
-                          /(^|\.)kuai\.cdn\.net$/i.test(parsedUrl.hostname) ||
-                          // HTTP协议的音频URL也需要代理（转换为HTTPS）
-                          parsedUrl.protocol === "http:";
+                          /(^|\.)kuai\.cdn\.net$/i.test(parsedUrl.hostname);
         
         if (needsProxy) {
             debugLog(`[代理] 音频URL需要代理: ${parsedUrl.hostname} (${parsedUrl.protocol})`);
             return `/proxy?target=${encodeURIComponent(parsedUrl.toString())}`;
+        }
+        
+        // HTTP URL 直接升级为 HTTPS，不走代理（减少延迟）
+        if (parsedUrl.protocol === "http:") {
+            parsedUrl.protocol = "https:";
+            debugLog(`[代理] HTTP URL 直接升级为 HTTPS: ${parsedUrl.toString()}`);
+            return parsedUrl.toString();
         }
         
         // 其他HTTPS URL保持原样
@@ -993,7 +998,7 @@ const API_KUGOU = {
                     br: data.data.bit_rate,
                     size: data.data.file_size,
                     apiSource: "kugou_api",
-                    picture: data.data.cover,
+                    picture: (data.data.cover || "").replace(/^http:/i, "https:"),
                     duration: data.data.duration,
                 };
             }
@@ -1076,7 +1081,7 @@ const API_APPLE = {
                     br: 256,
                     size: 0,
                     apiSource: "apple_api",
-                    picture: data.data.cover,
+                    picture: (data.data.cover || "").replace(/^http:/i, "https:"),
                 };
             }
 
@@ -1122,7 +1127,7 @@ const API_XIMA = {
                     lyric_id: "xima_" + album.title + "_" + album.anchorName,
                     source: "xima",
                     apiSource: "xima_api",
-                    pic_url: album.picture || "",  // 封面URL直接可用
+                    pic_url: (album.picture || "").replace(/^http:/i, "https:"),  // 封面URL直接可用
                     duration: 0,  // 专辑时长需展开才能获取
                 }));
         } catch (error) {
@@ -1178,7 +1183,12 @@ const API_XIMA = {
             const data = await response.json();
 
             if (data.code === 200 && data.data && Array.isArray(data.data.audioList)) {
-                const tracks = data.data.audioList
+                const filteredTracks = data.data.audioList.filter(t => !(/【视频】/.test(t.title || "")));
+                const videoCount = data.data.audioList.length - filteredTracks.length;
+                if (videoCount > 0) {
+                    debugLog(`[喜马拉雅API] 过滤了 ${videoCount} 个视频音轨`);
+                }
+                const tracks = filteredTracks
                     .filter(t => t.isPaid === false || t.pay === "免费")
                     .map((t, i) => ({
                         id: "xima_track_" + (t.orderNo || i) + "_" + (t.title || "").replace(/\s+/g, '_'),
@@ -1190,7 +1200,7 @@ const API_XIMA = {
                         lyric_id: "xima_track_" + (t.orderNo || i),
                         source: "xima",
                         apiSource: "xima_api",
-                        pic_url: t.picture || "",
+                        pic_url: (t.picture || "").replace(/^http:/i, "https:"),
                         isXimaTrack: true,
                         duration: t.duration || 0,
                     }));
@@ -3065,9 +3075,11 @@ function restoreSearchResultsList() {
     }
     const results = Array.isArray(state.searchResults) ? state.searchResults : [];
     state.renderedSearchCount = 0;
+    const isXimaView = state.ximaAlbumView !== null && state.ximaAlbumView !== undefined;
     displaySearchResults(results, {
         reset: true,
         totalCount: results.length,
+        isXimaAlbum: isXimaView,
     });
 }
 
@@ -7318,8 +7330,8 @@ async function playSong(song, options = {}) {
         
         // 保存封面URL（妖狐API返回的picture/cover字段）
         if (audioData.picture) {
-            song.pic_url = audioData.picture;
-            debugLog(`[播放] 保存封面URL: ${audioData.picture.substring(0, 60)}...`);
+            song.pic_url = audioData.picture.replace(/^http:/i, "https:");
+            debugLog(`[播放] 保存封面URL: ${song.pic_url.substring(0, 60)}...`);
         }
         
         // 妖狐API返回的音频URL可直接播放，跳过代理（本地测试已验证）
@@ -7827,6 +7839,17 @@ async function loadLyrics(song) {
     // 如果是隐身模式，跳过歌词加载
     if (shouldUseStealthMode() && !state.forceUIUpdate) {
         console.log('🔒 隐身模式：跳过歌词加载');
+        return;
+    }
+    
+    // 喜马拉雅/Apple Music 没有歌词，直接显示暂无歌词
+    if (song.source === "xima" || song.source === "apple") {
+        debugLog(`[歌词] ${song.source} 源不支持歌词`);
+        setLyricsContentHtml("<div>暂无歌词</div>");
+        dom.lyrics.classList.add("empty");
+        dom.lyrics.dataset.placeholder = "message";
+        state.lyricsData = [];
+        state.currentLyricLine = -1;
         return;
     }
     
