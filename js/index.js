@@ -680,9 +680,20 @@ const QUALITY_OPTIONS = [
     { value: "999", label: "无损音质", description: "FLAC" }
 ];
 
+// 各来源支持的音质列表
+const SOURCE_QUALITY_MAP = {
+    netease: ['128', '192', '320', '999'],
+    kuwo: ['128', '192', '320', '999'],
+    kugou: ['128', '192', '320', '999'],
+};
+
+function getSupportedQualities(source) {
+    return SOURCE_QUALITY_MAP[source] || ['320', '192', '128'];
+}
+
 function normalizeQuality(value) {
     const match = QUALITY_OPTIONS.find(option => option.value === value);
-    return match ? match.value : "999";
+    return match ? match.value : "320";
 }
 
 const savedPlaylistSongs = (() => {
@@ -3377,7 +3388,11 @@ function selectSearchSource(source) {
 
 function buildQualityMenu() {
     if (!dom.playerQualityMenu) return;
-    const optionsHtml = QUALITY_OPTIONS.map(option => {
+    const currentSource = state.currentSong ? state.currentSong.source : 'netease';
+    const supportedQualities = getSupportedQualities(currentSource);
+    const optionsHtml = QUALITY_OPTIONS
+        .filter(option => supportedQualities.includes(option.value))
+        .map(option => {
         const isActive = option.value === state.playbackQuality;
         return `
             <div class="player-quality-option${isActive ? " active" : ""}" data-quality="${option.value}">
@@ -6781,9 +6796,7 @@ async function playSong(song, options = {}) {
         if (startIndex === -1) startIndex = 0;
         
         let audioData = null;
-        let usedFallbackSource = false;
         let usedFallbackApi = false;
-        let finalSource = song.source;
         let finalApiSource = song.apiSource || "gd";
         
         // 有缓存则直接使用缓存
@@ -6794,12 +6807,21 @@ async function playSong(song, options = {}) {
         
         // 没有缓存或缓存验证失败，尝试API获取
         if (!audioData || !audioData.url) {
-            // 酷我使用新的API - 并行尝试所有音质
+            // 根据用户选定的音质构建优先级（从选定音质向下，不试更高音质）
+            const qualityPriority = ['999', '740', '320', '192', '128'];
+            const userQuality = state.playbackQuality || '320';
+            const startIdx = qualityPriority.indexOf(userQuality);
+            const qualitiesToTry = startIdx >= 0 
+                ? qualityPriority.slice(startIdx) 
+                : ['320', '192', '128'];
+            
+            debugLog(`[播放] 用户音质: ${userQuality}, 尝试顺序: ${qualitiesToTry.join(', ')}`);
+            
+            // 酷我使用新API
             if (song.source === "kuwo") {
-                debugLog(`[播放] 酷我使用新API获取音频（并行尝试各音质）`);
-                const kuwoQualities = ['999', '320', '192', '128'];
+                debugLog(`[播放] 酷我使用新API获取音频`);
                 const results = await Promise.allSettled(
-                    kuwoQualities.map(async (q) => {
+                    qualitiesToTry.map(async (q) => {
                         try {
                             const result = await API_KUWO.getSongUrlByRid(song.id, q);
                             if (result && result.url) {
@@ -6817,12 +6839,11 @@ async function playSong(song, options = {}) {
                     debugLog(`[播放] 酷我API成功 (音质: ${success.value.quality})`);
                 }
             } else if (song.source === "kugou") {
-                // 酷狗音乐使用新API - 并行尝试所有音质
-                debugLog(`[播放] 酷狗音乐使用新API获取音频（并行尝试各音质）`);
-                const kugouQualities = ['999', '320', '192', '128'];
+                // 酷狗音乐使用新API
+                debugLog(`[播放] 酷狗音乐使用新API获取音频`);
                 const keyword = `${song.name} ${song.artist}`;
                 const results = await Promise.allSettled(
-                    kugouQualities.map(async (q) => {
+                    qualitiesToTry.map(async (q) => {
                         try {
                             const kgQuality = q === '999' ? 'flac' : q === '740' ? 'flac' : q;
                             const result = await API_KUGOU.getSongUrlByKeyword(keyword, 1, kgQuality);
@@ -6841,13 +6862,12 @@ async function playSong(song, options = {}) {
                     debugLog(`[播放] 酷狗音乐API成功 (音质: ${success.value.quality})`);
                 }
             } else {
-                // 网易云使用GD Studio API - 并行尝试各音质
-                debugLog(`[播放] 尝试获取音频: ${song.source}（并行尝试各音质）`);
-                const gdQualities = ['999', '320'];
+                // 网易云使用GD Studio API
+                debugLog(`[播放] 尝试获取音频: ${song.source}`);
                 const gdSource = song.source || "netease";
                 
                 const results = await Promise.allSettled(
-                    gdQualities.map(async (q) => {
+                    qualitiesToTry.map(async (q) => {
                         try {
                             const gdUrl = `${API_CONFIG.primary.baseUrl}?types=url&id=${song.id}&source=${gdSource}&br=${q}`;
                             const resp = await fetch(gdUrl, { signal: AbortSignal.timeout(4000) });
@@ -6869,55 +6889,12 @@ async function playSong(song, options = {}) {
                 }
             }
             
-            // 尝试备用音乐源
-            if (!audioData || !audioData.url) {
-                debugLog(`[播放] 主源失败，尝试备用音乐源`);
-                
-                for (const fallbackSource of fallbackSources) {
-                    if (fallbackSource === song.source) continue;
-                    
-                    try {
-                        const searchResults = await API.search(song.name, fallbackSource, 3, 1);
-                        
-                        const matchedSong = searchResults.find(r => {
-                            const ra = Array.isArray(r.artist) ? r.artist.join(', ') : r.artist;
-                            const sa = Array.isArray(song.artist) ? song.artist.join(', ') : song.artist;
-                            return r.name === song.name && (ra.includes(sa) || sa.includes(ra));
-                        });
-                        
-                        if (!matchedSong) continue;
-                        
-                        const qualityToTry = availableQualities[0];
-                        const fallbackUrl = API.getSongUrl(matchedSong, qualityToTry);
-                        audioData = await API.fetchJson(fallbackUrl);
-                        
-                        if (audioData && audioData.url) {
-                            debugLog(`[播放] 备用源 ${fallbackSource} 成功`);
-                            usedFallbackSource = true;
-                            finalSource = fallbackSource;
-                            song.id = matchedSong.id;
-                            song.source = fallbackSource;
-                            song.pic_id = matchedSong.pic_id;
-                            song.lyric_id = matchedSong.lyric_id;
-                            break;
-                        }
-                    } catch (error) {
-                        debugLog(`[播放] 备用源 ${fallbackSource} 搜索失败: ${error.message}`);
-                    }
-                }
-            }
+        // 注意：已移除备用源自动切换，用户选什么源就用什么源
         }
         
         if (!audioData || !audioData.url) {
             const errorMsg = `无法获取音频播放地址 (歌曲: ${song.name}, 歌手: ${song.artist}, 来源: ${song.source}, ID: ${song.id})。可能原因：1) 该歌曲在当前音乐源不可用 2) 版权限制 3) 音乐源暂时不可用`;
             throw new Error(errorMsg);
-        }
-        
-        if (usedFallbackSource) {
-            const sourceName = finalSource === "netease" ? "网易云" : 
-                              finalSource === "kuwo" ? "酷我" : 
-                              finalSource === "kugou" ? "酷狗" : finalSource;
-            showNotification(`已切换到 ${sourceName}源 播放`, 'info');
         }
         
         const originalAudioUrl = audioData.url;
