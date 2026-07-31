@@ -896,8 +896,7 @@ const API_KUWO = {
     },
     
     // 获取单曲播放链接（通过RID）
-    // 注意：API更新后 action=song 模式要求 msg 参数必填（用于缓存键，内容无需匹配）
-    // 注意：action=song 端点会被CDN拦截浏览器直连请求（返回408），必须走代理
+    // 注意：API更新后 action=song 模式要求 msg 参数必填
     getSongUrlByRid: async (rid, quality = "320", msg = "") => {
         const qualityMap = {
             '320': 'SQ',
@@ -908,12 +907,10 @@ const API_KUWO = {
 
         // msg 为必填参数：优先使用传入值，否则用 rid 兜底
         const msgParam = msg || String(rid);
-        const apiUrl = `${API_KUWO.baseUrl}?key=${API_KUWO.key}&action=song&id=${rid}&msg=${encodeURIComponent(msgParam)}&size=${kuwoQuality}`;
-        // 走同源代理：规避CDN对浏览器 action=song 请求的408拦截
-        const url = `/proxy?target=${encodeURIComponent(apiUrl)}`;
+        const url = `${API_KUWO.baseUrl}?key=${API_KUWO.key}&action=song&id=${rid}&msg=${encodeURIComponent(msgParam)}&size=${kuwoQuality}`;
 
         try {
-            debugLog(`[酷我API] 通过RID获取播放链接(代理): ${apiUrl}`);
+            debugLog(`[酷我API] 通过RID获取播放链接: ${url}`);
             const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
 
             if (!response.ok) {
@@ -998,15 +995,11 @@ const API_KUGOU = {
     },
     
     // 获取单曲播放链接（通过关键词+序号）
-    // 注意：走同源代理规避CDN对浏览器请求的拦截/降级
     getSongUrlByKeyword: async (keyword, index = 1, quality = "flac") => {
-        // 使用完整关键词搜索（含歌手名），避免只取第一个词导致匹配错误
-        const apiUrl = `${API_KUGOU.baseUrl}?key=${API_KUGOU.key}&msg=${encodeURIComponent(keyword)}&n=${index}&quality=${quality}`;
-        // 走同源代理：规避CDN对浏览器请求的拦截
-        const url = `/proxy?target=${encodeURIComponent(apiUrl)}`;
+        const url = `${API_KUGOU.baseUrl}?key=${API_KUGOU.key}&msg=${encodeURIComponent(keyword)}&n=${index}&quality=${quality}`;
 
         try {
-            debugLog(`[酷狗API] 获取播放链接(代理): ${apiUrl}`);
+            debugLog(`[酷狗API] 获取播放链接: ${url}`);
             const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
 
             if (!response.ok) {
@@ -1047,13 +1040,11 @@ const API_QQ = {
     key: "nja5qfri5GBrsgfdK1j",
 
     // 搜索歌曲（自动过滤[收费]歌曲，QQ音乐API不支持g参数）
-    // 注意：走同源代理规避CDN对浏览器请求的拦截
     search: async (keyword, count = 20) => {
-        const apiUrl = `${API_QQ.baseUrl}?key=${API_QQ.key}&msg=${encodeURIComponent(keyword)}`;
-        const url = `/proxy?target=${encodeURIComponent(apiUrl)}`;
+        const url = `${API_QQ.baseUrl}?key=${API_QQ.key}&msg=${encodeURIComponent(keyword)}`;
 
         try {
-            debugLog(`[QQ音乐API] 搜索请求(代理): ${apiUrl}`);
+            debugLog(`[QQ音乐API] 搜索请求: ${url}`);
             const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
 
             if (!response.ok) throw new Error(`请求失败: ${response.status}`);
@@ -1093,14 +1084,11 @@ const API_QQ = {
     },
 
     // 获取单曲播放链接（通过关键词+序号）
-    // 注意：走同源代理规避CDN对浏览器请求的拦截/降级
     getSongUrlByIndex: async (keyword, index = 1, quality = "128") => {
-        const apiUrl = `${API_QQ.baseUrl}?key=${API_QQ.key}&msg=${encodeURIComponent(keyword)}&n=${index}&size=${quality}`;
-        // 走同源代理：规避CDN对浏览器请求的拦截
-        const url = `/proxy?target=${encodeURIComponent(apiUrl)}`;
+        const url = `${API_QQ.baseUrl}?key=${API_QQ.key}&msg=${encodeURIComponent(keyword)}&n=${index}&size=${quality}`;
 
         try {
-            debugLog(`[QQ音乐API] 获取播放链接(代理): ${apiUrl}`);
+            debugLog(`[QQ音乐API] 获取播放链接: ${url}`);
             const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
 
             if (!response.ok) throw new Error(`请求失败: ${response.status}`);

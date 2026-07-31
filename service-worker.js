@@ -6,7 +6,7 @@
 //   - 其他 → 网络优先
 
 const CACHE_NAMES = {
-    shell: 'solara-shell-v3',     // 应用壳（CSS, JS）— v3: Apple Music替换为QQ音乐
+    shell: 'solara-shell-v4',     // 应用壳（CSS, JS）— v4: API直连替代代理
     audio: 'solara-audio-v1',     // 缓存的音频
 };
 
