@@ -7997,25 +7997,9 @@ async function downloadSong(song, quality = "320") {
 
         let realUrl = null;
 
-        // 喜马拉雅走各自的API解析
-        if (song.source === "xima") {
-            if (song.isXimaTrack && song.url_id) {
-                realUrl = song.url_id;
-            } else {
-                const parts = (song.url_id || "").split("|||");
-                if (parts.length === 2) {
-                    const keyword = decodeURIComponent(parts[0]);
-                    const albumIndex = parseInt(parts[1], 10);
-                    const result = await API_XIMA.getTrackUrlByAlbumIndex(keyword, albumIndex);
-                    if (result && result.url) realUrl = result.url;
-                }
-            }
-        } else {
-            // 其他源走GD Studio
-            const audioUrl = API.getSongUrl(song, quality);
-            const audioData = await API.fetchJson(audioUrl);
-            if (audioData && audioData.url) realUrl = audioData.url;
-        }
+        // 统一使用与播放相同的API获取音频地址，确保"能听就能下载"
+        const audioData = await API.getAudioUrlWithFallback(song, quality);
+        if (audioData && audioData.url) realUrl = audioData.url;
 
         if (realUrl) {
             const proxiedAudioUrl = buildAudioProxyUrl(realUrl);
