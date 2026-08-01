@@ -6,7 +6,7 @@
 //   - 其他 → 网络优先
 
 const CACHE_NAMES = {
-    shell: 'solara-shell-v7',     // 应用壳（CSS, JS）— v7: 移除聚合搜索
+    shell: 'solara-shell-v8',     // 应用壳（CSS, JS）— v8: 修复下载逻辑
     audio: 'solara-audio-v1',     // 缓存的音频
 };
 
