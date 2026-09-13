@@ -797,11 +797,72 @@ const savedCurrentPlaylist = (() => {
     return playlists.includes(stored) ? stored : "playlist";
 })();
 
-// API配置 - 仅使用GD Studio
+// ================================================
+// GD Studio 请求通道：浏览器直连优先 + 同源代理兜底
+// 背景：GD 会拒绝数据中心 IP（Cloudflare Workers/Pages 出口），
+// 走服务端代理会拿到 HTTP 520；而浏览器直连（家庭宽带 IP）正常 200。
+// 两条腿走路：直连失败后本次会话直接改走代理，代理被拒时也还能直连。
+// ================================================
+const GD_DIRECT_API = "https://music-api.gdstudio.xyz/api.php";
+const GD_PROXY_API = "/proxy";
+let gdDirectUsable = null; // null=未知；true=直连可用；false=直连被拒，后续直接走代理
+
+/** 从任意形态的 GD 请求地址中取出查询串；非 GD API 请求返回 null */
+function gdQueryString(url) {
+    try {
+        const parsed = new URL(url, window.location.href);
+        if (parsed.searchParams.has("target")) return null; // 音频/封面直链代理，不是 GD API
+        if (!parsed.searchParams.has("types")) return null; // 不是 GD API 请求
+        return parsed.searchParams.toString();
+    } catch (_) {
+        return null;
+    }
+}
+
+/** 直连优先 + 代理兜底；返回 Response，由调用方解析 */
+async function gdFetch(url, timeoutMs = 12000) {
+    const qs = gdQueryString(url);
+    if (qs === null) {
+        return fetch(url, {
+            headers: { "Accept": "application/json" },
+            signal: AbortSignal.timeout(timeoutMs),
+        });
+    }
+
+    const candidates = gdDirectUsable === false
+        ? [`${GD_PROXY_API}?${qs}`]
+        : [`${GD_DIRECT_API}?${qs}`, `${GD_PROXY_API}?${qs}`];
+
+    let lastError = null;
+    for (let i = 0; i < candidates.length; i++) {
+        try {
+            const response = await fetch(candidates[i], {
+                headers: { "Accept": "application/json, text/plain, */*" },
+                signal: AbortSignal.timeout(timeoutMs),
+            });
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            if (i === 0) gdDirectUsable = true;
+            return response;
+        } catch (error) {
+            lastError = error;
+            if (i === 0) {
+                // 直连被拒（数据中心 IP / 网络不可达）→ 本次会话改用代理兜底
+                gdDirectUsable = false;
+                debugLog(`[GD] 直连失败(${error.message})，改用同源代理兜底`);
+            }
+        }
+    }
+
+    throw lastError || new Error("GD 请求失败");
+}
+
+// API配置 - 仅使用GD Studio（浏览器直连，代理兜底）
 const API_CONFIG = {
     primary: {
         name: "GD Studio",
-        baseUrl: "/proxy",
+        baseUrl: GD_DIRECT_API,
         searchFormat: "gd",
     }
 };
@@ -1155,14 +1216,10 @@ const API_XIMA = {
 const API = {
     baseUrl: API_CONFIG.primary.baseUrl,
 
-    fetchJson: async (url, timeoutMs = 8000) => {
+    fetchJson: async (url, timeoutMs = 12000) => {
         try {
-            const response = await fetch(url, {
-                headers: {
-                    "Accept": "application/json",
-                },
-                signal: AbortSignal.timeout(timeoutMs),
-            });
+            // GD API 请求走"直连优先 + 代理兜底"，其余（如 /proxy?target= 直链）原样请求
+            const response = await gdFetch(url, timeoutMs);
 
             if (!response.ok) {
                 throw new Error(`Request failed with status ${response.status}`);
@@ -7210,8 +7267,8 @@ async function playSong(song, options = {}) {
                     qualitiesToTry.map(async (q) => {
                         try {
                             const gdUrl = `${API_CONFIG.primary.baseUrl}?types=url&id=${song.id}&source=${gdSource}&br=${q}`;
-                            const resp = await fetch(gdUrl, { signal: AbortSignal.timeout(4000) });
-                            const data = await resp.json();
+                            // 走统一的 GD 通道（直连优先 + 代理兜底）
+                            const data = await API.fetchJson(gdUrl, 4000);
                             if (data && data.url) {
                                 return { quality: q, data };
                             }
