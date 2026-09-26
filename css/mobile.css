@@ -31,7 +31,8 @@ body.mobile-view.dark-mode {
 }
 
 body.mobile-view .background-stage {
-    display: none;
+    display: block;
+    z-index: -4;
 }
 
 @media screen and (orientation: portrait) {
@@ -53,39 +54,6 @@ body.mobile-view .background-stage {
     body.mobile-view .background-stage {
         display: block;
         z-index: -4;
-        -webkit-mask-image: radial-gradient(
-            circle at 50% calc(50% + var(--mobile-ring-vertical-shift)),
-            transparent calc(var(--mobile-ring-inner-radius)),
-            rgba(0, 0, 0, 0.92) calc(var(--mobile-ring-inner-radius) + var(--mobile-ring-feather)),
-            rgba(0, 0, 0, 1) 100%
-        );
-        mask-image: radial-gradient(
-            circle at 50% calc(50% + var(--mobile-ring-vertical-shift)),
-            transparent calc(var(--mobile-ring-inner-radius)),
-            rgba(0, 0, 0, 0.92) calc(var(--mobile-ring-inner-radius) + var(--mobile-ring-feather)),
-            rgba(0, 0, 0, 1) 100%
-        );
-        -webkit-mask-repeat: no-repeat;
-        mask-repeat: no-repeat;
-        -webkit-mask-size: cover;
-        mask-size: cover;
-        -webkit-mask-position: center;
-        mask-position: center;
-    }
-
-    body.mobile-view.dark-mode .background-stage {
-        -webkit-mask-image: radial-gradient(
-            circle at 50% calc(50% + var(--mobile-ring-vertical-shift)),
-            transparent calc(var(--mobile-ring-inner-radius)),
-            rgba(0, 0, 0, 0.92) calc(var(--mobile-ring-inner-radius) + var(--mobile-ring-feather)),
-            rgba(0, 0, 0, 1) 100%
-        );
-        mask-image: radial-gradient(
-            circle at 50% calc(50% + var(--mobile-ring-vertical-shift)),
-            transparent calc(var(--mobile-ring-inner-radius)),
-            rgba(0, 0, 0, 0.92) calc(var(--mobile-ring-inner-radius) + var(--mobile-ring-feather)),
-            rgba(0, 0, 0, 1) 100%
-        );
     }
 
     body.mobile-view .background-stage__layer {
@@ -97,7 +65,10 @@ body.mobile-view .background-stage {
 body.mobile-view .container {
     width: 100%;
     max-width: 420px;
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(245, 247, 250, 0.92));
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.64), rgba(245, 247, 250, 0.54));
+    -webkit-backdrop-filter: blur(22px) saturate(150%);
+    backdrop-filter: blur(22px) saturate(150%);
+    border: 1px solid rgba(255, 255, 255, 0.5);
     border-radius: 32px;
     padding: clamp(16px, 5vw, 28px);
     padding-top: calc(env(safe-area-inset-top) + clamp(10px, 3vw, 20px));
@@ -114,7 +85,8 @@ body.mobile-view .container {
 }
 
 body.mobile-view.dark-mode .container {
-    background: linear-gradient(180deg, rgba(27, 29, 36, 0.92), rgba(7, 9, 14, 0.95));
+    background: linear-gradient(180deg, rgba(27, 29, 36, 0.6), rgba(7, 9, 14, 0.64));
+    border: 1px solid rgba(255, 255, 255, 0.1);
     box-shadow: 0 32px 90px rgba(0, 0, 0, 0.65);
 }
 

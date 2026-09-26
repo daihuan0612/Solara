@@ -6,8 +6,8 @@
 //   - 其他 → 网络优先
 
 const CACHE_NAMES = {
-    // v14: 账户头像挪到左上角（桌面与右上主题钮同款方钮/同一水平线；移动端占用原本空着的左上角）
-    shell: 'solara-shell-v14',    // 应用壳（CSS, JS, HTML）
+    // v15: 移动端背景改为整幅取色（去掉中间圆形遮罩）+ 播放器卡片半透明磨砂，透出背景色，与桌面端一致
+    shell: 'solara-shell-v15',    // 应用壳（CSS, JS, HTML）
     audio: 'solara-audio-v1',     // 缓存的音频
 };
 
