@@ -56,17 +56,10 @@
     color: #ffffff;
 }
 
-::-webkit-scrollbar { width: 6px; }
-::-webkit-scrollbar-track { background: var(--scrollbar-track-bg); }
-::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb-bg); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: var(--primary-color); }
-
-/* 永久预留竖向滚动条的宽度：Windows 等"经典滚动条"（占约 15px 宽度）在出现/消失时会把居中的内容
-   左右推一下——这就是桌面端"点开菜单等操作时 UI 往左/往右跳一下"的根因。both-edges 让两侧都保留同宽的槽，
-   滚动条来去都不再改变内容宽度、且布局始终居中，横向抖动消失。（覆盖式滚动条系统宽度为 0，此属性为无操作） */
-html {
-    scrollbar-gutter: stable both-edges;
-}
+/* 全局隐藏滚动条：内容依旧能用鼠标滚轮 / 触摸板 / 触摸滑动来滚，只是不显示那条滚动条，
+   保持 F11 全屏听歌时"背景取封面色"的纯净观感（用户偏好：一般用不上滚动条，看不全时人自然会去滚）。 */
+* { scrollbar-width: none; }                 /* Firefox */
+::-webkit-scrollbar { width: 0; height: 0; } /* Chrome / Edge / Safari：宽高为0即完全隐藏 */
 
 /* 来源标签样式 */
 .source-label {

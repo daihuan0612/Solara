@@ -6,8 +6,8 @@
 //   - 其他 → 网络优先
 
 const CACHE_NAMES = {
-    // v19: 彻底根治桌面端"点音质整个界面往右跳"——关闭态音质菜单改用 position:fixed，不再以 absolute 探出视口底部凭空撑出竖向滚动条(Windows经典滚动条一来一回把居中内容左右推)；配合 v18 的 scrollbar-gutter 双保险
-    shell: 'solara-shell-v19',    // 应用壳（CSS, JS, HTML）
+    // v20: 按用户偏好隐藏滚动条——移除 scrollbar-gutter 预留槽 + 滚动条宽高设0(仍可滚轮/触摸滚动)，F11全屏听歌更纯净；横向跳动此前已由 v19(菜单fixed) 根治
+    shell: 'solara-shell-v20',    // 应用壳（CSS, JS, HTML）
     audio: 'solara-audio-v1',     // 缓存的音频
 };
 
