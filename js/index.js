@@ -2590,21 +2590,57 @@ function _hslToHex(h, s, l) {
     return `#${to(r)}${to(g)}${to(b)}`;
 }
 function buildPaletteFromRgb(r, g, b) {
-    const { h, s } = _rgbToHsl(r, g, b);
-    const lightSat = Math.min(s * 0.55 + 0.04, 0.5);
-    const darkSat = Math.min(s * 0.5 + 0.04, 0.55);
-    const lg = [_hslToHex(h, lightSat, 0.92), _hslToHex(h, lightSat, 0.88), _hslToHex(h, lightSat, 0.84)];
-    const dg = [_hslToHex(h, darkSat, 0.16), _hslToHex(h, darkSat, 0.13), _hslToHex(h, darkSat, 0.10)];
+    const { h, s, l } = _rgbToHsl(r, g, b);
+    const cl = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
+    // 背景 = 主色的有色中间调(色相/饱和跟随主色，明度夹在可读区间)，能融入封面又不压暗面板
+    const baseL = cl(l, 0.48, 0.76);
+    const lightSat = cl(s * 0.9 + 0.06, 0.12, 0.85);
+    const lg = [_hslToHex(h, lightSat, Math.min(baseL + 0.05, 0.85)), _hslToHex(h, lightSat, baseL), _hslToHex(h, lightSat, Math.max(baseL - 0.06, 0.32))];
+    const darkL = cl(l, 0.12, 0.22);
+    const darkSat = cl(s * 0.7 + 0.05, 0.12, 0.7);
+    const dg = [_hslToHex(h, darkSat, darkL + 0.03), _hslToHex(h, darkSat, darkL), _hslToHex(h, darkSat, Math.max(darkL - 0.04, 0.06))];
     return {
         gradients: {
             light: { gradient: `linear-gradient(120deg, ${lg[0]} 0%, ${lg[1]} 70%, ${lg[2]} 100%)` },
             dark: { gradient: `linear-gradient(120deg, ${dg[0]} 0%, ${dg[1]} 65%, ${dg[2]} 100%)` },
         },
+        // 强调色(歌词高亮/正在播放/按钮)：明度固定在可读深度，跟背景明暗脱钩，浅/深/灰度封面都清晰
         tokens: {
-            light: { primaryColor: _hslToHex(h, s * 0.85, 0.42), primaryColorDark: _hslToHex(h, s * 0.9, 0.32) },
-            dark: { primaryColor: _hslToHex(h, s * 0.8, 0.62), primaryColorDark: _hslToHex(h, s * 0.85, 0.5) },
+            light: { primaryColor: _hslToHex(h, Math.min(s * 0.85, 1), 0.42), primaryColorDark: _hslToHex(h, Math.min(s * 0.9, 1), 0.32) },
+            dark: { primaryColor: _hslToHex(h, Math.min(s * 0.8, 1), 0.62), primaryColorDark: _hslToHex(h, Math.min(s * 0.85, 1), 0.5) },
         },
     };
+}
+// 从像素里挑"封面最主要的那种实际颜色"：有饱和度的像素按 12 个色相桶归类，取占比最大的色相桶；
+// 若封面基本无色(近黑白)，回退到全局量化众数(中性色)。返回 {r,g,b}
+function pickAccentRgb(data) {
+    const QUANT = 32, HUE_BINS = 12, SAT_MIN = 0.18, L_MIN = 0.10, L_MAX = 0.92, MIN_FRAC = 0.05;
+    const overall = new Map();
+    const bins = Array.from({ length: HUE_BINS }, () => ({ weight: 0, count: 0, r: 0, g: 0, b: 0 }));
+    let total = 0, colorful = 0;
+    for (let i = 0; i < data.length; i += 4) {
+        if (data[i + 3] <= 128) continue;
+        const r = data[i], g = data[i + 1], b = data[i + 2];
+        total++;
+        const key = (Math.round(r / QUANT) << 16) | (Math.round(g / QUANT) << 8) | Math.round(b / QUANT);
+        let bk = overall.get(key);
+        if (!bk) { bk = { count: 0, r: 0, g: 0, b: 0 }; overall.set(key, bk); }
+        bk.count++; bk.r += r; bk.g += g; bk.b += b;
+        const { h, s, l } = _rgbToHsl(r, g, b);
+        if (s >= SAT_MIN && l >= L_MIN && l <= L_MAX) {
+            const bi = Math.min(HUE_BINS - 1, Math.floor(h / (360 / HUE_BINS)));
+            const bin = bins[bi]; bin.weight += s; bin.count++; bin.r += r; bin.g += g; bin.b += b; colorful++;
+        }
+    }
+    if (total === 0) return null;
+    if (colorful >= MIN_FRAC * total) {
+        let best = bins[0];
+        for (const bin of bins) if (bin.weight > best.weight) best = bin;
+        return { r: best.r / best.count, g: best.g / best.count, b: best.b / best.count };
+    }
+    let dom = null;
+    for (const bk of overall.values()) if (!dom || bk.count > dom.count) dom = bk;
+    return { r: dom.r / dom.count, g: dom.g / dom.count, b: dom.b / dom.count };
 }
 
 // 本地取色逻辑：使用 Canvas API 从图片中提取颜色
@@ -2672,23 +2708,10 @@ function getLocalPalette(imageUrl) {
                 
                 const data = imageData.data;
 
-                // 量化直方图取"出现最多的颜色"（主色），而不是简单平均或某个最鲜艳的像素，
-                // 避免封面角落一小块高饱和色带偏整个主题。
-                const QUANT = 24;
-                const buckets = new Map();
-                let count = 0;
-                for (let i = 0; i < data.length; i += 4) {
-                    const alpha = data[i + 3];
-                    if (alpha <= 128) continue; // 只考虑不透明的像素
-                    const rr = data[i], gg = data[i + 1], bb = data[i + 2];
-                    count++;
-                    const key = (Math.round(rr / QUANT) << 16) | (Math.round(gg / QUANT) << 8) | Math.round(bb / QUANT);
-                    let bucket = buckets.get(key);
-                    if (!bucket) { bucket = { count: 0, r: 0, g: 0, b: 0 }; buckets.set(key, bucket); }
-                    bucket.count++; bucket.r += rr; bucket.g += gg; bucket.b += bb;
-                }
+                // 挑封面最主要的实际颜色(有色像素按色相取众数；近黑白则回退全局众数)
+                const accent = pickAccentRgb(data);
 
-                if (count === 0) {
+                if (!accent) {
                     console.warn('⚠️ 没有找到不透明像素，使用默认调色板');
                     // 返回默认调色板
                     const defaultPalette = {
@@ -2715,15 +2738,8 @@ function getLocalPalette(imageUrl) {
                     return;
                 }
 
-                // 取像素数最多的桶 = 出现最多的颜色
-                let dominant = null;
-                for (const bucket of buckets.values()) {
-                    if (!dominant || bucket.count > dominant.count) dominant = bucket;
-                }
-                const r = Math.round(dominant.r / dominant.count);
-                const g = Math.round(dominant.g / dominant.count);
-                const b = Math.round(dominant.b / dominant.count);
-                console.log('🎨 提取到主色(出现最多):', `rgb(${r},${g},${b})`);
+                const r = Math.round(accent.r), g = Math.round(accent.g), b = Math.round(accent.b);
+                console.log('🎨 提取到主色:', `rgb(${r},${g},${b})`);
 
                 const palette = buildPaletteFromRgb(r, g, b);
                 console.log('✅ 生成调色板成功');

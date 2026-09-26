@@ -173,10 +173,20 @@ function analyzeImageColors(image: DecodedImage): AnalyzedColors {
   let totalB = 0;
   let count = 0;
 
-  // 量化直方图：把相近颜色并到同一个桶，取"像素最多的那个桶"当作出现最多的颜色(主色)，
-  // 而不是取单个最鲜艳的像素——避免封面角落一小块高饱和色(如一点红)带偏整个主题。
-  const QUANT = 24;
-  const buckets = new Map<number, { count: number; r: number; g: number; b: number }>();
+  // 目标：取"封面最主要的那种实际颜色"当主色，让背景能融入封面。
+  // 做法：① 把有饱和度的像素(排除近黑/近白/灰)按色相分成 12 个桶，取像素最多的色相桶——
+  //       它代表封面占比最大的"颜色"(如全橙红封面→橙红)，不会被角落一小块高饱和色带偏；
+  //      ② 如果封面基本没颜色(近黑白)，再回退到全局量化众数(得到中性色)。
+  const QUANT = 32;
+  const HUE_BINS = 12;
+  const SAT_MIN = 0.18;
+  const L_MIN = 0.1;
+  const L_MAX = 0.92;
+  const COLORFUL_MIN_FRACTION = 0.05;
+
+  const overall = new Map<number, { count: number; r: number; g: number; b: number }>();
+  const bins = Array.from({ length: HUE_BINS }, () => ({ weight: 0, count: 0, r: 0, g: 0, b: 0 }));
+  let colorfulCount = 0;
 
   for (let index = 0; index < data.length; index += step * 4) {
     const alpha = data[index + 3];
@@ -194,15 +204,29 @@ function analyzeImageColors(image: DecodedImage): AnalyzedColors {
     count++;
 
     const key = (Math.round(r / QUANT) << 16) | (Math.round(g / QUANT) << 8) | Math.round(b / QUANT);
-    let bucket = buckets.get(key);
+    let bucket = overall.get(key);
     if (!bucket) {
       bucket = { count: 0, r: 0, g: 0, b: 0 };
-      buckets.set(key, bucket);
+      overall.set(key, bucket);
     }
     bucket.count++;
     bucket.r += r;
     bucket.g += g;
     bucket.b += b;
+
+    const hsl = rgbToHsl(r, g, b);
+    if (hsl.s >= SAT_MIN && hsl.l >= L_MIN && hsl.l <= L_MAX) {
+      const bi = Math.min(HUE_BINS - 1, Math.floor(hsl.h / (360 / HUE_BINS)));
+      const bin = bins[bi];
+      // 按"饱和度"加权累计：让偏鲜艳的颜色(衣服/图形/纯色背景)胜过大面积但发灰的肤色，
+      // 同时小面积高饱和的角落色因像素少、权重和也小，不会喧宾夺主。
+      bin.weight += hsl.s;
+      bin.count++;
+      bin.r += r;
+      bin.g += g;
+      bin.b += b;
+      colorfulCount++;
+    }
   }
 
   if (count === 0) {
@@ -211,15 +235,25 @@ function analyzeImageColors(image: DecodedImage): AnalyzedColors {
 
   const average = rgbToHsl(totalR / count, totalG / count, totalB / count);
 
-  let dominant: { count: number; r: number; g: number; b: number } | null = null;
-  for (const bucket of buckets.values()) {
-    if (!dominant || bucket.count > dominant.count) {
-      dominant = bucket;
+  let accent: HslColor;
+  if (colorfulCount >= COLORFUL_MIN_FRACTION * count) {
+    let best = bins[0];
+    for (const bin of bins) {
+      if (bin.weight > best.weight) {
+        best = bin;
+      }
     }
+    accent = rgbToHsl(best.r / best.count, best.g / best.count, best.b / best.count);
+  } else {
+    let dominant: { count: number; r: number; g: number; b: number } | null = null;
+    for (const bucket of overall.values()) {
+      if (!dominant || bucket.count > dominant.count) {
+        dominant = bucket;
+      }
+    }
+    const dom = dominant as { count: number; r: number; g: number; b: number };
+    accent = rgbToHsl(dom.r / dom.count, dom.g / dom.count, dom.b / dom.count);
   }
-
-  const dom = dominant as { count: number; r: number; g: number; b: number };
-  const accent = rgbToHsl(dom.r / dom.count, dom.g / dom.count, dom.b / dom.count);
 
   return {
     average,
@@ -229,22 +263,24 @@ function analyzeImageColors(image: DecodedImage): AnalyzedColors {
 
 function buildGradientStops(accent: HslColor): { light: PaletteStop; dark: PaletteStop } {
   const hue = accent.h;
-  // 背景只借用主色的"色相"：浅色模式压到高明度+适度饱和(淡淡一层)，深色模式压到低明度。
-  // 明度固定、与主色本身的明暗脱钩 —— 这样再深/再浅/灰度的封面，浅色模式也始终是浅底，
-  // 半透明的播放列表/歌词面板不会被压暗，文字始终看得清。纯灰度封面 → 近中性浅灰底。
-  const lightSat = clamp(accent.s * 0.55 + 0.04, 0, 0.5);
-  const darkSat = clamp(accent.s * 0.5 + 0.04, 0, 0.55);
-
+  // 背景 = 主色的"有色中间调"：色相/饱和度跟随主色，明度取自主色但夹在可读区间。
+  // 这样背景能融入封面(橙红封面→暖橙红底，不发灰、不惨白)，同时半透明的播放列表/歌词面板
+  // 叠上后仍然够浅、文字清晰。灰度封面(回退分支)饱和度接近 0 → 中性浅灰底。
+  const baseL = clamp(accent.l, 0.48, 0.76);
+  const lightSat = clamp(accent.s * 0.9 + 0.06, 0.12, 0.85);
   const lightColors = [
-    hslToHex({ h: hue, s: lightSat, l: 0.92 }),
-    hslToHex({ h: hue, s: lightSat, l: 0.88 }),
-    hslToHex({ h: hue, s: lightSat, l: 0.84 }),
+    hslToHex({ h: hue, s: lightSat, l: clamp(baseL + 0.05, 0, 0.85) }),
+    hslToHex({ h: hue, s: lightSat, l: baseL }),
+    hslToHex({ h: hue, s: lightSat, l: clamp(baseL - 0.06, 0.32, 1) }),
   ];
 
+  // 深色模式：同色相的深色底
+  const darkL = clamp(accent.l, 0.12, 0.22);
+  const darkSat = clamp(accent.s * 0.7 + 0.05, 0.12, 0.7);
   const darkColors = [
-    hslToHex({ h: hue, s: darkSat, l: 0.16 }),
-    hslToHex({ h: hue, s: darkSat, l: 0.13 }),
-    hslToHex({ h: hue, s: darkSat, l: 0.10 }),
+    hslToHex({ h: hue, s: darkSat, l: clamp(darkL + 0.03, 0, 1) }),
+    hslToHex({ h: hue, s: darkSat, l: darkL }),
+    hslToHex({ h: hue, s: darkSat, l: clamp(darkL - 0.04, 0.06, 1) }),
   ];
 
   return {
