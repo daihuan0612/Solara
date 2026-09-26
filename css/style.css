@@ -2099,9 +2099,10 @@ input[type="range"]:active::-moz-range-thumb {
     pointer-events: auto;
 }
 
-/* 当音质菜单打开时，确保父容器保持固定尺寸 */
+/* 当音质菜单打开时，确保父容器保持固定尺寸（必须与 .player-quality 基础 min-height 一致，
+   否则打开菜单时容器高度 46px→42px 收缩，整排控件跳一下——这就是桌面端"点音质 UI 跳一下"的原因） */
 .player-quality.parent-with-open-menu {
-    min-height: 42px;
+    min-height: 46px;
     overflow: visible;
 }
 
