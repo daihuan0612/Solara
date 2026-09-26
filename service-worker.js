@@ -6,8 +6,8 @@
 //   - 其他 → 网络优先
 
 const CACHE_NAMES = {
-    // v20: 按用户偏好隐藏滚动条——移除 scrollbar-gutter 预留槽 + 滚动条宽高设0(仍可滚轮/触摸滚动)，F11全屏听歌更纯净；横向跳动此前已由 v19(菜单fixed) 根治
-    shell: 'solara-shell-v20',    // 应用壳（CSS, JS, HTML）
+    // v21: 播放列表新增"下面还有歌曲"玻璃质感双箭头提示(溢出且未到底时淡入,滚到底/无溢出淡出,点击下翻一屏)；歌词面板保持无滚动条(随进度自动滚)
+    shell: 'solara-shell-v21',    // 应用壳（CSS, JS, HTML）
     audio: 'solara-audio-v1',     // 缓存的音频
 };
 

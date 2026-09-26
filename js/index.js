@@ -9050,3 +9050,62 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 // 作为兜底，如果 load 事件触发（所有资源加载完），也尝试移除
 window.addEventListener('load', () => setTimeout(removeLoadingMask, 200));
+
+// ================================================
+// 📜 播放列表"下面还有歌曲"玻璃质感箭头提示
+//    列表溢出容器且未滚到底时淡入；滚到底/无溢出/面板隐藏时淡出。
+//    歌词面板不需要（歌词随播放进度自动滚动）。点击箭头平滑向下翻一屏。
+// ================================================
+(function setupPlaylistScrollHints() {
+    function bind(itemsId, hintId) {
+        const hint = document.getElementById(hintId);
+        if (!hint) return;
+        const panel = hint.closest('.playlist');
+        const scrollEl = panel ? panel.querySelector('.playlist-scroll') : null;
+        if (!scrollEl) return;
+
+        const update = () => {
+            if (panel.hasAttribute('hidden') || panel.classList.contains('empty')) {
+                hint.classList.remove('is-visible');
+                hint.setAttribute('aria-hidden', 'true');
+                return;
+            }
+            const remaining = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight;
+            const overflowing = (scrollEl.scrollHeight - scrollEl.clientHeight) > 4;
+            const show = overflowing && remaining > 8;
+            hint.classList.toggle('is-visible', show);
+            hint.setAttribute('aria-hidden', show ? 'false' : 'true');
+        };
+        const scheduleUpdate = () => requestAnimationFrame(update);
+
+        scrollEl.addEventListener('scroll', update, { passive: true });
+        hint.addEventListener('click', () => {
+            scrollEl.scrollBy({ top: Math.max(120, scrollEl.clientHeight * 0.8), behavior: 'smooth' });
+        });
+
+        if (typeof MutationObserver === 'function') {
+            const items = document.getElementById(itemsId) || scrollEl;
+            new MutationObserver(scheduleUpdate).observe(items, { childList: true, subtree: true });
+            new MutationObserver(scheduleUpdate).observe(panel, { attributes: true, attributeFilter: ['hidden', 'class'] });
+        }
+        if (typeof ResizeObserver === 'function') {
+            const ro = new ResizeObserver(scheduleUpdate);
+            ro.observe(scrollEl);
+            ro.observe(panel);
+        }
+        window.addEventListener('resize', scheduleUpdate, { passive: true });
+
+        scheduleUpdate();
+        setTimeout(update, 300);
+    }
+
+    function init() {
+        bind('playlistItems', 'playlistScrollHint');
+        bind('favoriteItems', 'favoriteScrollHint');
+    }
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+})();
