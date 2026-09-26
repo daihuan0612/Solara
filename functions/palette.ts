@@ -173,7 +173,10 @@ function analyzeImageColors(image: DecodedImage): AnalyzedColors {
   let totalB = 0;
   let count = 0;
 
-  let accent: { color: HslColor; score: number } | null = null;
+  // 量化直方图：把相近颜色并到同一个桶，取"像素最多的那个桶"当作出现最多的颜色(主色)，
+  // 而不是取单个最鲜艳的像素——避免封面角落一小块高饱和色(如一点红)带偏整个主题。
+  const QUANT = 24;
+  const buckets = new Map<number, { count: number; r: number; g: number; b: number }>();
 
   for (let index = 0; index < data.length; index += step * 4) {
     const alpha = data[index + 3];
@@ -190,74 +193,85 @@ function analyzeImageColors(image: DecodedImage): AnalyzedColors {
     totalB += b;
     count++;
 
-    const hsl = rgbToHsl(r, g, b);
-    const vibrance = hsl.s;
-    const balance = 1 - Math.abs(hsl.l - 0.5);
-    const score = vibrance * 0.65 + balance * 0.35;
-
-    if (!accent || score > accent.score) {
-      accent = { color: hsl, score };
+    const key = (Math.round(r / QUANT) << 16) | (Math.round(g / QUANT) << 8) | Math.round(b / QUANT);
+    let bucket = buckets.get(key);
+    if (!bucket) {
+      bucket = { count: 0, r: 0, g: 0, b: 0 };
+      buckets.set(key, bucket);
     }
+    bucket.count++;
+    bucket.r += r;
+    bucket.g += g;
+    bucket.b += b;
   }
 
   if (count === 0) {
     throw new Error("No opaque pixels available for analysis");
   }
 
-  const averageR = totalR / count;
-  const averageG = totalG / count;
-  const averageB = totalB / count;
-  const average = rgbToHsl(averageR, averageG, averageB);
+  const average = rgbToHsl(totalR / count, totalG / count, totalB / count);
 
-  const accentColor = accent ? accent.color : average;
+  let dominant: { count: number; r: number; g: number; b: number } | null = null;
+  for (const bucket of buckets.values()) {
+    if (!dominant || bucket.count > dominant.count) {
+      dominant = bucket;
+    }
+  }
+
+  const dom = dominant as { count: number; r: number; g: number; b: number };
+  const accent = rgbToHsl(dom.r / dom.count, dom.g / dom.count, dom.b / dom.count);
 
   return {
     average,
-    accent: accentColor,
+    accent,
   };
 }
 
 function buildGradientStops(accent: HslColor): { light: PaletteStop; dark: PaletteStop } {
-  // 进一步减少渐变变化幅度，只有轻微效果
+  const hue = accent.h;
+  // 背景只借用主色的"色相"：浅色模式压到高明度+适度饱和(淡淡一层)，深色模式压到低明度。
+  // 明度固定、与主色本身的明暗脱钩 —— 这样再深/再浅/灰度的封面，浅色模式也始终是浅底，
+  // 半透明的播放列表/歌词面板不会被压暗，文字始终看得清。纯灰度封面 → 近中性浅灰底。
+  const lightSat = clamp(accent.s * 0.55 + 0.04, 0, 0.5);
+  const darkSat = clamp(accent.s * 0.5 + 0.04, 0, 0.55);
+
   const lightColors = [
-    // 几乎保持原始颜色，只做轻微调整
-    hslToHex({ h: accent.h, s: adjustSaturation(accent.s, 0.85, 0.02), l: adjustLightness(accent.l, 0.05, 0.7) }),
-    // 中间色只做非常小的变化
-    hslToHex({ h: accent.h, s: adjustSaturation(accent.s, 0.9, 0.01), l: adjustLightness(accent.l, 0.03, 0.72) }),
-    // 结束色变化也很小
-    hslToHex({ h: accent.h, s: adjustSaturation(accent.s, 0.95, 0), l: adjustLightness(accent.l, 0.01, 0.73) }),
+    hslToHex({ h: hue, s: lightSat, l: 0.92 }),
+    hslToHex({ h: hue, s: lightSat, l: 0.88 }),
+    hslToHex({ h: hue, s: lightSat, l: 0.84 }),
   ];
 
   const darkColors = [
-    // 深色模式也减少变化幅度
-    hslToHex({ h: accent.h, s: adjustSaturation(accent.s, 0.75, 0.02), l: adjustLightness(accent.l, 0.08, 0.4) }),
-    hslToHex({ h: accent.h, s: adjustSaturation(accent.s, 0.8, 0.01), l: adjustLightness(accent.l, 0.03, 0.35) }),
-    hslToHex({ h: accent.h, s: adjustSaturation(accent.s, 0.85, 0), l: adjustLightness(accent.l, -0.02, 0.3) }),
+    hslToHex({ h: hue, s: darkSat, l: 0.16 }),
+    hslToHex({ h: hue, s: darkSat, l: 0.13 }),
+    hslToHex({ h: hue, s: darkSat, l: 0.10 }),
   ];
 
   return {
     light: {
       colors: lightColors,
-      // 调整渐变角度和分布，让变化更加平缓
       gradient: `linear-gradient(120deg, ${lightColors[0]} 0%, ${lightColors[1]} 70%, ${lightColors[2]} 100%)`,
     },
     dark: {
       colors: darkColors,
-      // 深色模式也使用更平缓的渐变
       gradient: `linear-gradient(120deg, ${darkColors[0]} 0%, ${darkColors[1]} 65%, ${darkColors[2]} 100%)`,
     },
   };
 }
 
 function buildThemeTokens(accent: HslColor): Record<"light" | "dark", ThemeTokens> {
+  const hue = accent.h;
+  // 强调色(歌词高亮/正在播放的歌/按钮)：色相取主色，明度固定在"可读"区间(与背景明暗脱钩)，
+  // 无论封面很浅、很深还是灰度，这个颜色都足够深、在浅色面板上清晰可读。
+  // 饱和度按主色缩放(不加正偏移) —— 灰度封面得到的是深灰，而不是硬造出来的颜色。
   return {
     light: {
-      primaryColor: hslToHex({ h: accent.h, s: adjustSaturation(accent.s, 0.6, 0.06), l: adjustLightness(accent.l, 0.22, 0.6) }),
-      primaryColorDark: hslToHex({ h: accent.h, s: adjustSaturation(accent.s, 0.72, 0.02), l: adjustLightness(accent.l, 0.06, 0.52) }),
+      primaryColor: hslToHex({ h: hue, s: adjustSaturation(accent.s, 0.85), l: 0.42 }),
+      primaryColorDark: hslToHex({ h: hue, s: adjustSaturation(accent.s, 0.9), l: 0.32 }),
     },
     dark: {
-      primaryColor: hslToHex({ h: accent.h, s: adjustSaturation(accent.s, 0.58, 0.04), l: adjustLightness(accent.l, 0.16, 0.42) }),
-      primaryColorDark: hslToHex({ h: accent.h, s: adjustSaturation(accent.s, 0.68), l: adjustLightness(accent.l, 0.02, 0.32) }),
+      primaryColor: hslToHex({ h: hue, s: adjustSaturation(accent.s, 0.8), l: 0.62 }),
+      primaryColorDark: hslToHex({ h: hue, s: adjustSaturation(accent.s, 0.85), l: 0.5 }),
     },
   };
 }

@@ -2559,6 +2559,54 @@ function setAlbumCoverImage(url) {
 
 loadStoredPalettes();
 
+// —— 本地取色的调色板构造（与后端 functions/palette.ts 保持一致的思路）——
+// 背景只借主色"色相"：浅色模式浅底、深色模式深底(与封面明暗脱钩)；强调色(歌词高亮/正在播放/按钮)
+// 固定在可读明度，无论封面很浅/很深/灰度，播放列表和歌词文字都清晰。灰度封面→中性灰，不硬造颜色。
+function _rgbToHsl(r, g, b) {
+    r /= 255; g /= 255; b /= 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+    let h = 0;
+    if (d !== 0) {
+        if (max === r) h = ((g - b) / d) % 6;
+        else if (max === g) h = (b - r) / d + 2;
+        else h = (r - g) / d + 4;
+        h *= 60; if (h < 0) h += 360;
+    }
+    const l = (max + min) / 2;
+    const s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+    return { h, s, l };
+}
+function _hslToHex(h, s, l) {
+    s = Math.min(Math.max(s, 0), 1); l = Math.min(Math.max(l, 0), 1);
+    const c = (1 - Math.abs(2 * l - 1)) * s;
+    const hp = ((((h % 360) + 360) % 360)) / 60;
+    const x = c * (1 - Math.abs((hp % 2) - 1));
+    let r = 0, g = 0, b = 0;
+    if (hp < 1) { r = c; g = x; } else if (hp < 2) { r = x; g = c; }
+    else if (hp < 3) { g = c; b = x; } else if (hp < 4) { g = x; b = c; }
+    else if (hp < 5) { r = x; b = c; } else { r = c; b = x; }
+    const m = l - c / 2;
+    const to = v => Math.round((v + m) * 255).toString(16).padStart(2, '0');
+    return `#${to(r)}${to(g)}${to(b)}`;
+}
+function buildPaletteFromRgb(r, g, b) {
+    const { h, s } = _rgbToHsl(r, g, b);
+    const lightSat = Math.min(s * 0.55 + 0.04, 0.5);
+    const darkSat = Math.min(s * 0.5 + 0.04, 0.55);
+    const lg = [_hslToHex(h, lightSat, 0.92), _hslToHex(h, lightSat, 0.88), _hslToHex(h, lightSat, 0.84)];
+    const dg = [_hslToHex(h, darkSat, 0.16), _hslToHex(h, darkSat, 0.13), _hslToHex(h, darkSat, 0.10)];
+    return {
+        gradients: {
+            light: { gradient: `linear-gradient(120deg, ${lg[0]} 0%, ${lg[1]} 70%, ${lg[2]} 100%)` },
+            dark: { gradient: `linear-gradient(120deg, ${dg[0]} 0%, ${dg[1]} 65%, ${dg[2]} 100%)` },
+        },
+        tokens: {
+            light: { primaryColor: _hslToHex(h, s * 0.85, 0.42), primaryColorDark: _hslToHex(h, s * 0.9, 0.32) },
+            dark: { primaryColor: _hslToHex(h, s * 0.8, 0.62), primaryColorDark: _hslToHex(h, s * 0.85, 0.5) },
+        },
+    };
+}
+
 // 本地取色逻辑：使用 Canvas API 从图片中提取颜色
 function getLocalPalette(imageUrl) {
     return new Promise((resolve, reject) => {
@@ -2608,58 +2656,38 @@ function getLocalPalette(imageUrl) {
                         return acc & acc;
                     }, 0);
                     
-                    // 使用哈希生成一个一致的主题色
+                    // 基于哈希生成一个稳定的 RGB，再走统一的调色板构造（保证可读）
                     const hue = Math.abs(hash % 360);
                     const saturation = 60 + Math.abs(hash % 20);
                     const lightness = 65 + Math.abs(hash % 10);
-                    
-                    // 创建基于URL的调色板
                     const r = Math.floor((hue * 0.7) * 2.55);
                     const g = Math.floor(saturation * 2.55);
                     const b = Math.floor(lightness * 2.55);
-                    const hex = `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
-                    
-                    const palette = {
-                        gradients: {
-                            light: {
-                                gradient: `linear-gradient(135deg, ${hex} 0%, ${hex}bb 50%, ${hex}99 100%)`
-                            },
-                            dark: {
-                                gradient: `linear-gradient(135deg, ${hex}66 0%, ${hex}55 50%, ${hex}44 100%)`
-                            }
-                        },
-                        tokens: {
-                            light: {
-                                primaryColor: hex,
-                                primaryColorDark: hex
-                            },
-                            dark: {
-                                primaryColor: hex,
-                                primaryColorDark: hex
-                            }
-                        }
-                    };
-                    
-                    console.log('🎨 使用URL哈希生成调色板:', hex);
+
+                    const palette = buildPaletteFromRgb(r, g, b);
+                    console.log('🎨 使用URL哈希生成调色板(RGB):', `rgb(${r},${g},${b})`);
                     resolve(palette);
                     return;
                 }
                 
                 const data = imageData.data;
-                
-                // 改进的颜色提取：计算平均颜色
-                let r = 0, g = 0, b = 0, count = 0;
-                
+
+                // 量化直方图取"出现最多的颜色"（主色），而不是简单平均或某个最鲜艳的像素，
+                // 避免封面角落一小块高饱和色带偏整个主题。
+                const QUANT = 24;
+                const buckets = new Map();
+                let count = 0;
                 for (let i = 0; i < data.length; i += 4) {
                     const alpha = data[i + 3];
-                    if (alpha > 128) { // 只考虑不透明的像素
-                        r += data[i];
-                        g += data[i + 1];
-                        b += data[i + 2];
-                        count++;
-                    }
+                    if (alpha <= 128) continue; // 只考虑不透明的像素
+                    const rr = data[i], gg = data[i + 1], bb = data[i + 2];
+                    count++;
+                    const key = (Math.round(rr / QUANT) << 16) | (Math.round(gg / QUANT) << 8) | Math.round(bb / QUANT);
+                    let bucket = buckets.get(key);
+                    if (!bucket) { bucket = { count: 0, r: 0, g: 0, b: 0 }; buckets.set(key, bucket); }
+                    bucket.count++; bucket.r += rr; bucket.g += gg; bucket.b += bb;
                 }
-                
+
                 if (count === 0) {
                     console.warn('⚠️ 没有找到不透明像素，使用默认调色板');
                     // 返回默认调色板
@@ -2686,38 +2714,18 @@ function getLocalPalette(imageUrl) {
                     resolve(defaultPalette);
                     return;
                 }
-                
-                // 计算平均颜色
-                r = Math.round(r / count);
-                g = Math.round(g / count);
-                b = Math.round(b / count);
-                
-                // 创建主题色
-                const hex = `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
-                console.log('🎨 提取到主题色:', hex);
-                
-                // 创建明显的渐变效果
-                const palette = {
-                    gradients: {
-                        light: {
-                            gradient: `linear-gradient(135deg, ${hex} 0%, ${hex}cc 50%, ${hex}99 100%)`
-                        },
-                        dark: {
-                            gradient: `linear-gradient(135deg, ${hex}55 0%, ${hex}66 50%, ${hex}77 100%)`
-                        }
-                    },
-                    tokens: {
-                        light: {
-                            primaryColor: hex,
-                            primaryColorDark: hex
-                        },
-                        dark: {
-                            primaryColor: hex,
-                            primaryColorDark: hex
-                        }
-                    }
-                };
-                
+
+                // 取像素数最多的桶 = 出现最多的颜色
+                let dominant = null;
+                for (const bucket of buckets.values()) {
+                    if (!dominant || bucket.count > dominant.count) dominant = bucket;
+                }
+                const r = Math.round(dominant.r / dominant.count);
+                const g = Math.round(dominant.g / dominant.count);
+                const b = Math.round(dominant.b / dominant.count);
+                console.log('🎨 提取到主色(出现最多):', `rgb(${r},${g},${b})`);
+
+                const palette = buildPaletteFromRgb(r, g, b);
                 console.log('✅ 生成调色板成功');
                 resolve(palette);
             } catch (error) {
