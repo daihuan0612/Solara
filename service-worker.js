@@ -6,7 +6,9 @@
 //   - 其他 → 网络优先
 
 const CACHE_NAMES = {
-    shell: 'solara-shell-v8',     // 应用壳（CSS, JS）— v8: 修复下载逻辑
+    // v9: 酷我取色 / 酷狗播放 / 切标签页停顿修复 —— 必须换名，
+    // 否则老客户端会继续用缓存里的旧 js/index.js，看不到修复
+    shell: 'solara-shell-v9',     // 应用壳（CSS, JS）— v8: 修复下载逻辑
     audio: 'solara-audio-v1',     // 缓存的音频
 };
 
