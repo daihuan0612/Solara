@@ -324,7 +324,9 @@ function toggleMobileInlineLyrics() {
 
 const PLACEHOLDER_HTML = `<div class="placeholder"><i class="fas fa-music"></i></div>`;
 const paletteCache = new Map();
-const PALETTE_STORAGE_KEY = "paletteCache.v1";
+const PALETTE_STORAGE_KEY = "paletteCache.v2";
+// v1 里缓存过"酷我永远取色失败 → 默认紫蓝渐变"的错误结果，加载时直接丢弃
+const PALETTE_STORAGE_KEY_LEGACY = "paletteCache.v1";
 let paletteAbortController = null;
 const BACKGROUND_TRANSITION_DURATION = 850;
 let backgroundTransitionTimer = null;
@@ -558,6 +560,16 @@ function sanitizeStoredSearchState(data, defaultSource = SOURCE_OPTIONS[0].value
 }
 
 function loadStoredPalettes() {
+    // 清理旧版缓存（含酷我取色失败被写死的默认调色板）
+    try {
+        if (localStorage.getItem(PALETTE_STORAGE_KEY_LEGACY) !== null) {
+            localStorage.removeItem(PALETTE_STORAGE_KEY_LEGACY);
+            console.log('🧹 已清理旧版调色板缓存（paletteCache.v1）');
+        }
+    } catch (error) {
+        console.warn('清理旧版调色板缓存失败', error);
+    }
+
     const stored = safeGetLocalStorage(PALETTE_STORAGE_KEY);
     if (!stored) {
         return;
@@ -1040,6 +1052,8 @@ const API_KUGOU = {
                 source: "kugou",
                 apiSource: "kugou_api",
                 qualities: song.qualities || ['128', '320', 'flac'],
+                // 搜索接口现在直接返回封面直链，收下它，避免再去 GD 取封面（GD 不支持 kugou 源）
+                pic_url: song.image || "",
                 // 保存原始搜索关键词和序号，供 getSongUrlByKeyword 精确匹配
                 searchKeyword: keyword,
                 searchN: song.n,
@@ -1051,36 +1065,52 @@ const API_KUGOU = {
     },
     
     // 获取单曲播放链接（通过关键词+序号）
+    // 上游这个接口不稳定：实测同一请求约 30% 概率返回 {"code":404,"msg":"获取播放链接失败"}
+    // （HTTP 仍是 200），而且 exec_time 经常 4~7 秒。所以这里加长超时并重试。
     getSongUrlByKeyword: async (keyword, index = 1, quality = "flac") => {
         const url = `${API_KUGOU.baseUrl}?key=${API_KUGOU.key}&msg=${encodeURIComponent(keyword)}&n=${index}&quality=${quality}`;
+        const maxAttempts = 3;
+        let lastReason = "";
 
-        try {
-            debugLog(`[酷狗API] 获取播放链接: ${url}`);
-            const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                debugLog(`[酷狗API] 获取播放链接 (${attempt}/${maxAttempts}): ${url}`);
+                const response = await fetch(url, { signal: AbortSignal.timeout(15000) });
 
-            if (!response.ok) {
-                throw new Error(`请求失败: ${response.status}`);
+                if (!response.ok) {
+                    lastReason = `HTTP ${response.status}`;
+                    throw new Error(`请求失败: ${response.status}`);
+                }
+
+                const data = await response.json();
+
+                if (data.code === 200 && data.data && data.data.play_url) {
+                    if (attempt > 1) debugLog(`[酷狗API] 第 ${attempt} 次重试成功`);
+                    return {
+                        url: data.data.play_url,
+                        br: data.data.bit_rate,
+                        size: data.data.file_size,
+                        apiSource: "kugou_api",
+                        picture: data.data.cover || "",
+                        duration: data.data.duration,
+                    };
+                }
+
+                // code!==200（常见的 404 "获取播放链接失败"）→ 退避后重试
+                lastReason = `code ${data.code} ${data.msg || ""}`.trim();
+                debugLog(`[酷狗API] 播放响应异常: ${JSON.stringify(data).substring(0, 200)}...`);
+            } catch (error) {
+                lastReason = error.message;
+                debugLog(`[酷狗API] 获取播放链接错误 (${attempt}/${maxAttempts}): ${error.message}`);
             }
 
-            const data = await response.json();
-            debugLog(`[酷狗API] 播放响应: ${JSON.stringify(data).substring(0, 200)}...`);
-
-            if (data.code === 200 && data.data && data.data.play_url) {
-                return {
-                    url: data.data.play_url,
-                    br: data.data.bit_rate,
-                    size: data.data.file_size,
-                    apiSource: "kugou_api",
-                    picture: data.data.cover || "",
-                    duration: data.data.duration,
-                };
+            if (attempt < maxAttempts) {
+                await new Promise(r => setTimeout(r, 400 * attempt));
             }
-
-            return null;
-        } catch (error) {
-            debugLog(`[酷狗API] 获取播放链接错误: ${error.message}`);
-            return null;
         }
+
+        debugLog(`[酷狗API] 重试 ${maxAttempts} 次仍未取到播放链接: ${lastReason}`);
+        return null;
     },
     
     // 获取封面图片
@@ -2728,30 +2758,12 @@ function getLocalPalette(imageUrl) {
         };
         
         img.onerror = () => {
-            console.error('❌ 图片加载失败，使用默认调色板');
-            
-            // 返回备用调色板
-            const fallbackPalette = {
-                gradients: {
-                    light: {
-                        gradient: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)"
-                    },
-                    dark: {
-                        gradient: "linear-gradient(135deg, #2c3e50 0%, #34495e 100%)"
-                    }
-                },
-                tokens: {
-                    light: {
-                        primaryColor: "#667eea",
-                        primaryColorDark: "#764ba2"
-                    },
-                    dark: {
-                        primaryColor: "#3498db",
-                        primaryColorDark: "#2980b9"
-                    }
-                }
-            };
-            resolve(fallbackPalette);
+            // 图片根本没加载出来（URL 不是图片 / 404 / 防盗链等）。
+            // 这里返回 null 而不是默认调色板，让调用方有机会换一张封面再试
+            // （以前直接 resolve 默认调色板，调用方会误判为"取色成功"，
+            //   酷我封面就是这样一路走到默认紫蓝渐变的）。
+            console.warn('❌ 图片加载失败，交给调用方兜底:', imageUrl);
+            resolve(null);
         };
         
         img.src = imageUrl;
@@ -2791,6 +2803,33 @@ function getDefaultPalette(imageUrl = '') {
     return defaultPalette;
 }
 
+// 解析出"网易云同名封面"的**真实图片地址**。
+// 注意：GD 的 types=pic 返回的是 JSON（{url}），必须先取 url 再把 url 交给 canvas，
+// 直接把接口地址当图片用必然加载失败（这正是酷我取色坏掉的原因）。
+async function resolveNeteaseCoverUrl(song) {
+    if (!song || !song.name) return null;
+
+    const artist = Array.isArray(song.artist) ? song.artist.join(' ') : (song.artist || '');
+    const keyword = `${song.name} ${artist}`.trim();
+
+    const searchResults = await API.search(keyword, 'netease', 5, 1);
+    if (!Array.isArray(searchResults) || searchResults.length === 0) return null;
+
+    const currentName = song.name || '';
+    const matched = searchResults.find(item => {
+        const itemName = item.name || '';
+        return itemName.includes(currentName) || currentName.includes(itemName);
+    });
+    if (!matched || !matched.pic_id) return null;
+
+    const picApiUrl = `${API.baseUrl}?types=pic&id=${matched.pic_id}&source=netease&size=500`;
+    debugLog(`[取色兜底] 网易云 pic_id=${matched.pic_id} → ${picApiUrl}`);
+    const picData = await API.fetchJson(picApiUrl);
+    if (!picData || !picData.url) return null;
+
+    return preferHttpsUrl(picData.url);
+}
+
 async function fetchPaletteData(imageUrl) {
     console.log('🎨 开始获取调色板，图片URL:', imageUrl);
     
@@ -2807,78 +2846,11 @@ async function fetchPaletteData(imageUrl) {
     const currentSong = state.currentSong;
     const songSource = currentSong ? currentSong.source : '';
     
-    // 对于酷我音乐的图片，尝试从网易云或joox获取同歌曲同演唱者的封面来取色
-    if (imageUrl.includes('kuwo') && currentSong) {
-        console.log('🎵 酷我音乐图片，尝试从其他平台获取封面取色');
-        
-        try {
-            // 尝试从网易云搜索同一首歌曲
-            console.log('🔍 尝试从网易云搜索同一首歌曲');
-            const searchResults = await API.search(
-                `${currentSong.name} ${Array.isArray(currentSong.artist) ? currentSong.artist.join(' ') : currentSong.artist}`,
-                'netease',
-                5,
-                1
-            );
-            
-            // 查找匹配的歌曲
-            const matchedSong = searchResults.find(song => {
-                const songName = song.name || '';
-                const songArtist = Array.isArray(song.artist) ? song.artist.join(' ') : (song.artist || '');
-                const currentSongName = currentSong.name || '';
-                const currentSongArtist = Array.isArray(currentSong.artist) ? currentSong.artist.join(' ') : (currentSong.artist || '');
-                
-                // 简单的匹配逻辑：歌曲名和演唱者名都包含在搜索结果中
-                return songName.includes(currentSongName) || currentSongName.includes(songName);
-            });
-            
-            if (matchedSong && matchedSong.pic_id) {
-                console.log('✅ 找到匹配的网易云歌曲，使用其封面取色');
-                const neteasePicUrl = API.getPicUrl({
-                    ...matchedSong,
-                    source: 'netease'
-                });
-                
-                // 递归调用，使用网易云的封面取色
-                return fetchPaletteData(neteasePicUrl);
-            } else {
-                console.log('🔍 尝试从joox搜索同一首歌曲');
-                // 如果网易云没有找到，尝试从joox搜索
-                const jooxResults = await API.search(
-                    `${currentSong.name} ${Array.isArray(currentSong.artist) ? currentSong.artist.join(' ') : currentSong.artist}`,
-                    'joox',
-                    5,
-                    1
-                );
-                
-                // 查找匹配的歌曲
-                const jooxMatchedSong = jooxResults.find(song => {
-                    const songName = song.name || '';
-                    const currentSongName = currentSong.name || '';
-                    return songName.includes(currentSongName) || currentSongName.includes(songName);
-                });
-                
-                if (jooxMatchedSong && jooxMatchedSong.pic_id) {
-                    console.log('✅ 找到匹配的joox歌曲，使用其封面取色');
-                    const jooxPicUrl = API.getPicUrl({
-                        ...jooxMatchedSong,
-                        source: 'joox'
-                    });
-                    
-                    // 递归调用，使用joox的封面取色
-                    return fetchPaletteData(jooxPicUrl);
-                }
-            }
-        } catch (error) {
-            console.warn('❌ 从其他平台获取封面失败:', error);
-        }
-        
-        // 如果都没有找到，才使用默认调色板
-        console.log('🎵 没有找到匹配的歌曲，使用默认调色板');
-        return getDefaultPalette(imageUrl);
-    }
-    
-    // 所有有封面的歌曲都尝试取色
+    // 说明：酷我封面以前在这里被特判成"改用网易云/joox 封面取色"，
+    // 但那段代码把 GD 的 types=pic JSON 接口地址当图片地址喂给 canvas，
+    // 图片必然加载失败 → 每次酷我都落到默认紫蓝渐变。
+    // 实际上酷我封面完全能取色（CDN 自带 ACAO:*，且走同源 /proxy），
+    // 所以现在统一走本地取色，失败时才用网易云同名封面兜底。
     console.log(`🎵 ${songSource || '未知来源'}，尝试取色`);
 
     try {
@@ -2891,9 +2863,30 @@ async function fetchPaletteData(imageUrl) {
             persistPaletteCache();
             return localPalette;
         }
-        console.warn('⚠️ 本地取色返回空，使用默认调色板');
+        console.warn('⚠️ 本地取色失败（图片没加载出来）');
     } catch (localError) {
         console.error('❌ 本地取色异常:', localError);
+    }
+
+    // 兜底：酷我/酷狗封面取不到色时，用网易云同名封面再试一次
+    if (currentSong && (songSource === 'kuwo' || songSource === 'kugou')) {
+        try {
+            console.log('🔍 尝试用网易云同名封面兜底取色');
+            const altUrl = await resolveNeteaseCoverUrl(currentSong);
+            if (altUrl) {
+                const altPalette = await getLocalPalette(altUrl);
+                if (altPalette) {
+                    console.log('✅ 网易云封面兜底取色成功');
+                    // 仍以原 URL 为键缓存，下次直接命中
+                    paletteCache.set(imageUrl, altPalette);
+                    persistPaletteCache();
+                    return altPalette;
+                }
+            }
+            console.log('🎵 网易云也没有可用封面，使用默认调色板');
+        } catch (error) {
+            console.warn('❌ 网易云封面兜底失败:', error);
+        }
     }
 
     // 如果本地取色失败，返回默认调色板
@@ -4663,29 +4656,18 @@ function setupInteractions() {
     // 设置解锁自动恢复
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {
-            // 刚从锁屏解锁
+            // 刚从锁屏/后台回来
             setTimeout(() => {
                 const player = dom.audioPlayer;
-                if (player && !player.paused && player.currentTime > 0) {
-                    console.log('🔄 解锁后音频状态检查');
-                    
-                    // 检查是否是 iOS PWA
-                    const isIOSPWA = /iPad|iPhone|iPod/.test(navigator.userAgent) && 
-                                    window.navigator.standalone === true;
-                    
-                    if (isIOSPWA) {
-                        // 执行简化的硬件重同步
-                        const currentTime = player.currentTime;
-                        player.pause();
-                        
-                        setTimeout(() => {
-                            player.currentTime = currentTime + 0.001; // 微调 1 毫秒
-                            player.play().catch(e => {
-                                console.log('🔄 解锁后播放失败:', e);
-                            });
-                        }, 50);
-                    }
-                }
+                if (!player || !player.src) return;
+
+                console.log('🔄 解锁后音频状态检查');
+
+                // 注意：这里不再无条件执行 pause()→currentTime+0.001→play() 的"硬件重同步"。
+                // 那段逻辑即使声音完全正常也会执行一次，导致每次切标签页/最小化再展开
+                // 都出现 pause→seeking→waiting 的短暂停顿（听感上"顿一下"）。
+                // 现在统一走健康检查：进度还在走就什么都不做，只有真的卡住才修复。
+                verifyPlaybackAfterResume('页面重新可见');
             }, 500);
             
             // 闪电侠模式：解锁后瞬间完成所有延迟的UI更新
@@ -4881,12 +4863,10 @@ function performUnlockRecovery() {
                 
                 // 如果音频应该在播放但可能有问题
                 if (!player.paused) {
-                    // 检查是否需要音频修复
-                    if (player.volume > 0 && !player.muted) {
-                        // 音频可能没声音，尝试修复
-                        fixAudioOutputIfNeeded();
-                    }
-                    
+                    // 先判断音频是不是真的卡住了：进度还在走就什么都不做。
+                    // （这里原来是无条件 fixAudioOutputIfNeeded()，正是"切标签页回来顿一下"的元凶）
+                    verifyPlaybackAfterResume('解锁恢复');
+
                     // 强制更新一次进度条
                     const currentTime = player.currentTime || 0;
                     const duration = player.duration || Number(dom.progressBar.max) || 0;
@@ -4922,7 +4902,72 @@ function performUnlockRecovery() {
     });
 }
 
-// 修复音频输出
+// ================================================
+// 页面重新可见（切标签页/最小化回来）时的音频健康检查
+// ================================================
+// 背景：原来只要页面重新可见就无条件执行 pause()→currentTime+0.001→play() 的
+// "硬件重同步"，即使声音完全正常也会跑一遍，实测会触发
+// pause → seeking → waiting → playing，听感上就是"顿一下"。
+// 现在分两种情况处理：
+//   1) 被系统掐断（已在暂停）：只重新 play()，不动 currentTime，不产生停顿；
+//   2) 还在播：观察约 700ms，靠 timeupdate 心跳判断进度有没有前进，
+//      前进就直接返回；确实停滞且数据已备齐（readyState>=3）才做硬重同步。
+const AUDIO_HEARTBEAT_FRESH_MS = 900; // 心跳在这么久内出现过 = 音频在正常前进
+let lastAudioProgressAt = 0;
+let audioHeartbeatBound = false;
+let resumeHealthTimer = null;
+
+// 绑一次播放心跳（timeupdate 约每 250ms 一次）
+function ensureAudioHeartbeat() {
+    if (audioHeartbeatBound || !dom.audioPlayer) return;
+    audioHeartbeatBound = true;
+    const mark = () => { lastAudioProgressAt = Date.now(); };
+    dom.audioPlayer.addEventListener('timeupdate', mark);
+    dom.audioPlayer.addEventListener('playing', mark);
+    lastAudioProgressAt = Date.now(); // 刚绑定先当作健康，避免第一次回来就误判
+}
+
+function verifyPlaybackAfterResume(reason = '') {
+    const player = dom.audioPlayer;
+    if (!player || !player.src || player.ended) return;
+
+    ensureAudioHeartbeat();
+
+    if (resumeHealthTimer) {
+        clearTimeout(resumeHealthTimer);
+        resumeHealthTimer = null;
+    }
+
+    // 情况 1：后台被系统暂停了 —— 只恢复播放，不做任何 seek
+    if (player.paused) {
+        if (state.isPlaying) {
+            console.log(`🔓 [${reason}] 播放被中断，仅恢复播放（不做重同步）`);
+            player.play().catch(e => console.warn('🔓 恢复播放失败:', e));
+        }
+        return;
+    }
+
+    // 情况 2：还在播 —— 用 timeupdate 心跳判断进度是不是真的在前进
+    const beforeSrc = player.currentSrc || player.src;
+    resumeHealthTimer = setTimeout(() => {
+        resumeHealthTimer = null;
+        const p = dom.audioPlayer;
+        if (!p || !p.src || p.paused || p.ended) return;
+        // 已经换歌/换源（新一首的进度可能比旧的小）→ 交给新的播放流程，不在这里动手
+        if ((p.currentSrc || p.src) !== beforeSrc) return;
+        // 观察期内有新的 timeupdate → 进度在走，健康
+        if (Date.now() - lastAudioProgressAt < AUDIO_HEARTBEAT_FRESH_MS) return;
+        // 还在缓冲（数据没备齐）时不要做破坏性重同步，否则会把正在缓冲的流重新拉一遍
+        if (p.readyState < 3) {
+            console.log('🔓 音频仍在缓冲，跳过硬重同步');
+            return;
+        }
+        console.warn('🔓 音频进度停滞，执行硬重同步');
+        fixAudioOutputIfNeeded();
+    }, 700);
+}
+
+// 修复音频输出（仅在健康检查判定进度停滞时调用）
 function fixAudioOutputIfNeeded() {
     const player = dom.audioPlayer;
     if (!player || !player.src || player.paused) return;
@@ -5035,13 +5080,14 @@ function updateCurrentSongInfo(song, options = {}) {
                 try {
                     // 先请求API URL获取JSON对象，提取真正的图片URL
                     debugLog(`请求封面API: ${picUrl}`);
-                    const picData = await API.fetchJson(picUrl);
-                    
-                    if (!picData || !picData.url) {
+                    // 直链直接用；GD 的 types=pic JSON 接口才需要再取一次 .url。
+                    // （以前一律先 fetchJson，遇到 /proxy 直链会把整张图当文本下载一遍再报 JSON 解析失败）
+                    const actualImageUrl = await resolvePicUrlToImageUrl(picUrl);
+
+                    if (!actualImageUrl) {
                         throw new Error('Invalid pic API response');
                     }
-                    
-                    const actualImageUrl = picData.url;
+
                     debugLog(`获取到真正的封面URL: ${actualImageUrl}`);
                     
                     const preferredImageUrl = preferHttpsUrl(actualImageUrl);
@@ -7028,6 +7074,28 @@ function updatePlaylistHighlight() {
 // ================================================ 
 
 // 1. 锁屏元数据更新 
+// API.getPicUrl() 会返回两类地址，必须先区分开：
+//   1) 图片直链（妖狐 API 的 cover/image，多数已被 /proxy 包过）→ 直接给 <img>/artwork 用；
+//   2) GD 的 types=pic JSON 接口 → 必须再请求一次取出 .url，
+//      直接把接口地址当图片用会：①加载失败 ②把整张图当 JSON 下载一遍（白流量 + 报错噪音）。
+function isDirectImageUrl(url) {
+    if (!url || typeof url !== 'string') return false;
+    if (/[?&]target=/i.test(url)) return true;                       // 同源 /proxy 直链
+    return /\.(jpe?g|png|webp|gif|bmp|avif)(\?|#|$)/i.test(url);     // 常规图片扩展名
+}
+
+async function resolvePicUrlToImageUrl(picUrl) {
+    if (!picUrl) return null;
+    if (isDirectImageUrl(picUrl)) return picUrl;
+    try {
+        const picData = await API.fetchJson(picUrl);
+        if (picData && picData.url) return picData.url;
+    } catch (error) {
+        debugLog(`[封面] 解析封面接口失败: ${error.message}`);
+    }
+    return null;
+}
+
 async function updateMediaMetadataForLockScreen(song) { 
     if (!('mediaSession' in navigator)) return; 
     try { 
@@ -7036,10 +7104,10 @@ async function updateMediaMetadataForLockScreen(song) {
             const picUrl = API.getPicUrl(song); 
             if (picUrl) {
                 try {
-                    // 先请求API URL获取JSON对象，提取真正的图片URL
-                    const picData = await API.fetchJson(picUrl);
-                    if (picData && picData.url) {
-                        coverUrl = picData.url;
+                    // 直链直接用；JSON 接口才需要再取一次 .url
+                    const resolved = await resolvePicUrlToImageUrl(picUrl);
+                    if (resolved) {
+                        coverUrl = resolved;
                         if (coverUrl.startsWith('http://')) coverUrl = coverUrl.replace('http://', 'https://');
                     }
                 } catch (error) {
@@ -7188,23 +7256,19 @@ async function playSong(song, options = {}) {
                 debugLog(`[播放] 酷我使用新API获取音频`);
                 // 传入歌名+歌手作为 msg（API更新后 action=song 必填 msg）
                 const kuwoMsg = `${song.name} ${song.artist || ""}`.trim();
-                const results = await Promise.allSettled(
-                    qualitiesToTry.map(async (q) => {
-                        try {
-                            const result = await API_KUWO.getSongUrlByRid(song.id, q, kuwoMsg);
-                            if (result && result.url) {
-                                return { quality: q, data: result };
-                            }
-                        } catch {}
-                        return null;
-                    })
-                );
-                // 取第一个成功的
-                const success = results.find(r => r.status === "fulfilled" && r.value);
-                if (success && success.value) {
-                    audioData = success.value.data;
-                    state.playbackQuality = success.value.quality;
-                    debugLog(`[播放] 酷我API成功 (音质: ${success.value.quality})`);
+                // 串行尝试（不要并发）：妖狐这个上游并发请求会被限流/超时
+                for (const q of qualitiesToTry) {
+                    try {
+                        const result = await API_KUWO.getSongUrlByRid(song.id, q, kuwoMsg);
+                        if (result && result.url) {
+                            audioData = result;
+                            state.playbackQuality = q;
+                            debugLog(`[播放] 酷我API成功 (音质: ${q})`);
+                            break;
+                        }
+                    } catch (error) {
+                        debugLog(`[播放] 酷我音质 ${q} 失败: ${error.message}`);
+                    }
                 }
             } else if (song.source === "kugou") {
                 // 酷狗音乐使用新API
@@ -7220,23 +7284,20 @@ async function playSong(song, options = {}) {
                     const apiQ = kgQualityMap[q] || 'flac';
                     if (!kgUnique.has(apiQ)) kgUnique.set(apiQ, q);
                 }
-                const results = await Promise.allSettled(
-                    [...kgUnique.entries()].map(async ([apiQ, userQ]) => {
-                        try {
-                            const result = await API_KUGOU.getSongUrlByKeyword(keyword, songIndex, apiQ);
-                            if (result && result.url) {
-                                return { quality: userQ, data: result };
-                            }
-                        } catch {}
-                        return null;
-                    })
-                );
-                // 取第一个成功的
-                const success = results.find(r => r.status === "fulfilled" && r.value);
-                if (success && success.value) {
-                    audioData = success.value.data;
-                    state.playbackQuality = success.value.quality;
-                    debugLog(`[播放] 酷狗音乐API成功 (音质: ${success.value.quality})`);
+                // 串行尝试（不要并发）：上游并发请求会被限流/超时，
+                // 而且 getSongUrlByKeyword 内部已经带重试，串行反而更快拿到结果
+                for (const [apiQ, userQ] of kgUnique.entries()) {
+                    try {
+                        const result = await API_KUGOU.getSongUrlByKeyword(keyword, songIndex, apiQ);
+                        if (result && result.url) {
+                            audioData = result;
+                            state.playbackQuality = userQ;
+                            debugLog(`[播放] 酷狗音乐API成功 (音质: ${userQ}/${apiQ})`);
+                            break;
+                        }
+                    } catch (error) {
+                        debugLog(`[播放] 酷狗音质 ${apiQ} 失败: ${error.message}`);
+                    }
                 }
             } else if (song.source === "xima") {
                 // 喜马拉雅使用新API
@@ -7304,20 +7365,33 @@ async function playSong(song, options = {}) {
             debugLog(`[播放] 保存封面URL: ${song.pic_url.substring(0, 60)}...`);
         }
         
-        // 妖狐API返回的音频URL可直接播放，跳过代理（本地测试已验证）
+        // 妖狐API返回的音频URL：https 可直接播放；但**http 直链在 https 页面上必坏**，
+        // 详见下面的候选排序逻辑
         const isYaohudSource = audioData.apiSource === "kuwo_api" || audioData.apiSource === "kugou_api";
         
         let proxiedAudioUrl, preferredAudioUrl;
         let candidateAudioUrls;
         
         if (isYaohudSource) {
-            // 妖狐API来源：优先直连，同时准备代理URL作为兜底（防盗链/CDN拦截时使用）
             proxiedAudioUrl = buildAudioProxyUrl(originalAudioUrl);
             preferredAudioUrl = preferHttpsUrl(originalAudioUrl);
-            candidateAudioUrls = Array.from(
-                new Set([preferredAudioUrl, originalAudioUrl, proxiedAudioUrl].filter(Boolean))
-            );
-            debugLog(`[播放] 妖狐API来源，直连优先，代理兜底`);
+
+            const pageIsHttps = window.location.protocol === "https:";
+            const originalIsHttp = /^http:\/\//i.test(originalAudioUrl);
+
+            if (pageIsHttps && originalIsHttp) {
+                // http 直链会被浏览器按混合内容拦掉；而盲目升级成 https 对部分酷狗 CDN 也不成立
+                // （实测 fs.youthandroid2.kugou.com 证书主机名不匹配，https 直接失败）。
+                // 所以直接走同源 /proxy（它会补上正确的 Referer，且本身就是 https）。
+                candidateAudioUrls = Array.from(new Set([proxiedAudioUrl].filter(Boolean)));
+                debugLog(`[播放] 妖狐源 http 直链（https 页面）：直接走同源代理，避免混合内容/证书问题`);
+            } else {
+                // 已经是 https 的直链（如 kw-er.kuwo.cn）：直连优先，代理兜底
+                candidateAudioUrls = Array.from(
+                    new Set([preferredAudioUrl, originalAudioUrl, proxiedAudioUrl].filter(Boolean))
+                );
+                debugLog(`[播放] 妖狐API来源，直连优先，代理兜底`);
+            }
         } else {
             proxiedAudioUrl = buildAudioProxyUrl(originalAudioUrl);
             preferredAudioUrl = preferHttpsUrl(originalAudioUrl);
@@ -7330,7 +7404,7 @@ async function playSong(song, options = {}) {
             }
         }
         
-        if (preferredAudioUrl && preferredAudioUrl !== originalAudioUrl) {
+        if (preferredAudioUrl !== originalAudioUrl && candidateAudioUrls.includes(preferredAudioUrl)) {
             debugLog(`音频地址由 HTTP 升级为 HTTPS: ${preferredAudioUrl}`);
         }
         
