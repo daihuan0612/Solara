@@ -1875,11 +1875,12 @@ html.mobile-view .favorites .favorite-item-action--remove {
     content: none;
 }
 .lyrics .current { 
-    color: var(--lyrics-highlight-text); 
+    /* 高亮当前句：跟随封面取色的 --primary-color（会随背景一起变），不再固定绿色，避免突兀 */
+    color: var(--primary-color); 
     font-weight: 700; 
-    background-color: var(--lyrics-highlight-bg); 
+    background-color: color-mix(in srgb, var(--primary-color) 12%, transparent); 
     transform: scale(1.05); 
-    box-shadow: 0 4px 15px var(--lyrics-highlight-shadow); 
+    box-shadow: 0 4px 15px color-mix(in srgb, var(--primary-color) 18%, transparent); 
 }
 
 /* 控制区域 */

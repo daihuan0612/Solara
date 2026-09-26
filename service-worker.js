@@ -6,8 +6,8 @@
 //   - 其他 → 网络优先
 
 const CACHE_NAMES = {
-    // v22: 播放列表"还有更多"提示去掉玻璃容器，只留一个淡淡的双箭头(更不突兀)；其余行为不变
-    shell: 'solara-shell-v22',    // 应用壳（CSS, JS, HTML）
+    // v23: 高亮当前歌词句改用封面取色的 --primary-color(随背景一起变)，不再固定绿色，整体更协调无突兀色
+    shell: 'solara-shell-v23',    // 应用壳（CSS, JS, HTML）
     audio: 'solara-audio-v1',     // 缓存的音频
 };
 
