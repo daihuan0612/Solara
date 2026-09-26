@@ -6,8 +6,8 @@
 //   - 其他 → 网络优先
 
 const CACHE_NAMES = {
-    // v13: 账户入口改为搜索栏/工具栏的小人头像 + 登录/退出清本地缓存防共用浏览器串数据 —— 改了 js/html/css 都要换名
-    shell: 'solara-shell-v13',    // 应用壳（CSS, JS, HTML）
+    // v14: 账户头像挪到左上角（桌面与右上主题钮同款方钮/同一水平线；移动端占用原本空着的左上角）
+    shell: 'solara-shell-v14',    // 应用壳（CSS, JS, HTML）
     audio: 'solara-audio-v1',     // 缓存的音频
 };
 
