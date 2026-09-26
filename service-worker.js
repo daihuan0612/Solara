@@ -6,8 +6,8 @@
 //   - 其他 → 网络优先
 
 const CACHE_NAMES = {
-    // v23: 高亮当前歌词句改用封面取色的 --primary-color(随背景一起变)，不再固定绿色，整体更协调无突兀色
-    shell: 'solara-shell-v23',    // 应用壳（CSS, JS, HTML）
+    // v24: ①播放列表"正在播放"去掉绿色底块,只靠文字变主题色标识; ②D1 同步精简为只同步 播放列表+收藏列表+音质(不再同步播放进度/音量/播放模式/音源/当前第几首等)
+    shell: 'solara-shell-v24',    // 应用壳（CSS, JS, HTML）
     audio: 'solara-audio-v1',     // 缓存的音频
 };
 

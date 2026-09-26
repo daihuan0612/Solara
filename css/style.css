@@ -1492,9 +1492,11 @@ html.mobile-view .playlist-header .playlist-action-btn {
     transform: translateX(5px);
 }
 .playlist-items .playlist-item.current {
+    /* 正在播放的歌：只靠文字变主题色来标识（下面这个逻辑用户认可）；
+       去掉原来那块固定绿色底(--item-current-bg)，改成透明，避免突兀的绿色块 */
     color: var(--item-current-text);
     font-weight: 500;
-    background-color: var(--item-current-bg);
+    background-color: transparent;
 }
 
 

@@ -351,22 +351,12 @@ let paletteRequestId = 0;
 
 const REMOTE_STORAGE_ENDPOINT = "/api/storage";
 let remoteSyncEnabled = false;
+// 需要跨设备同步到 D1 的键（用户要求：只同步两份列表 + 音质，不同步播放进度/音量/播放模式/音源/当前第几首等）。
+// 其余键仍保存在本地 localStorage（同一浏览器内照常记忆），只是不再上传/下载 D1。
 const STORAGE_KEYS_TO_SYNC = new Set([
-    "playlistSongs",
-    "currentTrackIndex",
-    "playMode",
-    "playbackQuality",
-    "playerVolume",
-    "currentPlaylist",
-    "currentList",
-    "currentSong",
-    "currentPlaybackTime",
-    "favoriteSongs",
-    "currentFavoriteIndex",
-    "favoritePlayMode",
-    "favoritePlaybackTime",
-    "searchSource",
-    "lastSearchState.v1",
+    "playlistSongs",     // 播放列表
+    "favoriteSongs",     // 收藏列表
+    "playbackQuality",   // 选择的音质
 ]);
 
 function createPersistentStorageClient() {

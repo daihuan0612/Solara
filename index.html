@@ -675,7 +675,9 @@
 </div>
 <script>
   (function () {
-    // 与 index.js 的 STORAGE_KEYS_TO_SYNC 保持一致：切换/退出账号时清掉本地缓存，避免共用浏览器串数据
+    // 切换/退出账号时要清掉的本地缓存，避免共用浏览器串数据。
+    // 这里要比 D1 同步列表(STORAGE_KEYS_TO_SYNC，现仅 playlistSongs/favoriteSongs/playbackQuality)更全：
+    // 不同步 D1 的键(音量/播放模式/进度/音源/当前第几首等)也只是留在本地，换账号时同样必须清，否则会串给下一个用户。
     const SYNC_KEYS = ["playlistSongs","currentTrackIndex","playMode","playbackQuality","playerVolume",
       "currentPlaylist","currentList","currentSong","currentPlaybackTime","favoriteSongs",
       "currentFavoriteIndex","favoritePlayMode","favoritePlaybackTime","searchSource","lastSearchState.v1"];
