@@ -611,5 +611,63 @@
         }, 3000);
     })();
 </script>
+<!-- 账户入口（多用户）：用户名 / 修改密码 / 退出 / 后台（仅管理员）。自包含，不依赖 index.js -->
+<div id="acctChip" style="display:none;position:fixed;top:14px;left:14px;z-index:99998;font-family:'Noto Sans SC',sans-serif">
+  <button id="acctBtn" type="button" style="display:inline-flex;align-items:center;gap:7px;background:rgba(20,24,32,0.55);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);border:1px solid rgba(255,255,255,0.16);color:#eef2f6;border-radius:999px;padding:6px 13px;font-size:13px;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,0.18)">
+    <i class="fa-solid fa-circle-user"></i><span id="acctName">…</span><i class="fa-solid fa-chevron-down" style="font-size:10px;opacity:.7"></i>
+  </button>
+  <div id="acctMenu" style="display:none;margin-top:8px;min-width:168px;background:rgba(22,26,34,0.92);-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,0.14);border-radius:14px;overflow:hidden;box-shadow:0 18px 40px rgba(0,0,0,0.4)">
+    <a id="acctAdmin" href="/admin.html" style="display:none;align-items:center;gap:9px;padding:11px 14px;color:#52e9d2;text-decoration:none;font-size:13px"><i class="fa-solid fa-gauge-high" style="width:16px"></i>后台管理</a>
+    <button id="acctPwd" type="button" style="display:flex;align-items:center;gap:9px;width:100%;padding:11px 14px;background:none;border:none;color:#eef2f6;font-size:13px;cursor:pointer;font-family:inherit"><i class="fa-solid fa-key" style="width:16px"></i>修改密码</button>
+    <button id="acctLogout" type="button" style="display:flex;align-items:center;gap:9px;width:100%;padding:11px 14px;background:none;border:none;color:#ff9a9a;font-size:13px;cursor:pointer;font-family:inherit;border-top:1px solid rgba(255,255,255,0.08)"><i class="fa-solid fa-right-from-bracket" style="width:16px"></i>退出登录</button>
+  </div>
+</div>
+<script>
+  (function () {
+    const chip = document.getElementById("acctChip");
+    const btn = document.getElementById("acctBtn");
+    const menu = document.getElementById("acctMenu");
+    async function api(url, opts) {
+      const r = await fetch(url, Object.assign({ credentials: "include", headers: { "Content-Type": "application/json" } }, opts));
+      let d = {}; try { d = await r.json(); } catch (_) {}
+      return { ok: r.ok, status: r.status, data: d };
+    }
+    fetch("/api/me", { credentials: "include" }).then(r => r.ok ? r.json() : null).then(me => {
+      // 开放模式（未启用鉴权）或未登录：不显示账户入口
+      if (!me || !me.authenticated) return;
+      document.getElementById("acctName").textContent = me.username || "用户";
+      if (me.role === "admin") document.getElementById("acctAdmin").style.display = "flex";
+      chip.style.display = "block";
+    }).catch(() => {});
+
+    btn?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      menu.style.display = menu.style.display === "block" ? "none" : "block";
+    });
+    document.addEventListener("click", () => { if (menu) menu.style.display = "none"; });
+    menu?.addEventListener("click", (e) => e.stopPropagation());
+
+    document.getElementById("acctLogout")?.addEventListener("click", async () => {
+      await api("/api/logout", { method: "POST" });
+      try { localStorage.removeItem("solara_authenticated"); } catch (_) {}
+      window.location.href = "/login";
+    });
+
+    document.getElementById("acctPwd")?.addEventListener("click", async () => {
+      menu.style.display = "none";
+      const oldPassword = prompt("请输入当前密码：");
+      if (oldPassword == null) return;
+      const newPassword = prompt("请输入新密码（至少 4 位，仅 ASCII 字符）：");
+      if (newPassword == null) return;
+      const { ok, data } = await api("/api/change-password", { method: "POST", body: JSON.stringify({ oldPassword, newPassword }) });
+      if (ok) {
+        alert("密码修改成功。");
+      } else {
+        const map = { wrong_old_password: "当前密码不正确", weak_password: "新密码至少 4 位", unauthorized: "登录已过期，请重新登录" };
+        alert(map[data.error] || "修改失败：" + (data.error || "未知错误"));
+      }
+    });
+  })();
+</script>
 </body>
 </html>

@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>后台管理 - 小苹果Music</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: 'Noto Sans SC', 'Segoe UI', Arial, sans-serif;
+      color: #eef2f6;
+      background:
+        radial-gradient(circle at 15% 15%, rgba(26,188,156,0.28), transparent 55%),
+        radial-gradient(circle at 85% 10%, rgba(52,152,219,0.22), transparent 50%),
+        #0a0d13;
+      padding: clamp(16px, 4vw, 40px);
+    }
+    .wrap { max-width: 920px; margin: 0 auto; }
+    header.bar {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      margin-bottom: 24px; flex-wrap: wrap;
+    }
+    header.bar h1 { font-size: 1.5rem; margin: 0; display: flex; align-items: center; gap: 10px; }
+    header.bar h1 .logo { width: 34px; height: 34px; border-radius: 10px; object-fit: cover; }
+    .who { font-size: 0.9rem; color: rgba(255,255,255,0.7); }
+    .who b { color: #52e9d2; }
+    .bar-actions { display: flex; gap: 8px; }
+    .btn {
+      border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.06);
+      color: #e7edf2; border-radius: 12px; padding: 8px 14px; font-size: 0.88rem;
+      cursor: pointer; transition: background .15s ease, transform .1s ease; text-decoration: none;
+      display: inline-flex; align-items: center; gap: 6px;
+    }
+    .btn:hover { background: rgba(255,255,255,0.14); }
+    .btn:active { transform: translateY(1px); }
+    .btn-primary { background: linear-gradient(135deg,#2fd2a8,#1abc9c); border: none; color: #05231c; font-weight: 600; }
+    .btn-danger { color: #ff9a9a; border-color: rgba(255,120,120,0.35); }
+    .btn-danger:hover { background: rgba(255,80,80,0.16); }
+    .card {
+      background: linear-gradient(160deg, rgba(17,21,32,0.9), rgba(14,24,29,0.8));
+      border: 1px solid rgba(255,255,255,0.08); border-radius: 20px;
+      padding: clamp(18px,3vw,26px); margin-bottom: 22px;
+      box-shadow: 0 24px 50px rgba(0,0,0,0.4);
+    }
+    .card h2 { margin: 0 0 16px; font-size: 1.05rem; font-weight: 600; }
+    form.new-user { display: grid; grid-template-columns: 1fr 1fr auto auto; gap: 12px; align-items: end; }
+    @media (max-width: 640px){ form.new-user{ grid-template-columns: 1fr 1fr; } }
+    .field { display: flex; flex-direction: column; gap: 6px; }
+    .field label { font-size: 0.8rem; color: rgba(255,255,255,0.6); }
+    .field input, .field select {
+      background: rgba(10,15,20,0.8); border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 12px; padding: 10px 12px; color: #fff; font-size: 0.95rem; font-family: inherit;
+      outline: none;
+    }
+    .field input:focus, .field select:focus { border-color: rgba(51,211,175,0.8); }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 12px 10px; font-size: 0.9rem; border-bottom: 1px solid rgba(255,255,255,0.07); }
+    th { color: rgba(255,255,255,0.55); font-weight: 500; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.5px; }
+    td .tag { font-size: 0.72rem; padding: 2px 8px; border-radius: 999px; }
+    .tag-admin { background: rgba(51,211,175,0.2); color: #52e9d2; }
+    .tag-user { background: rgba(255,255,255,0.1); color: #cdd6de; }
+    .row-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+    .muted { color: rgba(255,255,255,0.45); font-size: 0.82rem; }
+    #toast {
+      position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px);
+      background: rgba(20,24,32,0.95); border: 1px solid rgba(255,255,255,0.12); color: #fff;
+      padding: 12px 20px; border-radius: 12px; opacity: 0; pointer-events: none;
+      transition: opacity .25s ease, transform .25s ease; z-index: 100; font-size: 0.9rem;
+    }
+    #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+    #toast.err { border-color: rgba(255,90,90,0.5); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="bar">
+      <h1><img class="logo" src="/favicon1.png" alt="">后台管理</h1>
+      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+        <span class="who">管理员：<b id="whoName">…</b></span>
+        <div class="bar-actions">
+          <a class="btn" href="/"><i class="fa-solid fa-arrow-left"></i> 返回应用</a>
+          <button class="btn btn-danger" id="logoutBtn"><i class="fa-solid fa-right-from-bracket"></i> 退出</button>
+        </div>
+      </div>
+    </header>
+
+    <section class="card">
+      <h2>新建账号</h2>
+      <form class="new-user" id="newUserForm">
+        <div class="field">
+          <label for="nu-name">账号</label>
+          <input id="nu-name" type="text" autocomplete="off" autocapitalize="none" spellcheck="false"
+                 placeholder="字母/数字/ . _ - @" required>
+        </div>
+        <div class="field">
+          <label for="nu-pwd">初始密码</label>
+          <input id="nu-pwd" type="text" autocomplete="off" placeholder="至少 4 位" required>
+        </div>
+        <div class="field">
+          <label for="nu-role">角色</label>
+          <select id="nu-role">
+            <option value="user">普通用户</option>
+            <option value="admin">管理员</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" type="submit"><i class="fa-solid fa-plus"></i> 创建</button>
+      </form>
+      <p class="muted" style="margin:12px 0 0">提示：密码只支持 ASCII 字符（字母、数字、符号）。创建后把账号密码发给对方即可，忘了你可以随时重置。</p>
+    </section>
+
+    <section class="card">
+      <h2>账号列表</h2>
+      <table>
+        <thead>
+          <tr><th>ID</th><th>账号</th><th>角色</th><th>创建时间</th><th>操作</th></tr>
+        </thead>
+        <tbody id="userRows">
+          <tr><td colspan="5" class="muted">加载中…</td></tr>
+        </tbody>
+      </table>
+    </section>
+  </div>
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    const toastEl = document.getElementById("toast");
+    let toastTimer;
+    function toast(msg, isErr) {
+      toastEl.textContent = msg;
+      toastEl.className = "show" + (isErr ? " err" : "");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => (toastEl.className = ""), 2800);
+    }
+    const ERR = {
+      username_taken: "账号已存在",
+      invalid_username: "账号格式不合法（只允许字母/数字/ . _ - @）",
+      weak_password: "密码至少 4 位",
+      cannot_delete_self: "不能删除你自己",
+      cannot_delete_last_admin: "不能删除最后一个管理员",
+      cannot_demote_last_admin: "不能取消最后一个管理员",
+      user_not_found: "用户不存在",
+      forbidden: "无权限（请用管理员账号登录）",
+    };
+    function msgOf(code) { return ERR[code] || code || "操作失败"; }
+
+    async function api(url, opts) {
+      const res = await fetch(url, Object.assign({ credentials: "include", headers: { "Content-Type": "application/json" } }, opts));
+      let data = {};
+      try { data = await res.json(); } catch (_) {}
+      return { ok: res.ok, status: res.status, data };
+    }
+
+    async function loadMe() {
+      const { ok, data } = await api("/api/me");
+      if (!ok || !data.authenticated) { window.location.href = "/login"; return; }
+      if (data.role !== "admin") { window.location.href = "/"; return; }
+      document.getElementById("whoName").textContent = data.username;
+    }
+
+    function esc(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+    async function loadUsers() {
+      const { ok, data } = await api("/api/admin/users");
+      const tbody = document.getElementById("userRows");
+      if (!ok) { tbody.innerHTML = `<tr><td colspan="5" class="muted">${msgOf(data.error)}</td></tr>`; return; }
+      const users = data.users || [];
+      if (!users.length) { tbody.innerHTML = `<tr><td colspan="5" class="muted">暂无账号</td></tr>`; return; }
+      tbody.innerHTML = users.map(u => {
+        const roleTag = u.role === "admin"
+          ? '<span class="tag tag-admin">管理员</span>'
+          : '<span class="tag tag-user">普通</span>';
+        const toggleRole = u.role === "admin"
+          ? `<button class="btn" data-act="role" data-id="${u.id}" data-role="user">设为普通</button>`
+          : `<button class="btn" data-act="role" data-id="${u.id}" data-role="admin">设为管理员</button>`;
+        return `<tr>
+          <td>${u.id}</td>
+          <td>${esc(u.username)}</td>
+          <td>${roleTag}</td>
+          <td class="muted">${esc(u.created_at || "")}</td>
+          <td><div class="row-actions">
+            <button class="btn" data-act="reset" data-id="${u.id}" data-name="${esc(u.username)}"><i class="fa-solid fa-key"></i> 重置密码</button>
+            ${toggleRole}
+            <button class="btn btn-danger" data-act="delete" data-id="${u.id}" data-name="${esc(u.username)}"><i class="fa-solid fa-trash"></i> 删除</button>
+          </div></td>
+        </tr>`;
+      }).join("");
+    }
+
+    document.getElementById("newUserForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const username = document.getElementById("nu-name").value.trim();
+      const password = document.getElementById("nu-pwd").value;
+      const role = document.getElementById("nu-role").value;
+      const { ok, data } = await api("/api/admin/users", { method: "POST", body: JSON.stringify({ username, password, role }) });
+      if (ok) {
+        toast(`已创建账号 ${username}`);
+        document.getElementById("nu-name").value = "";
+        document.getElementById("nu-pwd").value = "";
+        loadUsers();
+      } else {
+        toast(msgOf(data.error), true);
+      }
+    });
+
+    document.getElementById("userRows").addEventListener("click", async (e) => {
+      const btn = e.target.closest("button[data-act]");
+      if (!btn) return;
+      const act = btn.dataset.act;
+      const id = Number(btn.dataset.id);
+      const name = btn.dataset.name;
+
+      if (act === "reset") {
+        const np = prompt(`给「${name}」设置新密码（至少 4 位，仅 ASCII）：`);
+        if (np == null) return;
+        const { ok, data } = await api("/api/admin/manage", { method: "POST", body: JSON.stringify({ action: "reset", id, newPassword: np }) });
+        toast(ok ? `已重置「${name}」的密码` : msgOf(data.error), !ok);
+      } else if (act === "delete") {
+        if (!confirm(`确定删除账号「${name}」？其歌单与收藏也会一并删除，且不可恢复。`)) return;
+        const { ok, data } = await api("/api/admin/manage", { method: "POST", body: JSON.stringify({ action: "delete", id }) });
+        if (ok) { toast(`已删除「${name}」`); loadUsers(); } else { toast(msgOf(data.error), true); }
+      } else if (act === "role") {
+        const role = btn.dataset.role;
+        const { ok, data } = await api("/api/admin/manage", { method: "POST", body: JSON.stringify({ action: "role", id, role }) });
+        if (ok) { toast("角色已更新"); loadUsers(); } else { toast(msgOf(data.error), true); }
+      }
+    });
+
+    document.getElementById("logoutBtn").addEventListener("click", async () => {
+      await api("/api/logout", { method: "POST" });
+      localStorage.removeItem("solara_authenticated");
+      window.location.href = "/login";
+    });
+
+    loadMe().then(loadUsers);
+  </script>
+</body>
+</html>

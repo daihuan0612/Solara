@@ -609,8 +609,16 @@
       <form class="login-form" id="login-form">
         <div class="field">
           <div class="input-wrapper">
+            <i class="fa-solid fa-user" aria-hidden="true"></i>
+            <input type="text" id="username" placeholder="账号" autocomplete="username" required
+              autocapitalize="none" autocorrect="off" spellcheck="false"
+              oninput="this.value = this.value.replace(/[^\x00-\x7F]/g, '')">
+          </div>
+        </div>
+        <div class="field">
+          <div class="input-wrapper">
             <i class="fa-solid fa-lock" aria-hidden="true"></i>
-            <input type="password" id="password" placeholder="输入密码" autocomplete="current-password" required
+            <input type="password" id="password" placeholder="密码" autocomplete="current-password" required
               oninput="this.value = this.value.replace(/[^\x00-\x7F]/g, '')">
           </div>
         </div>
@@ -669,21 +677,23 @@
 
     document.getElementById("login-form")?.addEventListener("submit", async (event) => {
       event.preventDefault();
+      const userInput = document.getElementById("username");
       const pwdInput = document.getElementById("password");
+      const username = userInput instanceof HTMLInputElement ? userInput.value.trim() : "";
       const password = pwdInput instanceof HTMLInputElement ? pwdInput.value : "";
       try {
         const response = await fetch("/api/login", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({ password }),
+          body: JSON.stringify({ username, password }),
         });
         if (response.ok) {
           localStorage.setItem("solara_authenticated", "true");
           window.location.href = "/";
           return;
         }
-        showNotification("密码错误，请重试", "error");
+        showNotification("账号或密码错误，请重试", "error");
       } catch (error) {
         console.error(error);
         // 登录请求失败（网络问题），检查本地标记

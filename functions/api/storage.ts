@@ -1,3 +1,5 @@
+import { ensureAuthSchema, resolveUserId } from "../lib/auth";
+
 const JSON_HEADERS = {
   "Content-Type": "application/json",
   "Access-Control-Allow-Origin": "*",
@@ -23,18 +25,16 @@ const FAVORITE_KEYS = new Set([
   "favoritePlaybackTime",
 ]);
 
+// 按用户隔离的表（复合主键 user_id+key）
 const TABLES = {
-  playback: "playback_store",
-  favorites: "favorites_store",
+  playback: "playback_store_v2",
+  favorites: "favorites_store_v2",
 } as const;
 
 type TableName = (typeof TABLES)[keyof typeof TABLES];
 
 function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: JSON_HEADERS,
-  });
+  return new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });
 }
 
 function hasD1(env: Env): env is Required<Env> {
@@ -42,28 +42,10 @@ function hasD1(env: Env): env is Required<Env> {
 }
 
 function getTableForKey(key: string): TableName {
-  if (FAVORITE_KEYS.has(key)) {
-    return TABLES.favorites;
-  }
-  return TABLES.playback;
+  return FAVORITE_KEYS.has(key) ? TABLES.favorites : TABLES.playback;
 }
 
-async function ensureTables(env: Env): Promise<void> {
-  if (!hasD1(env)) {
-    return;
-  }
-  const createStatements = [
-    env.DB.prepare(
-      "CREATE TABLE IF NOT EXISTS playback_store (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)"
-    ),
-    env.DB.prepare(
-      "CREATE TABLE IF NOT EXISTS favorites_store (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)"
-    ),
-  ];
-  await env.DB.batch(createStatements);
-}
-
-async function handleGet(request: Request, env: Env): Promise<Response> {
+async function handleGet(request: Request, env: Env, userId: number): Promise<Response> {
   const url = new URL(request.url);
   if (!hasD1(env)) {
     return jsonResponse({ d1Available: false, data: {} });
@@ -80,15 +62,15 @@ async function handleGet(request: Request, env: Env): Promise<Response> {
     .map((key) => key.trim())
     .filter(Boolean);
 
-  await ensureTables(env);
+  await ensureAuthSchema(env);
 
   const data: StorageData = {};
   let rows: Array<{ key: string; value: string | null }> = [];
+
   if (keys.length > 0) {
     const groupedKeys = keys.reduce(
       (acc, key) => {
-        const table = getTableForKey(key);
-        acc[table].push(key);
+        acc[getTableForKey(key)].push(key);
         return acc;
       },
       { [TABLES.playback]: [] as string[], [TABLES.favorites]: [] as string[] }
@@ -99,11 +81,10 @@ async function handleGet(request: Request, env: Env): Promise<Response> {
       if (tableKeys.length === 0) continue;
       const placeholders = tableKeys.map(() => "?").join(",");
       const statement = env.DB.prepare(
-        `SELECT key, value FROM ${table} WHERE key IN (${placeholders})`
-      ).bind(...tableKeys);
+        `SELECT key, value FROM ${table} WHERE user_id = ? AND key IN (${placeholders})`
+      ).bind(userId, ...tableKeys);
       const result = await statement.all();
-      const rowsResult = (result as any).results || result.results || [];
-      results.push(...rowsResult);
+      results.push(...(((result as any).results || []) as any[]));
     }
     rows = results;
     keys.forEach((key) => {
@@ -111,14 +92,18 @@ async function handleGet(request: Request, env: Env): Promise<Response> {
     });
   } else {
     const playbackResult = await env.DB.prepare(
-      "SELECT key, value FROM playback_store"
-    ).all();
+      `SELECT key, value FROM ${TABLES.playback} WHERE user_id = ?1`
+    )
+      .bind(userId)
+      .all();
     const favoriteResult = await env.DB.prepare(
-      "SELECT key, value FROM favorites_store"
-    ).all();
+      `SELECT key, value FROM ${TABLES.favorites} WHERE user_id = ?1`
+    )
+      .bind(userId)
+      .all();
     rows = [
-      ...(((playbackResult as any).results || playbackResult.results || []) as any[]),
-      ...(((favoriteResult as any).results || favoriteResult.results || []) as any[]),
+      ...(((playbackResult as any).results || []) as any[]),
+      ...(((favoriteResult as any).results || []) as any[]),
     ];
   }
 
@@ -130,7 +115,7 @@ async function handleGet(request: Request, env: Env): Promise<Response> {
   return jsonResponse({ d1Available: true, data });
 }
 
-async function handlePost(request: Request, env: Env): Promise<Response> {
+async function handlePost(request: Request, env: Env, userId: number): Promise<Response> {
   if (!hasD1(env)) {
     return jsonResponse({ d1Available: false, data: {} });
   }
@@ -147,7 +132,7 @@ async function handlePost(request: Request, env: Env): Promise<Response> {
     return jsonResponse({ d1Available: true, updated: 0 });
   }
 
-  await ensureTables(env);
+  await ensureAuthSchema(env);
 
   const groupedStatements: Record<string, D1PreparedStatement[]> = {
     [TABLES.playback]: [],
@@ -159,23 +144,21 @@ async function handlePost(request: Request, env: Env): Promise<Response> {
     const table = getTableForKey(key);
     groupedStatements[table].push(
       env.DB.prepare(
-        `INSERT INTO ${table} (key, value, updated_at) VALUES (?1, ?2, datetime('now')) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
-      ).bind(key, storedValue)
+        `INSERT INTO ${table} (user_id, key, value, updated_at) VALUES (?1, ?2, ?3, datetime('now')) ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
+      ).bind(userId, key, storedValue)
     );
   });
 
   const batches: Promise<unknown>[] = [];
   Object.values(groupedStatements).forEach((statements) => {
-    if (statements.length > 0) {
-      batches.push(env.DB.batch(statements));
-    }
+    if (statements.length > 0) batches.push(env.DB.batch(statements));
   });
 
   await Promise.all(batches);
   return jsonResponse({ d1Available: true, updated: entries.length });
 }
 
-async function handleDelete(request: Request, env: Env): Promise<Response> {
+async function handleDelete(request: Request, env: Env, userId: number): Promise<Response> {
   if (!hasD1(env)) {
     return jsonResponse({ d1Available: false });
   }
@@ -189,7 +172,7 @@ async function handleDelete(request: Request, env: Env): Promise<Response> {
     return jsonResponse({ d1Available: true, deleted: 0 });
   }
 
-  await ensureTables(env);
+  await ensureAuthSchema(env);
 
   const groupedStatements: Record<string, D1PreparedStatement[]> = {
     [TABLES.playback]: [],
@@ -199,15 +182,13 @@ async function handleDelete(request: Request, env: Env): Promise<Response> {
   keys.forEach((key) => {
     const table = getTableForKey(key);
     groupedStatements[table].push(
-      env.DB.prepare(`DELETE FROM ${table} WHERE key = ?1`).bind(key)
+      env.DB.prepare(`DELETE FROM ${table} WHERE user_id = ?1 AND key = ?2`).bind(userId, key)
     );
   });
 
   const batches: Promise<unknown>[] = [];
   Object.values(groupedStatements).forEach((statements) => {
-    if (statements.length > 0) {
-      batches.push(env.DB.batch(statements));
-    }
+    if (statements.length > 0) batches.push(env.DB.batch(statements));
   });
 
   await Promise.all(batches);
@@ -222,17 +203,12 @@ export async function onRequest(context: any): Promise<Response> {
     return new Response(null, { status: 204, headers: JSON_HEADERS });
   }
 
-  if (method === "GET") {
-    return handleGet(request, env);
-  }
+  // 按登录用户隔离数据；开放模式下 userId=0（共享数据槽）
+  const userId = await resolveUserId(request, env);
 
-  if (method === "POST") {
-    return handlePost(request, env);
-  }
-
-  if (method === "DELETE") {
-    return handleDelete(request, env);
-  }
+  if (method === "GET") return handleGet(request, env, userId);
+  if (method === "POST") return handlePost(request, env, userId);
+  if (method === "DELETE") return handleDelete(request, env, userId);
 
   return jsonResponse({ error: "Method not allowed" }, 405);
 }
