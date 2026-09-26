@@ -689,6 +689,14 @@
           body: JSON.stringify({ username, password }),
         });
         if (response.ok) {
+          // 新登录：清掉上一个账号残留在本机的歌单/收藏缓存，避免共用浏览器串数据；
+          // 进入应用后会按当前账号从 D1 重新拉取。
+          try {
+            ["playlistSongs","currentTrackIndex","playMode","playbackQuality","playerVolume",
+             "currentPlaylist","currentList","currentSong","currentPlaybackTime","favoriteSongs",
+             "currentFavoriteIndex","favoritePlayMode","favoritePlaybackTime","searchSource","lastSearchState.v1"]
+              .forEach(k => localStorage.removeItem(k));
+          } catch (_) {}
           localStorage.setItem("solara_authenticated", "true");
           window.location.href = "/";
           return;

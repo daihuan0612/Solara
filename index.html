@@ -191,6 +191,9 @@
                 <button class="mobile-toolbar__button" id="mobileSearchToggle" type="button" aria-label="打开搜索">
                     <i class="fas fa-search" aria-hidden="true"></i>
                 </button>
+                <button class="mobile-toolbar__button acct-avatar-btn acct-avatar-btn--mobile" id="acctAvatarMobile" type="button" aria-label="账户" title="账户" style="display:none">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M12 12.6a4.2 4.2 0 1 0 0-8.4 4.2 4.2 0 0 0 0 8.4Zm0 1.8c-3.34 0-8.4 1.68-8.4 5v1.2a1 1 0 0 0 1 1h14.8a1 1 0 0 0 1-1v-1.2c0-3.32-5.06-5-8.4-5Z"/></svg>
+                </button>
             </div>
         </div>
         <div class="header">
@@ -204,6 +207,9 @@
                 <button id="installPwaBtn" class="install-pwa-btn" type="button" onclick="promptPwaInstall()" title="安装到桌面" style="display:none">
                     <i class="fas fa-download" aria-hidden="true"></i>
                     <span>安装到桌面</span>
+                </button>
+                <button id="acctAvatarDesktop" class="acct-avatar-btn" type="button" aria-label="账户" title="账户" style="display:none">
+                    <svg viewBox="0 0 24 24" width="21" height="21" fill="currentColor" aria-hidden="true"><path d="M12 12.6a4.2 4.2 0 1 0 0-8.4 4.2 4.2 0 0 0 0 8.4Zm0 1.8c-3.34 0-8.4 1.68-8.4 5v1.2a1 1 0 0 0 1 1h14.8a1 1 0 0 0 1-1v-1.2c0-3.32-5.06-5-8.4-5Z"/></svg>
                 </button>
             </div>
         </div>
@@ -611,49 +617,88 @@
         }, 3000);
     })();
 </script>
-<!-- 账户入口（多用户）：用户名 / 修改密码 / 退出 / 后台（仅管理员）。自包含，不依赖 index.js -->
-<div id="acctChip" style="display:none;position:fixed;top:14px;left:14px;z-index:99998;font-family:'Noto Sans SC',sans-serif">
-  <button id="acctBtn" type="button" style="display:inline-flex;align-items:center;gap:7px;background:rgba(20,24,32,0.55);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);border:1px solid rgba(255,255,255,0.16);color:#eef2f6;border-radius:999px;padding:6px 13px;font-size:13px;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,0.18)">
-    <i class="fa-solid fa-circle-user"></i><span id="acctName">…</span><i class="fa-solid fa-chevron-down" style="font-size:10px;opacity:.7"></i>
-  </button>
-  <div id="acctMenu" style="display:none;margin-top:8px;min-width:168px;background:rgba(22,26,34,0.92);-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,0.14);border-radius:14px;overflow:hidden;box-shadow:0 18px 40px rgba(0,0,0,0.4)">
-    <a id="acctAdmin" href="/admin.html" style="display:none;align-items:center;gap:9px;padding:11px 14px;color:#52e9d2;text-decoration:none;font-size:13px"><i class="fa-solid fa-gauge-high" style="width:16px"></i>后台管理</a>
-    <button id="acctPwd" type="button" style="display:flex;align-items:center;gap:9px;width:100%;padding:11px 14px;background:none;border:none;color:#eef2f6;font-size:13px;cursor:pointer;font-family:inherit"><i class="fa-solid fa-key" style="width:16px"></i>修改密码</button>
-    <button id="acctLogout" type="button" style="display:flex;align-items:center;gap:9px;width:100%;padding:11px 14px;background:none;border:none;color:#ff9a9a;font-size:13px;cursor:pointer;font-family:inherit;border-top:1px solid rgba(255,255,255,0.08)"><i class="fa-solid fa-right-from-bracket" style="width:16px"></i>退出登录</button>
-  </div>
+<!-- 账户入口（多用户）：头像小人 → 用户名 / 修改密码 / 退出 / 后台（仅管理员）。自包含，不依赖 index.js -->
+<style>
+  .acct-avatar-btn{
+    display:inline-flex;align-items:center;justify-content:center;
+    width:40px;height:40px;border-radius:50%;padding:0;cursor:pointer;
+    color:var(--primary-color,#1abc9c);
+    background:color-mix(in srgb, var(--primary-color,#1abc9c) 12%, transparent);
+    border:1px solid color-mix(in srgb, var(--primary-color,#1abc9c) 34%, transparent);
+    -webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);
+    transition:transform .12s ease, background .15s ease, box-shadow .15s ease;
+  }
+  .acct-avatar-btn:hover{transform:translateY(-1px);background:color-mix(in srgb, var(--primary-color,#1abc9c) 20%, transparent);box-shadow:0 6px 16px color-mix(in srgb, var(--primary-color,#1abc9c) 22%, transparent);}
+  .acct-avatar-btn svg{display:block;}
+  .acct-avatar-btn--mobile{width:38px;height:38px;}
+  #acctMenu{
+    display:none;position:fixed;z-index:100000;min-width:172px;
+    background:rgba(22,26,34,0.94);-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);
+    border:1px solid rgba(255,255,255,0.14);border-radius:14px;overflow:hidden;
+    box-shadow:0 20px 44px rgba(0,0,0,0.42);font-family:'Noto Sans SC',sans-serif;
+  }
+  #acctMenu .acct-head{padding:12px 15px;font-size:12px;color:rgba(255,255,255,0.55);border-bottom:1px solid rgba(255,255,255,0.09);}
+  #acctMenu .acct-head b{display:block;color:#fff;font-size:14px;margin-top:2px;}
+  #acctMenu a,#acctMenu button{display:flex;align-items:center;gap:10px;width:100%;padding:12px 15px;background:none;border:none;color:#eef2f6;font-size:13.5px;cursor:pointer;font-family:inherit;text-decoration:none;text-align:left;}
+  #acctMenu a:hover,#acctMenu button:hover{background:rgba(255,255,255,0.08);}
+  #acctMenu i,#acctMenu svg{width:16px;}
+  #acctAdmin{color:#52e9d2 !important;}
+  #acctLogout{color:#ff9a9a !important;border-top:1px solid rgba(255,255,255,0.08);}
+</style>
+<div id="acctMenu">
+  <div class="acct-head">已登录<b id="acctName">…</b></div>
+  <a id="acctAdmin" href="/admin.html" style="display:none"><i class="fa-solid fa-gauge-high"></i>后台管理</a>
+  <button id="acctPwd" type="button"><i class="fa-solid fa-key"></i>修改密码</button>
+  <button id="acctLogout" type="button"><i class="fa-solid fa-right-from-bracket"></i>退出登录</button>
 </div>
 <script>
   (function () {
-    const chip = document.getElementById("acctChip");
-    const btn = document.getElementById("acctBtn");
+    // 与 index.js 的 STORAGE_KEYS_TO_SYNC 保持一致：切换/退出账号时清掉本地缓存，避免共用浏览器串数据
+    const SYNC_KEYS = ["playlistSongs","currentTrackIndex","playMode","playbackQuality","playerVolume",
+      "currentPlaylist","currentList","currentSong","currentPlaybackTime","favoriteSongs",
+      "currentFavoriteIndex","favoritePlayMode","favoritePlaybackTime","searchSource","lastSearchState.v1"];
+    function clearLocalUserData(){ try { SYNC_KEYS.forEach(k => localStorage.removeItem(k)); } catch(_){} }
+
     const menu = document.getElementById("acctMenu");
+    const avatars = [document.getElementById("acctAvatarDesktop"), document.getElementById("acctAvatarMobile")].filter(Boolean);
     async function api(url, opts) {
       const r = await fetch(url, Object.assign({ credentials: "include", headers: { "Content-Type": "application/json" } }, opts));
       let d = {}; try { d = await r.json(); } catch (_) {}
       return { ok: r.ok, status: r.status, data: d };
     }
+
     fetch("/api/me", { credentials: "include" }).then(r => r.ok ? r.json() : null).then(me => {
-      // 开放模式（未启用鉴权）或未登录：不显示账户入口
-      if (!me || !me.authenticated) return;
+      if (!me || !me.authenticated) return; // 开放模式或未登录：不显示
       document.getElementById("acctName").textContent = me.username || "用户";
       if (me.role === "admin") document.getElementById("acctAdmin").style.display = "flex";
-      chip.style.display = "block";
+      avatars.forEach(a => { a.style.display = "inline-flex"; });
     }).catch(() => {});
 
-    btn?.addEventListener("click", (e) => {
+    function openMenuNear(btn){
+      const r = btn.getBoundingClientRect();
+      menu.style.display = "block";
+      const mw = menu.offsetWidth || 172;
+      let left = r.right - mw;
+      if (left < 8) left = 8;
+      menu.style.left = left + "px";
+      menu.style.top = (r.bottom + 8) + "px";
+    }
+    avatars.forEach(btn => btn.addEventListener("click", (e) => {
       e.stopPropagation();
-      menu.style.display = menu.style.display === "block" ? "none" : "block";
-    });
-    document.addEventListener("click", () => { if (menu) menu.style.display = "none"; });
-    menu?.addEventListener("click", (e) => e.stopPropagation());
+      if (menu.style.display === "block") { menu.style.display = "none"; return; }
+      openMenuNear(btn);
+    }));
+    document.addEventListener("click", () => { menu.style.display = "none"; });
+    menu.addEventListener("click", (e) => e.stopPropagation());
 
-    document.getElementById("acctLogout")?.addEventListener("click", async () => {
+    document.getElementById("acctLogout").addEventListener("click", async () => {
       await api("/api/logout", { method: "POST" });
       try { localStorage.removeItem("solara_authenticated"); } catch (_) {}
+      clearLocalUserData();
       window.location.href = "/login";
     });
 
-    document.getElementById("acctPwd")?.addEventListener("click", async () => {
+    document.getElementById("acctPwd").addEventListener("click", async () => {
       menu.style.display = "none";
       const oldPassword = prompt("请输入当前密码：");
       if (oldPassword == null) return;
