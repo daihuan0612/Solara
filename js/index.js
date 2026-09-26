@@ -965,7 +965,7 @@ const API_KUWO = {
     
     // 获取单曲播放链接（通过RID）
     // 注意：API更新后 action=song 模式要求 msg 参数必填
-    getSongUrlByRid: async (rid, quality = "320", msg = "") => {
+    getSongUrlByRid: async (rid, quality = "320", msg = "", timeoutMs = 8000) => {
         const qualityMap = {
             '320': 'SQ',
             '192': 'exhigh',
@@ -979,7 +979,7 @@ const API_KUWO = {
 
         try {
             debugLog(`[酷我API] 通过RID获取播放链接: ${url}`);
-            const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
+            const response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
 
             if (!response.ok) {
                 throw new Error(`请求失败: ${response.status}`);
@@ -1065,17 +1065,18 @@ const API_KUGOU = {
     },
     
     // 获取单曲播放链接（通过关键词+序号）
-    // 上游这个接口不稳定：实测同一请求约 30% 概率返回 {"code":404,"msg":"获取播放链接失败"}
-    // （HTTP 仍是 200），而且 exec_time 经常 4~7 秒。所以这里加长超时并重试。
-    getSongUrlByKeyword: async (keyword, index = 1, quality = "flac") => {
+    // 上游这个接口不稳定：实测同一请求约 30%~50% 概率返回 {"code":404,"msg":"获取播放链接失败"}
+    // （HTTP 仍是 200），而且 exec_time 经常 4~7 秒。所以这里加长超时并支持多次尝试。
+    // attempts=1 时由调用方自己做"轮转重试"（见 playSong），避免在一个音质上死磕。
+    getSongUrlByKeyword: async (keyword, index = 1, quality = "flac", attempts = 2, timeoutMs = 12000) => {
         const url = `${API_KUGOU.baseUrl}?key=${API_KUGOU.key}&msg=${encodeURIComponent(keyword)}&n=${index}&quality=${quality}`;
-        const maxAttempts = 3;
+        const maxAttempts = Math.max(1, attempts);
         let lastReason = "";
 
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
                 debugLog(`[酷狗API] 获取播放链接 (${attempt}/${maxAttempts}): ${url}`);
-                const response = await fetch(url, { signal: AbortSignal.timeout(15000) });
+                const response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
 
                 if (!response.ok) {
                     lastReason = `HTTP ${response.status}`;
@@ -5374,8 +5375,11 @@ function getSourceShortName(source) {
 }
 
 // 获取来源标签（显示音乐源）
+// 注意：换源兜底成功后，列表里要显示"实际在播的那个源"（playedSource），
+// 而不是用户最初选的源 —— 否则会出现"标着酷狗、实际放的是酷我"的错位。
 function getFullSourceTag(song) {
-    return getSourceShortName(song.source) || '';
+    const actualSource = song && song.playedSource ? song.playedSource : (song ? song.source : '');
+    return getSourceShortName(actualSource) || '';
 }
 
 function createSearchResultItem(song, index) {
@@ -7081,7 +7085,9 @@ function updatePlaylistHighlight() {
 function isDirectImageUrl(url) {
     if (!url || typeof url !== 'string') return false;
     if (/[?&]target=/i.test(url)) return true;                       // 同源 /proxy 直链
-    return /\.(jpe?g|png|webp|gif|bmp|avif)(\?|#|$)/i.test(url);     // 常规图片扩展名
+    // 常规图片扩展名；喜马拉雅的图片形如 .../xxx.jpeg!op_type=3&columns=640，
+    // 扩展名后面跟的是 "!"，所以终止符要带上 ! 和 #
+    return /\.(jpe?g|png|webp|gif|bmp|avif)([!?#]|$)/i.test(url);
 }
 
 async function resolvePicUrlToImageUrl(picUrl) {
@@ -7163,6 +7169,149 @@ async function updateMediaMetadataForLockScreen(song) {
         }; 
     } 
 })();
+
+// ================================================
+// 换源兜底：所选源取不到播放地址时，用同一首歌换别的源播
+// 背景：妖狐上游（酷狗/酷我）是"随机失败"，某首歌在所选源可能长时间取不到链。
+// 规则：只影响播放，不影响搜索列表的来源筛选；换源成功后列表里这首歌的 [源] 标记
+//       会显示"实际出声的那个源"，并在下次播放时优先用这个源。
+// ================================================
+
+// 从搜索结果里挑最匹配的一首（歌名必须对得上，演唱者有交集再加分）
+function pickBestSourceMatch(song, candidates) {
+    if (!Array.isArray(candidates) || candidates.length === 0) return null;
+    const norm = value => String(value || '').replace(/\s+/g, '').toLowerCase();
+    const toList = value => (Array.isArray(value) ? value : [value]).filter(Boolean).map(norm);
+
+    const wantName = norm(song.name);
+    const wantArtists = toList(song.artist);
+    let best = null;
+    let bestScore = -1;
+
+    for (const candidate of candidates) {
+        const cName = norm(candidate.name);
+        if (!cName || !wantName) continue;
+        let score = 0;
+        if (cName === wantName) score += 3;
+        else if (cName.includes(wantName) || wantName.includes(cName)) score += 1;
+        else continue; // 歌名都对不上，不要
+
+        const cArtists = toList(candidate.artist);
+        if (wantArtists.length > 0 && cArtists.some(b => wantArtists.some(a => b.includes(a) || a.includes(b)))) {
+            score += 2;
+        }
+        if (score > bestScore) {
+            bestScore = score;
+            best = candidate;
+        }
+    }
+
+    return best;
+}
+
+// 用"某一首（某个源的）歌曲对象"去取播放链接，供换源复用
+async function fetchPlayUrlForSong(songLike, qualitiesToTry, deadline) {
+    const source = songLike.source;
+    const msg = `${songLike.name || ''} ${Array.isArray(songLike.artist) ? songLike.artist.join(' ') : (songLike.artist || '')}`.trim();
+    const kgQualityMap = { '999': 'flac', '740': 'flac', '320': '320', '192': '320', '128': '128' };
+
+    for (const q of qualitiesToTry) {
+        const remaining = deadline - Date.now();
+        if (remaining <= 1000) return null;
+        try {
+            if (source === 'kuwo') {
+                const result = await API_KUWO.getSongUrlByRid(songLike.id, q, msg, Math.min(8000, remaining));
+                if (result && result.url) return { data: result, quality: q };
+            } else if (source === 'kugou') {
+                const apiQ = kgQualityMap[q] || 'flac';
+                const result = await API_KUGOU.getSongUrlByKeyword(songLike.searchKeyword || songLike.name, songLike.searchN || 1, apiQ, 1, Math.min(12000, remaining));
+                if (result && result.url) return { data: result, quality: q };
+            } else if (source === 'netease') {
+                const gdUrl = `${API_CONFIG.primary.baseUrl}?types=url&id=${songLike.id}&source=netease&br=${q}`;
+                const data = await API.fetchJson(gdUrl, Math.min(8000, remaining));
+                if (data && data.url) return { data: { ...data, apiSource: 'gd' }, quality: q };
+            }
+        } catch (error) {
+            debugLog(`[换源] ${source} 音质 ${q} 失败: ${error.message}`);
+        }
+    }
+    return null;
+}
+
+// 依次尝试其它源；命中就返回 { data, quality, source, matched }
+async function tryPlayFromOtherSources(song, qualitiesToTry, budgetMs = 12000) {
+    const deadline = Date.now() + budgetMs;
+
+    // 优先用"上次成功过的源"，其次按 酷我 → 网易云 → 酷狗 的顺序
+    const order = [];
+    if (song.playedSource && song.playedSource !== song.source) order.push(song.playedSource);
+    for (const candidate of ['kuwo', 'netease', 'kugou']) {
+        if (candidate !== song.source && !order.includes(candidate)) order.push(candidate);
+    }
+
+    const keyword = `${song.name || ''} ${Array.isArray(song.artist) ? song.artist.join(' ') : (song.artist || '')}`.trim();
+
+    for (const source of order) {
+        if (Date.now() > deadline - 1500) {
+            debugLog('[换源] 预算用尽，停止换源');
+            break;
+        }
+        try {
+            // 上次这个源成功过就直接复用它的歌曲信息，省一次搜索
+            let matched = (song.fallback && song.fallback.source === source) ? song.fallback : null;
+            if (!matched) {
+                const results = await API.search(keyword, source, 5, 1);
+                matched = pickBestSourceMatch(song, results);
+            }
+            if (!matched) {
+                debugLog(`[换源] ${source} 没有匹配到这首歌`);
+                continue;
+            }
+            const result = await fetchPlayUrlForSong(matched, qualitiesToTry, deadline);
+            if (result) {
+                debugLog(`[换源] ${source} 取链成功 (音质 ${result.quality})`);
+                return { data: result.data, quality: result.quality, source, matched };
+            }
+            debugLog(`[换源] ${source} 也取不到播放链接`);
+        } catch (error) {
+            debugLog(`[换源] ${source} 出错: ${error.message}`);
+        }
+    }
+    return null;
+}
+
+// 换源后刷新列表里这首歌的 [源] 标记（搜索/播放列表/收藏三处，按引用或歌曲 key 匹配）
+function refreshSongSourceBadges(song) {
+    if (!song) return;
+    const key = getSongKey(song);
+
+    const syncEntry = entry => {
+        if (!entry || entry === song) return;
+        if (key && getSongKey(entry) !== key) return;
+        entry.playedSource = song.playedSource;
+        entry.fallback = song.fallback;
+    };
+    state.playlistSongs.forEach(syncEntry);
+    state.favoriteSongs.forEach(syncEntry);
+    state.searchResults.forEach(syncEntry);
+
+    // 搜索结果列表是增量渲染的，就地改标题，避免整体重绘丢掉"加载更多"状态
+    if (dom.searchResults) {
+        dom.searchResults.querySelectorAll('.search-result-item').forEach(item => {
+            const index = Number(item.dataset.index);
+            const entry = state.searchResults[index];
+            if (!entry) return;
+            const titleEl = item.querySelector('.search-result-title');
+            if (!titleEl) return;
+            const tag = getFullSourceTag(entry);
+            const name = entry.name || '未知歌曲';
+            titleEl.textContent = tag ? `[${tag}] ${name}` : name;
+        });
+    }
+
+    renderPlaylist();
+    renderFavorites();
+}
 
 // ================================================
 // iOS PWA 终极版 playSong (v7.4 Ghost Fix)
@@ -7256,18 +7405,29 @@ async function playSong(song, options = {}) {
                 debugLog(`[播放] 酷我使用新API获取音频`);
                 // 传入歌名+歌手作为 msg（API更新后 action=song 必填 msg）
                 const kuwoMsg = `${song.name} ${song.artist || ""}`.trim();
-                // 串行尝试（不要并发）：妖狐这个上游并发请求会被限流/超时
-                for (const q of qualitiesToTry) {
-                    try {
-                        const result = await API_KUWO.getSongUrlByRid(song.id, q, kuwoMsg);
-                        if (result && result.url) {
-                            audioData = result;
-                            state.playbackQuality = q;
-                            debugLog(`[播放] 酷我API成功 (音质: ${q})`);
-                            break;
+                // 串行尝试（不要并发）：同一个妖狐上游，并发会被限流/超时；
+                // 而且上游是"随机失败"，所以轮转重试。总预算 15 秒，
+                // 单次请求超时随剩余预算收缩，避免"一个请求卡死吃掉全部预算"。
+                const kuwoDeadline = Date.now() + 8000;
+                outerKuwo:
+                for (let round = 0; round < 3; round++) {
+                    for (const q of qualitiesToTry) {
+                        const remaining = kuwoDeadline - Date.now();
+                        if (remaining <= 1000) {
+                            debugLog('[播放] 酷我取链已超时（15s），停止重试');
+                            break outerKuwo;
                         }
-                    } catch (error) {
-                        debugLog(`[播放] 酷我音质 ${q} 失败: ${error.message}`);
+                        try {
+                            const result = await API_KUWO.getSongUrlByRid(song.id, q, kuwoMsg, Math.min(8000, remaining));
+                            if (result && result.url) {
+                                audioData = result;
+                                state.playbackQuality = q;
+                                debugLog(`[播放] 酷我API成功 (音质: ${q})`);
+                                break outerKuwo;
+                            }
+                        } catch (error) {
+                            debugLog(`[播放] 酷我音质 ${q} 失败: ${error.message}`);
+                        }
                     }
                 }
             } else if (song.source === "kugou") {
@@ -7284,15 +7444,33 @@ async function playSong(song, options = {}) {
                     const apiQ = kgQualityMap[q] || 'flac';
                     if (!kgUnique.has(apiQ)) kgUnique.set(apiQ, q);
                 }
-                // 串行尝试（不要并发）：上游并发请求会被限流/超时，
-                // 而且 getSongUrlByKeyword 内部已经带重试，串行反而更快拿到结果
-                for (const [apiQ, userQ] of kgUnique.entries()) {
+
+                // 上游每次请求是"随机失败"（实测约 30%~50% 返回 code:404，与音质、间隔都无关），
+                // 所以按"轮转"顺序多试几轮，而不是在一个音质上连打 3 次 —— 碰到某个音质
+                // 持续不可用时能更快换到可用的那个。
+                // 总预算 8 秒（有换源兜底，不用在坏源上死磕太久）；
+                // 单次请求超时 = min(12s, 剩余预算)，避免一个卡死的请求吃掉全部预算。
+                const kgQualities = [...kgUnique.entries()];
+                const kgPlan = [];
+                for (let round = 0; round < 4; round++) {
+                    for (const entry of kgQualities) kgPlan.push(entry);
+                }
+                const kgDeadline = Date.now() + 8000;
+
+                for (let i = 0; i < kgPlan.length; i++) {
+                    const remaining = kgDeadline - Date.now();
+                    if (remaining <= 1000) {
+                        debugLog('[播放] 酷狗取链已超时（8s），转换源兜底');
+                        break;
+                    }
+                    const [apiQ, userQ] = kgPlan[i];
+                    if (i === 2) showNotification('上游取链失败，正在重试…', 'warning');
                     try {
-                        const result = await API_KUGOU.getSongUrlByKeyword(keyword, songIndex, apiQ);
+                        const result = await API_KUGOU.getSongUrlByKeyword(keyword, songIndex, apiQ, 1, Math.min(12000, remaining));
                         if (result && result.url) {
                             audioData = result;
                             state.playbackQuality = userQ;
-                            debugLog(`[播放] 酷狗音乐API成功 (音质: ${userQ}/${apiQ})`);
+                            debugLog(`[播放] 酷狗音乐API成功 (音质: ${userQ}/${apiQ}，第 ${i + 1} 次尝试)`);
                             break;
                         }
                     } catch (error) {
@@ -7347,7 +7525,28 @@ async function playSong(song, options = {}) {
                 }
             }
             
-        // 注意：已移除备用源自动切换，用户选什么源就用什么源
+            // 所选源取不到链 → 换源兜底（只影响播放，搜索仍按用户选的源）。
+            // 换源成功后：audioData 用新源、歌曲对象记下 playedSource/fallback，
+            // 列表里的 [源] 标记随即刷新成"实际在播的源"。
+            if ((!audioData || !audioData.url) && song.source !== 'xima') {
+                console.log('🔁 所选音源取不到播放地址，尝试换源兜底');
+                const fallback = await tryPlayFromOtherSources(song, qualitiesToTry, 12000);
+                if (fallback) {
+                    audioData = fallback.data;
+                    state.playbackQuality = fallback.quality;
+                    song.playedSource = fallback.source;
+                    song.fallback = { ...fallback.matched };
+                    if (fallback.matched.pic_url) {
+                        song.pic_url = fallback.matched.pic_url;
+                    }
+                    if (fallback.matched.album && !song.album) {
+                        song.album = fallback.matched.album;
+                    }
+                    debugLog(`[换源] ${song.source} → ${fallback.source}（音质 ${fallback.quality}）`);
+                    showNotification(`${getSourceShortName(song.source)}取不到，已切到${getSourceShortName(fallback.source)}`, 'warning');
+                    refreshSongSourceBadges(song);
+                }
+            }
         }
         
         if (!audioData || !audioData.url) {
@@ -7578,7 +7777,8 @@ async function playSong(song, options = {}) {
         if (msg.includes("超时")) {
             showNotification("加载超时，请检查网络或切换音源", "error");
         } else if (msg.includes("获取音频播放地址")) {
-            showNotification("该歌曲在当前音源不可用", "error");
+            // 上游（尤其妖狐的酷狗接口）是"随机失败"，重试多次仍失败时要说清是暂时性的
+            showNotification("该音源暂时取不到播放地址（已重试多次），可换个音源或稍后再试", "error");
         } else {
             showNotification("播放失败，请稍后重试", "error");
         }
