@@ -6,8 +6,8 @@
 //   - 其他 → 网络优先
 
 const CACHE_NAMES = {
-    // v17: 修复桌面端点音质选择器时整排控件跳一下——打开菜单的 .parent-with-open-menu 高度与基础一致(46px)，不再从46收缩到42
-    shell: 'solara-shell-v17',    // 应用壳（CSS, JS, HTML）
+    // v18: 修复桌面端"点开菜单/操作时 UI 横向跳一下"——html 永久预留滚动条槽(scrollbar-gutter:stable both-edges)，Windows 经典滚动条出现/消失不再左右推内容
+    shell: 'solara-shell-v18',    // 应用壳（CSS, JS, HTML）
     audio: 'solara-audio-v1',     // 缓存的音频
 };
 

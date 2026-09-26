@@ -61,6 +61,13 @@
 ::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb-bg); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--primary-color); }
 
+/* 永久预留竖向滚动条的宽度：Windows 等"经典滚动条"（占约 15px 宽度）在出现/消失时会把居中的内容
+   左右推一下——这就是桌面端"点开菜单等操作时 UI 往左/往右跳一下"的根因。both-edges 让两侧都保留同宽的槽，
+   滚动条来去都不再改变内容宽度、且布局始终居中，横向抖动消失。（覆盖式滚动条系统宽度为 0，此属性为无操作） */
+html {
+    scrollbar-gutter: stable both-edges;
+}
+
 /* 来源标签样式 */
 .source-label {
     font-size: 0.8em;
