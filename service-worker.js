@@ -6,8 +6,8 @@
 //   - 其他 → 网络优先
 
 const CACHE_NAMES = {
-    // v18: 修复桌面端"点开菜单/操作时 UI 横向跳一下"——html 永久预留滚动条槽(scrollbar-gutter:stable both-edges)，Windows 经典滚动条出现/消失不再左右推内容
-    shell: 'solara-shell-v18',    // 应用壳（CSS, JS, HTML）
+    // v19: 彻底根治桌面端"点音质整个界面往右跳"——关闭态音质菜单改用 position:fixed，不再以 absolute 探出视口底部凭空撑出竖向滚动条(Windows经典滚动条一来一回把居中内容左右推)；配合 v18 的 scrollbar-gutter 双保险
+    shell: 'solara-shell-v19',    // 应用壳（CSS, JS, HTML）
     audio: 'solara-audio-v1',     // 缓存的音频
 };
 

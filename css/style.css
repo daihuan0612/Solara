@@ -2073,7 +2073,11 @@ input[type="range"]:active::-moz-range-thumb {
 }
 
 .player-quality-menu {
-    position: absolute;
+    /* 用 fixed 而非 absolute：关闭态菜单虽然 visibility:hidden，但作为 absolute 会以 top:calc(100%+10px)
+       伸到按钮下方、探出视口底部约 66px（祖先链 overflow 全是 visible，没有裁剪），在 Windows 经典滚动条下
+       会凭空撑出一条竖向滚动条；一旦打开切成 floating(fixed) 又收回——滚动条一来一回把居中内容左右推=横向跳。
+       fixed 不参与文档滚动尺寸，关闭态就不再撑出滚动条，从根上消除这个抖动（打开时的精确位置仍由 JS 设定）。 */
+    position: fixed;
     top: calc(100% + 10px);
     right: 0;
     background: #ffffff;
