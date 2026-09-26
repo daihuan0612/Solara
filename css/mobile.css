@@ -80,7 +80,14 @@ body.mobile-view .container {
     position: relative;
     overflow: visible;
     flex: 1 1 auto;
-    min-height: calc(var(--mobile-vh, 100dvh) - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+    /* 覆盖桌面端(按宽度触发的媒体查询)泄漏进来的 aspect-ratio / height / max-height，
+       让卡片正好填满 body 内容区（body 已用 padding 预留安全区），
+       否则卡片会比可视区高、底部播放控件被 body 的 overflow:hidden 裁掉
+       —— 这就是长期存在的"播放器下半部分显示不全"的根因 */
+    aspect-ratio: auto;
+    height: 100%;
+    max-height: none;
+    min-height: 0;
     box-sizing: border-box;
 }
 

@@ -6,8 +6,8 @@
 //   - 其他 → 网络优先
 
 const CACHE_NAMES = {
-    // v15: 移动端背景改为整幅取色（去掉中间圆形遮罩）+ 播放器卡片半透明磨砂，透出背景色，与桌面端一致
-    shell: 'solara-shell-v15',    // 应用壳（CSS, JS, HTML）
+    // v16: 修复移动端播放器"下半部分显示不全"——卡片不再用整屏高度硬撑(桌面媒体查询泄漏的 aspect-ratio/max-height 也一并覆盖)，改为填满 body 内容区，底部控件不再被裁
+    shell: 'solara-shell-v16',    // 应用壳（CSS, JS, HTML）
     audio: 'solara-audio-v1',     // 缓存的音频
 };
 
