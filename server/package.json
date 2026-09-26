@@ -1,0 +1,16 @@
+{
+  "name": "solara-standalone",
+  "version": "1.0.0",
+  "description": "Solara 独立 Node.js 服务器（本地/家用服务器版，不依赖 Cloudflare/Wrangler）",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "cookie-parser": "^1.4.6",
+    "express": "^4.19.2"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  }
+}

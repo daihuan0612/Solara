@@ -6,9 +6,9 @@
 //   - 其他 → 网络优先
 
 const CACHE_NAMES = {
-    // v10: 加"换源兜底 + 列表标记跟随实际音源" —— 每次改了 js/index.js 都要换名，
+    // v11: 前后端双通道取色(/palette) + 可拖拽彩标调试台(spotlight) + 流体极光背景 —— 每次改了 js/index.js / css 都要换名，
     // 否则老客户端会继续用缓存里的旧 js/index.js，看不到修复
-    shell: 'solara-shell-v10',    // 应用壳（CSS, JS）— v8: 修复下载逻辑
+    shell: 'solara-shell-v11',    // 应用壳（CSS, JS）
     audio: 'solara-audio-v1',     // 缓存的音频
 };
 

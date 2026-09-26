@@ -1,0 +1,29 @@
+# 依赖
+node_modules/
+server/node_modules/
+
+# 本地运行时数据 / 数据库
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# Cloudflare Wrangler 本地状态与构建产物
+.wrangler/
+
+# 本地调试残留
+cookie.txt
+response.html
+*.log
+
+# 环境变量 / 机密（以防将来新增）
+.env
+.dev.vars
+*.pem
+*.key
+
+# 工具/编辑器
+reasonix.toml
+.DS_Store
+.vscode/
+.idea/

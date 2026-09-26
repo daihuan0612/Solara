@@ -2831,6 +2831,31 @@ async function resolveNeteaseCoverUrl(song) {
     return preferHttpsUrl(picData.url);
 }
 
+// 后端取色通道：调用同源 /palette（Cloudflare Functions / 本地 server 均提供），
+// 服务端 JPEG 解码 + HSL 分桶算法，比前端 Canvas 更强也更省客户端算力。
+// 失败（404 无后端 / 415 PNG / 502 等）返回 null，交给本地 Canvas 兜底。
+async function fetchBackendPalette(imageUrl) {
+    try {
+        const abs = new URL(imageUrl, location.origin).toString();
+        const resp = await fetch(`/palette?image=${encodeURIComponent(abs)}`, {
+            signal: AbortSignal.timeout(12000),
+        });
+        if (!resp.ok) {
+            console.log(`🛰️ 后端取色不可用（HTTP ${resp.status}），改用本地 Canvas`);
+            return null;
+        }
+        const data = await resp.json();
+        if (data && data.gradients) {
+            debugLog(`[取色] 后端调色板命中 accent=${data.accentColor || ''}`);
+            return data;
+        }
+        return null;
+    } catch (err) {
+        console.log('🛰️ 后端取色异常，改用本地 Canvas：', err && err.message);
+        return null;
+    }
+}
+
 async function fetchPaletteData(imageUrl) {
     console.log('🎨 开始获取调色板，图片URL:', imageUrl);
     
@@ -2854,6 +2879,20 @@ async function fetchPaletteData(imageUrl) {
     // 所以现在统一走本地取色，失败时才用网易云同名封面兜底。
     console.log(`🎵 ${songSource || '未知来源'}，尝试取色`);
 
+    // ── 双通道取色 · 通道一：后端 /palette（优先）────────────────────────────
+    try {
+        const backendPalette = await fetchBackendPalette(imageUrl);
+        if (backendPalette) {
+            console.log('✅ 后端取色成功，缓存调色板');
+            paletteCache.set(imageUrl, backendPalette);
+            persistPaletteCache();
+            return backendPalette;
+        }
+    } catch (backendError) {
+        console.warn('⚠️ 后端取色通道异常，转本地 Canvas:', backendError);
+    }
+
+    // ── 双通道取色 · 通道二：本地 Canvas（兜底）──────────────────────────────
     try {
         console.log('🔍 尝试本地取色');
         // 优先尝试本地取色，本地取色更可靠
@@ -2985,47 +3024,159 @@ function saveFavoriteState(options = {}) {
     safeSetLocalStorage("favoritePlaybackTime", String(state.favoritePlaybackTime || 0), { skipRemote });
 }
 
-// 调试日志函数
+// 调试悬浮窗（移植自 Solara spotlight：可拖拽 / 胶囊折叠 / 彩标日志）
+// 懒构建 #debugInfo 内部结构（header + 彩标日志区），保持 index.html 不动
+function ensureDebugConsole() {
+    const box = dom.debugInfo;
+    if (!box || box.dataset.enhanced === "1") return box;
+    box.innerHTML = "";
+    const header = document.createElement("div");
+    header.className = "debug-info-header";
+    header.id = "debugInfoHeader";
+    const title = document.createElement("span");
+    title.className = "debug-info-title";
+    title.textContent = "调试台";
+    const actions = document.createElement("div");
+    actions.className = "debug-info-actions";
+    const mkBtn = (id, txt, label) => {
+        const b = document.createElement("button");
+        b.id = id; b.type = "button"; b.textContent = txt; b.title = label;
+        actions.appendChild(b); return b;
+    };
+    const minBtn = mkBtn("minimizeDebugLogBtn", "－", "折叠");
+    const clearBtn = mkBtn("clearDebugLogBtn", "🗑", "清空");
+    const closeBtn = mkBtn("closeDebugLogBtn", "✕", "关闭");
+    header.appendChild(title);
+    header.appendChild(actions);
+    const content = document.createElement("div");
+    content.className = "debug-info-content";
+    content.id = "debugInfoContent";
+    box.appendChild(header);
+    box.appendChild(content);
+    box.dataset.enhanced = "1";
+
+    // 折叠成胶囊 / 展开（双击标题也可折叠）
+    const toggleMinimize = () => box.classList.toggle("minimized");
+    minBtn.addEventListener("click", (e) => { e.stopPropagation(); toggleMinimize(); });
+    header.addEventListener("dblclick", toggleMinimize);
+    clearBtn.addEventListener("click", (e) => { e.stopPropagation(); content.innerHTML = ""; });
+    closeBtn.addEventListener("click", (e) => { e.stopPropagation(); toggleDebugMode(false); });
+
+    // 自由拖拽
+    let dragging = false, sx = 0, sy = 0, ox = 0, oy = 0;
+    header.addEventListener("pointerdown", (e) => {
+        if (e.target.closest(".debug-info-actions")) return;
+        dragging = true;
+        const rect = box.getBoundingClientRect();
+        ox = rect.left; oy = rect.top; sx = e.clientX; sy = e.clientY;
+        box.style.left = ox + "px"; box.style.top = oy + "px";
+        box.style.right = "auto"; box.style.bottom = "auto";
+        box.classList.add("is-dragging");
+        header.setPointerCapture(e.pointerId);
+    });
+    header.addEventListener("pointermove", (e) => {
+        if (!dragging) return;
+        const nx = Math.max(0, Math.min(window.innerWidth - 60, ox + e.clientX - sx));
+        const ny = Math.max(0, Math.min(window.innerHeight - 30, oy + e.clientY - sy));
+        box.style.left = nx + "px"; box.style.top = ny + "px";
+    });
+    const endDrag = (e) => {
+        if (!dragging) return;
+        dragging = false;
+        box.classList.remove("is-dragging");
+        try { header.releasePointerCapture(e.pointerId); } catch (_) {}
+    };
+    header.addEventListener("pointerup", endDrag);
+    header.addEventListener("pointercancel", endDrag);
+    return box;
+}
+
+// 调试日志函数（彩标徽章 + 时间戳）
 function debugLog(message) {
     console.log(`[DEBUG] ${message}`);
+    if (!state.debugMode || !dom.debugInfo) return;
+    const box = ensureDebugConsole();
+    const container = document.getElementById("debugInfoContent") || box;
+
+    const entry = document.createElement("div");
+    entry.className = "debug-info-entry";
+    const timeSpan = document.createElement("span");
+    timeSpan.className = "debug-time";
+    timeSpan.textContent = new Date().toLocaleTimeString();
+    entry.appendChild(timeSpan);
+
+    const msg = String(message);
+    const tagMatch = msg.match(/^\[([^\]]+)\]\s*(.*)$/);
+    if (tagMatch) {
+        const tagText = tagMatch[1];
+        const tagSpan = document.createElement("span");
+        tagSpan.className = "debug-tag";
+        tagSpan.textContent = tagText;
+        if (/音频|播放|解码|流|代理/i.test(tagText)) tagSpan.classList.add("debug-tag-audio");
+        else if (/搜索|音源|GD/i.test(tagText)) tagSpan.classList.add("debug-tag-search");
+        else if (/雷达/i.test(tagText)) tagSpan.classList.add("debug-tag-radar");
+        else if (/歌词/i.test(tagText)) tagSpan.classList.add("debug-tag-lyrics");
+        else if (/极光|背景|封面|取色/i.test(tagText)) tagSpan.classList.add("debug-tag-visual");
+        else if (/列表|收藏|歌单/i.test(tagText)) tagSpan.classList.add("debug-tag-playlist");
+        else if (/错误|异常|失败/i.test(tagText)) tagSpan.classList.add("debug-tag-error");
+        entry.appendChild(tagSpan);
+        entry.appendChild(document.createTextNode(tagMatch[2]));
+    } else {
+        entry.appendChild(document.createTextNode(msg));
+    }
+
+    container.appendChild(entry);
+    while (container.childNodes.length > 150) {
+        container.removeChild(container.firstChild);
+    }
+    box.classList.add("show");
+    container.scrollTop = container.scrollHeight;
+}
+window.__solaraDebugLog = debugLog;
+
+// 开/关调试模式
+function toggleDebugMode(force) {
+    state.debugMode = (typeof force === "boolean") ? force : !state.debugMode;
+    if (!dom.debugInfo) {
+        console.log("调试模式切换，但 debugInfo 元素未找到");
+        return;
+    }
     if (state.debugMode) {
-        const debugInfo = dom.debugInfo;
-        const entry = document.createElement("div");
-        entry.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
-        debugInfo.appendChild(entry);
-
-        while (debugInfo.childNodes.length > 50) {
-            debugInfo.removeChild(debugInfo.firstChild);
-        }
-
-        debugInfo.classList.add("show");
-        debugInfo.scrollTop = debugInfo.scrollHeight;
+        ensureDebugConsole();
+        dom.debugInfo.classList.add("show");
+        debugLog(`[系统] 调试控制台已启用 (设备: ${window.__SOLARA_IS_MOBILE ? "移动端" : "桌面端"})`);
+    } else {
+        dom.debugInfo.classList.remove("show");
     }
 }
 
-// 启用调试模式（按Ctrl+D）
+// 启用调试模式（按 Ctrl+D）
 document.addEventListener("keydown", (e) => {
-    // 支持 e.key 和 e.keyCode 两种方式，提高兼容性
     const isCtrlD = e.ctrlKey && (e.key === "d" || e.key === "D" || e.keyCode === 68);
-    
     if (isCtrlD) {
         e.preventDefault();
         e.stopPropagation();
-        state.debugMode = !state.debugMode;
-        if (state.debugMode) {
-            if (dom.debugInfo) {
-                dom.debugInfo.classList.add("show");
-                debugLog("调试模式已启用");
-            } else {
-                console.log("调试模式已启用，但 debugInfo 元素未找到");
-            }
-        } else {
-            if (dom.debugInfo) {
-                dom.debugInfo.classList.remove("show");
-            }
-        }
+        toggleDebugMode();
     }
 });
+
+// 鼠标跟随聚光灯效果（桌面端；为 .spotlight-card / .container 提供 --mouse-x/y）
+(function initSpotlightEffect() {
+    if (window.__SOLARA_IS_MOBILE || document.documentElement.classList.contains("mobile-view")) return;
+    let ticking = false;
+    window.addEventListener("mousemove", (e) => {
+        if (ticking) return;
+        ticking = true;
+        window.requestAnimationFrame(() => {
+            document.querySelectorAll(".spotlight-card, .container").forEach((el) => {
+                const rect = el.getBoundingClientRect();
+                el.style.setProperty("--mouse-x", `${e.clientX - rect.left}px`);
+                el.style.setProperty("--mouse-y", `${e.clientY - rect.top}px`);
+            });
+            ticking = false;
+        });
+    }, { passive: true });
+})();
 
 // 新增：切换搜索模式
 function toggleSearchMode(enable) {

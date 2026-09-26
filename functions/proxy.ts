@@ -68,7 +68,6 @@ async function proxyAudio(targetUrl: string, request: Request): Promise<Response
       "User-Agent": request.headers.get("User-Agent") ?? "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
       "Accept": "*/*",
       "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-      "Accept-Encoding": "gzip, deflate, br",
       "Referer": referer,
       "Origin": origin,
       "Connection": "keep-alive",
@@ -110,28 +109,41 @@ async function proxyApiRequest(url: URL, request: Request): Promise<Response> {
     return new Response("Missing types", { status: 400 });
   }
 
-  const upstream = await fetch(apiUrl.toString(), {
-    headers: {
-      "User-Agent": request.headers.get("User-Agent") ?? "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      "Accept": "application/json, text/plain, */*",
-      "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-      "Accept-Encoding": "gzip, deflate, br",
-      "Connection": "keep-alive",
-      "Referer": "https://music.gdstudio.xyz/",
-      "Origin": "https://music.gdstudio.xyz",
-    },
-  });
+  try {
+    // 注意：不要手动指定 Accept-Encoding —— 交给平台协商，
+    // 否则上游返回 br 压缩时，平台可能判为"无法解析"而报 520
+    const upstream = await fetch(apiUrl.toString(), {
+      headers: {
+        "User-Agent": request.headers.get("User-Agent") ?? "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        "Connection": "keep-alive",
+        "Referer": "https://music.gdstudio.xyz/",
+        "Origin": "https://music.gdstudio.xyz",
+      },
+      signal: AbortSignal.timeout(30000),
+    });
 
-  const headers = createCorsHeaders(upstream.headers);
-  if (!headers.has("Content-Type")) {
-    headers.set("Content-Type", "application/json; charset=utf-8");
+    const headers = createCorsHeaders(upstream.headers);
+    if (!headers.has("Content-Type")) {
+      headers.set("Content-Type", "application/json; charset=utf-8");
+    }
+
+    return new Response(upstream.body, {
+      status: upstream.status,
+      statusText: upstream.statusText,
+      headers,
+    });
+  } catch (error) {
+    // 上游异常包成明确的 502，而不是让平台抛 520（520 无法定位）
+    return new Response(
+      JSON.stringify({
+        error: "gd_upstream_error",
+        message: String((error as Error)?.message || error),
+      }),
+      { status: 502, headers: { "Content-Type": "application/json; charset=utf-8" } }
+    );
   }
-
-  return new Response(upstream.body, {
-    status: upstream.status,
-    statusText: upstream.statusText,
-    headers,
-  });
 }
 
 export async function onRequest({ request }: { request: Request }): Promise<Response> {

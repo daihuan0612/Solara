@@ -120,6 +120,69 @@ body.background-transitioning .background-stage__layer--transition {
     opacity: 1;
 }
 
+/* Apple Design 流体极光：两团随封面主色缓慢漂移的柔光，叠在渐变之上（移植自 Solara aurora 美学） */
+.background-stage::before,
+.background-stage::after {
+    content: "";
+    position: absolute;
+    z-index: 1;
+    border-radius: 50%;
+    filter: blur(70px);
+    opacity: 0.5;
+    pointer-events: none;
+    will-change: transform;
+}
+
+.background-stage::before {
+    width: 62vw;
+    height: 62vw;
+    left: -12vw;
+    top: -16vw;
+    background: radial-gradient(circle at center,
+        color-mix(in srgb, var(--primary-color, #8b9dc3) 60%, transparent) 0%,
+        transparent 68%);
+    animation: auroraDrift1 28s ease-in-out infinite alternate;
+}
+
+.background-stage::after {
+    width: 56vw;
+    height: 56vw;
+    right: -14vw;
+    bottom: -18vw;
+    background: radial-gradient(circle at center,
+        color-mix(in srgb, var(--primary-color-dark, #5b6b93) 55%, transparent) 0%,
+        transparent 68%);
+    animation: auroraDrift2 34s ease-in-out infinite alternate;
+}
+
+body.dark-mode .background-stage::before,
+body.dark-mode .background-stage::after {
+    opacity: 0.42;
+}
+
+@keyframes auroraDrift1 {
+    0%   { transform: translate3d(0, 0, 0) scale(1); }
+    100% { transform: translate3d(8vw, 6vh, 0) scale(1.18); }
+}
+
+@keyframes auroraDrift2 {
+    0%   { transform: translate3d(0, 0, 0) scale(1.1); }
+    100% { transform: translate3d(-7vw, -5vh, 0) scale(0.92); }
+}
+
+/* 移动端与「减少动态效果」偏好下停用动画，省电并尊重无障碍设置 */
+.mobile-view .background-stage::before,
+.mobile-view .background-stage::after {
+    animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .background-stage::before,
+    .background-stage::after {
+        animation: none;
+    }
+}
+
 /* 16:9 容器布局 */
 .container {
     width: min(1200px, 100%);
@@ -2219,26 +2282,164 @@ input[type="range"]:active::-moz-range-thumb {
     box-shadow: none;
 }
 
-/* 调试信息样式 */
+/* 调试信息样式 —— 升级为可拖拽 / 胶囊折叠 / 彩标日志的调试悬浮窗（移植自 Solara spotlight） */
 .debug-info {
     position: fixed;
-    top: 10px;
-    left: 10px;
-    background: rgba(0, 0, 0, 0.8);
-    color: white;
-    padding: 10px;
-    border-radius: 5px;
+    bottom: 18px;
+    right: 18px;
+    top: auto;
+    left: auto;
+    width: 340px;
+    max-width: calc(100vw - 32px);
+    max-height: 46vh;
+    background: rgba(18, 20, 26, 0.78);
+    -webkit-backdrop-filter: blur(18px) saturate(160%);
+    backdrop-filter: blur(18px) saturate(160%);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: #e8ecf1;
+    border-radius: 16px;
     font-size: 12px;
-    z-index: 10000;
-    max-width: 300px;
-    max-height: 40vh;
-    overflow-y: auto;
+    line-height: 1.5;
+    z-index: 100000;
     display: none;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+    font-family: "SFMono-Regular", ui-monospace, Menlo, Consolas, monospace;
+    user-select: none;
 }
 
 .debug-info.show {
-    display: block;
+    display: flex;
 }
+
+.debug-info.is-dragging {
+    cursor: grabbing;
+    box-shadow: 0 22px 60px rgba(0, 0, 0, 0.55);
+}
+
+.debug-info-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 9px 12px;
+    cursor: grab;
+    background: rgba(255, 255, 255, 0.05);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    flex: 0 0 auto;
+}
+
+.debug-info-title {
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    font-size: 12px;
+    color: #f4f6f8;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.debug-info-title::before {
+    content: "";
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #34d399;
+    box-shadow: 0 0 8px #34d399;
+}
+
+.debug-info-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.debug-info-actions button {
+    width: 24px;
+    height: 24px;
+    border: none;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.08);
+    color: #cfd6de;
+    font-size: 13px;
+    line-height: 1;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.debug-info-actions button:hover {
+    background: rgba(255, 255, 255, 0.18);
+    color: #fff;
+}
+
+.debug-info-content {
+    padding: 8px 12px 10px;
+    overflow-y: auto;
+    flex: 1 1 auto;
+    scrollbar-width: thin;
+}
+
+.debug-info-content::-webkit-scrollbar {
+    width: 6px;
+}
+
+.debug-info-content::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.18);
+    border-radius: 3px;
+}
+
+.debug-info-entry {
+    padding: 3px 0;
+    word-break: break-word;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.debug-time {
+    color: #7c8794;
+    margin-right: 6px;
+    font-variant-numeric: tabular-nums;
+}
+
+.debug-tag {
+    display: inline-block;
+    padding: 1px 7px;
+    margin-right: 6px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #fff;
+    background: #6b7280;
+    vertical-align: baseline;
+}
+
+.debug-tag-audio    { background: #3b82f6; }
+.debug-tag-search   { background: #10b981; }
+.debug-tag-radar    { background: #8b5cf6; }
+.debug-tag-lyrics   { background: #f59e0b; }
+.debug-tag-visual   { background: #ec4899; }
+.debug-tag-playlist { background: #14b8a6; }
+.debug-tag-error    { background: #ef4444; }
+
+/* 折叠成 38px 胶囊横条 */
+.debug-info.minimized {
+    max-height: 38px;
+    height: 38px;
+    width: 200px;
+}
+
+.debug-info.minimized .debug-info-content {
+    display: none;
+}
+
+.debug-info.minimized .debug-info-header {
+    border-bottom: none;
+    height: 100%;
+}
+
 
 .loader { 
     width: 20px; 
