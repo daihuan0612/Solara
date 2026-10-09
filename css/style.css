@@ -2433,11 +2433,21 @@ input[type="range"]:active::-moz-range-thumb {
     color: #fff;
 }
 
+/* 「复制全部」是文字按钮，比 24×24 的图标按钮宽一点 */
+.debug-info-actions button.debug-copy-btn {
+    width: auto;
+    padding: 0 8px;
+    font-size: 12px;
+}
+
 .debug-info-content {
     padding: 8px 12px 10px;
     overflow-y: auto;
     flex: 1 1 auto;
     scrollbar-width: thin;
+    /* 外框是 user-select:none，这里放开，否则"复制失败 → 选中文本手动 Ctrl+C"的兜底会静默失效 */
+    user-select: text;
+    -webkit-user-select: text;
 }
 
 .debug-info-content::-webkit-scrollbar {
@@ -2485,7 +2495,10 @@ input[type="range"]:active::-moz-range-thumb {
 .debug-info.minimized {
     max-height: 38px;
     height: 38px;
-    width: 200px;
+    /* 原来写死 200px：标题 + 「复制」 + － + 🗑 + ✕ 装不下，会被压扁截断。
+       改成按内容自适应（KVideo 那边踩过同一个坑）。 */
+    width: auto;
+    min-width: 132px;
 }
 
 .debug-info.minimized .debug-info-content {
@@ -2495,6 +2508,7 @@ input[type="range"]:active::-moz-range-thumb {
 .debug-info.minimized .debug-info-header {
     border-bottom: none;
     height: 100%;
+    white-space: nowrap;
 }
 
 
