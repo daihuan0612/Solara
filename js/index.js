@@ -807,7 +807,14 @@ const savedCurrentPlaylist = (() => {
 // ================================================
 const GD_DIRECT_API = "https://music-api.gdstudio.xyz/api.php";
 const GD_PROXY_API = "/proxy";
-let gdDirectUsable = null; // null=未知；true=直连可用；false=直连被拒，后续直接走代理
+let gdDirectUsable = null; // null=未知；true=直连可用；false=直连刚失败过
+// 降级必须能自动恢复：上游偶发 503（实测并发请求时约 1/4 命中）不该让整个会话一直走代理；
+// 代理只是兜底通道，永远不参与"直连是否可用"的判定（否则代理成功会被误当成直连可用）。
+const GD_DIRECT_FAIL_THRESHOLD = 2;   // 连续失败几次才临时降级
+const GD_DIRECT_COOLDOWN_MS = 30000;  // 降级持续多久（到期自动回到直连优先）
+const GD_RETRY_DELAY_MS = 600;        // 上游 5xx 之后重试一次前的等待
+let gdDirectFailStreak = 0;
+let gdDirectCooldownUntil = 0;
 
 /** 从任意形态的 GD 请求地址中取出查询串；非 GD API 请求返回 null */
 function gdQueryString(url) {
@@ -831,28 +838,53 @@ async function gdFetch(url, timeoutMs = 12000) {
         });
     }
 
-    const candidates = gdDirectUsable === false
-        ? [`${GD_PROXY_API}?${qs}`]
-        : [`${GD_DIRECT_API}?${qs}`, `${GD_PROXY_API}?${qs}`];
+    const directInCooldown = gdDirectUsable === false && Date.now() < gdDirectCooldownUntil;
+    const candidates = directInCooldown
+        ? [{ url: `${GD_PROXY_API}?${qs}`, isDirect: false }]
+        : [
+            { url: `${GD_DIRECT_API}?${qs}`, isDirect: true },
+            { url: `${GD_PROXY_API}?${qs}`, isDirect: false },
+        ];
 
     let lastError = null;
-    for (let i = 0; i < candidates.length; i++) {
-        try {
-            const response = await fetch(candidates[i], {
-                headers: { "Accept": "application/json, text/plain, */*" },
-                signal: AbortSignal.timeout(timeoutMs),
-            });
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
-            }
-            if (i === 0) gdDirectUsable = true;
-            return response;
-        } catch (error) {
-            lastError = error;
-            if (i === 0) {
-                // 直连被拒（数据中心 IP / 网络不可达）→ 本次会话改用代理兜底
-                gdDirectUsable = false;
-                debugLog(`[GD] 直连失败(${error.message})，改用同源代理兜底`);
+    for (const candidate of candidates) {
+        for (let attempt = 1; attempt <= 2; attempt++) {
+            try {
+                const response = await fetch(candidate.url, {
+                    headers: { "Accept": "application/json, text/plain, */*" },
+                    signal: AbortSignal.timeout(timeoutMs),
+                });
+                if (!response.ok) {
+                    const httpError = new Error(`HTTP ${response.status}`);
+                    httpError.status = response.status;
+                    throw httpError;
+                }
+                if (candidate.isDirect) {
+                    // 只有直连成功才算"直连可用"
+                    gdDirectFailStreak = 0;
+                    gdDirectCooldownUntil = 0;
+                    gdDirectUsable = true;
+                }
+                return response;
+            } catch (error) {
+                lastError = error;
+                // 5xx 多为上游瞬时抖动：同一通道内重试一次再判定
+                //（超时/网络错误不重试，避免把等待时间翻倍）
+                if (attempt === 1 && typeof error.status === "number" && error.status >= 500) {
+                    await new Promise((resolve) => setTimeout(resolve, GD_RETRY_DELAY_MS));
+                    continue;
+                }
+                if (candidate.isDirect) {
+                    gdDirectFailStreak += 1;
+                    gdDirectUsable = false;
+                    if (gdDirectFailStreak >= GD_DIRECT_FAIL_THRESHOLD) {
+                        gdDirectCooldownUntil = Date.now() + GD_DIRECT_COOLDOWN_MS;
+                        debugLog(`[GD] 直连连续失败 ${gdDirectFailStreak} 次(${error.message})，${GD_DIRECT_COOLDOWN_MS / 1000}s 内先走代理，到期自动重试直连`);
+                    } else {
+                        debugLog(`[GD] 直连失败(${error.message})，改用同源代理兜底`);
+                    }
+                }
+                break;
             }
         }
     }
@@ -3057,6 +3089,11 @@ function ensureDebugConsole() {
         b.id = id; b.type = "button"; b.textContent = txt; b.title = label;
         actions.appendChild(b); return b;
     };
+    // 复制全部（移植自 KVideo 的调试台增强）：排查时不用开 F12 一行行挑，点一下就全贴给对方
+    const copyBtn = mkBtn("copyDebugLogBtn", "复制", "复制全部（直接粘给我）");
+    copyBtn.classList.add("debug-copy-btn");
+    copyBtn.dataset.label = "复制";
+    copyBtn.addEventListener("click", (e) => { e.stopPropagation(); copyDebugLogText(copyBtn); });
     const minBtn = mkBtn("minimizeDebugLogBtn", "－", "折叠");
     const clearBtn = mkBtn("clearDebugLogBtn", "🗑", "清空");
     const closeBtn = mkBtn("closeDebugLogBtn", "✕", "关闭");
@@ -3147,6 +3184,80 @@ function debugLog(message) {
     container.scrollTop = container.scrollHeight;
 }
 window.__solaraDebugLog = debugLog;
+
+/** 把调试台里的日志导成纯文本（`时间 [标签] 正文`），贴给对方就能直接看 */
+function debugLogToText() {
+    const container = document.getElementById("debugInfoContent");
+    if (!container) return "";
+    const lines = [];
+    container.querySelectorAll(".debug-info-entry").forEach((entry) => {
+        const timeEl = entry.querySelector(".debug-time");
+        const tagEl = entry.querySelector(".debug-tag");
+        const body = Array.from(entry.childNodes)
+            .filter((node) => node !== timeEl && node !== tagEl)
+            .map((node) => node.textContent || "")
+            .join("")
+            .trim();
+        const parts = [];
+        if (timeEl) parts.push(timeEl.textContent.trim());
+        if (tagEl) parts.push(`[${tagEl.textContent.trim()}]`);
+        if (body) parts.push(body);
+        if (parts.length) lines.push(parts.join(" "));
+    });
+    return lines.join("\n");
+}
+
+/**
+ * 复制全部：成功时按钮短暂变 ✓；剪贴板不可用时逐级退化
+ *   ① navigator.clipboard（https / localhost 才有）
+ *   ② 临时 textarea + execCommand（http 访问也能用）
+ *   ③ 选中日志区，让用户自己 Ctrl+C
+ */
+async function copyDebugLogText(btn) {
+    const text = debugLogToText() || "（暂无日志）";
+    const label = (btn && btn.dataset.label) || "复制";
+    const flashCopied = () => {
+        if (!btn) return;
+        btn.textContent = "✓";
+        setTimeout(() => { btn.textContent = label; }, 1600);
+    };
+
+    // ① 标准剪贴板
+    if (navigator.clipboard && window.isSecureContext) {
+        try {
+            await navigator.clipboard.writeText(text);
+            flashCopied();
+            return;
+        } catch (_) { /* 落到下一个方案 */ }
+    }
+
+    // ② 老办法（非安全上下文/权限被拒时仍可能成功）
+    try {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.setAttribute("readonly", "");
+        ta.style.position = "fixed";
+        ta.style.top = "-1000px";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand("copy");
+        document.body.removeChild(ta);
+        if (ok) { flashCopied(); return; }
+    } catch (_) { /* 落到下一个方案 */ }
+
+    // ③ 兜底：选中日志区（.debug-info-content 已允许 user-select），让用户手动 Ctrl+C
+    try {
+        const container = document.getElementById("debugInfoContent");
+        if (container) {
+            const range = document.createRange();
+            range.selectNodeContents(container);
+            const sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(range);
+        }
+    } catch (_) { /* ignore */ }
+}
 
 // 开/关调试模式
 function toggleDebugMode(force) {
@@ -7667,27 +7778,31 @@ async function playSong(song, options = {}) {
                 debugLog(`[播放] 尝试获取音频: ${song.source}`);
                 const gdSource = song.source || "netease";
                 
-                const results = await Promise.allSettled(
-                    qualitiesToTry.map(async (q) => {
-                        try {
-                            const gdUrl = `${API_CONFIG.primary.baseUrl}?types=url&id=${song.id}&source=${gdSource}&br=${q}`;
-                            // 走统一的 GD 通道（直连优先 + 代理兜底）
-                            const data = await API.fetchJson(gdUrl, 4000);
-                            if (data && data.url) {
-                                return { quality: q, data };
-                            }
-                        } catch {}
-                        return null;
-                    })
-                );
-                
-                // 取第一个成功的
-                const success = results.find(r => r.status === "fulfilled" && r.value);
-                if (success && success.value) {
-                    audioData = success.value.data;
-                    state.playbackQuality = success.value.quality;
-                    debugLog(`[播放] GD Studio成功 (音质: ${success.value.quality})`);
+                // 串行尝试音质（不要并发）：GD 对突发并发会甩 503
+                //（实测并发 4 个必中 1 个 503；并发 ≤3 与顺序请求都不中），
+                // 而且并发会让"最终采用哪个音质"变得不确定。拿到第一个成功就停。
+                const gdDeadline = Date.now() + 12000;
+                for (const q of qualitiesToTry) {
+                    const remaining = gdDeadline - Date.now();
+                    if (remaining <= 1000) {
+                        debugLog('[播放] GD 取链已超时（12s），停止重试音质');
+                        break;
+                    }
+                    try {
+                        const gdUrl = `${API_CONFIG.primary.baseUrl}?types=url&id=${song.id}&source=${gdSource}&br=${q}`;
+                        // 走统一的 GD 通道（直连优先 + 代理兜底，内部对 5xx 会重试一次）
+                        const data = await API.fetchJson(gdUrl, Math.min(8000, remaining));
+                        if (data && data.url) {
+                            audioData = data;
+                            state.playbackQuality = q;
+                            debugLog(`[播放] GD Studio成功 (音质: ${q})`);
+                            break;
+                        }
+                    } catch (error) {
+                        debugLog(`[播放] 音质 ${q} 取链失败: ${error.message}`);
+                    }
                 }
+                
             }
             
             // 所选源取不到链 → 换源兜底（只影响播放，搜索仍按用户选的源）。
@@ -7759,11 +7874,20 @@ async function playSong(song, options = {}) {
         } else {
             proxiedAudioUrl = buildAudioProxyUrl(originalAudioUrl);
             preferredAudioUrl = preferHttpsUrl(originalAudioUrl);
-            candidateAudioUrls = Array.from(
-                new Set([proxiedAudioUrl, preferredAudioUrl, originalAudioUrl].filter(Boolean))
-            );
-            
-            if (proxiedAudioUrl && proxiedAudioUrl !== originalAudioUrl) {
+
+            // https 直链优先、代理兜底：网易直链（m801.music.126.net）本身是 https，
+            // 裸取就 200、不需要补 Referer，而经 /proxy 要多绕一趟 CF Worker
+            //（实测同一首歌同一 Range：直连首包 68ms vs 代理 871ms，且代理路径十几秒才出声）。
+            // http 直链保持原行为，仍由代理优先（混合内容/证书问题）。
+            const directIsHttps = /^https:\/\//i.test(originalAudioUrl);
+            const orderedAudioUrls = directIsHttps
+                ? [preferredAudioUrl, originalAudioUrl, proxiedAudioUrl]
+                : [proxiedAudioUrl, preferredAudioUrl, originalAudioUrl];
+            candidateAudioUrls = Array.from(new Set(orderedAudioUrls.filter(Boolean)));
+
+            if (directIsHttps) {
+                debugLog(`音频地址为 https 直链，直连优先、代理兜底`);
+            } else if (proxiedAudioUrl && proxiedAudioUrl !== originalAudioUrl) {
                 debugLog(`音频地址已通过代理转换为 HTTPS: ${proxiedAudioUrl}`);
             }
         }
