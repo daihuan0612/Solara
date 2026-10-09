@@ -61,6 +61,11 @@ async function proxyAudio(targetUrl: string, request: Request): Promise<Response
     referer = "https://api.yaohud.cn/";
     origin = "https://api.yaohud.cn";
   }
+  // 网易云直链防盗链（与 server/routes/proxy.js 保持一致，两边逻辑不要漂）
+  else if (parsedUrl.hostname.includes("126.net") || parsedUrl.hostname.includes("music.163")) {
+    referer = "https://music.163.com/";
+    origin = "https://music.163.com";
+  }
 
   const init: RequestInit = {
     method: request.method,
