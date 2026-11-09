@@ -1758,6 +1758,12 @@ const state = {
     playlistLastNonRandomMode: savedPlayMode === "random" ? "list" : savedPlayMode,
     favoriteSongs: savedFavoriteSongs,
     isPlaying: false, // 新增：播放状态标志
+    // 播放意图：点了播放、但还没真正出声（在取播放地址 / 缓冲）。
+    // 多音源轮转要好几秒，这段时间必须给反馈，否则用户以为没点上、一直重复点。
+    pendingPlay: false,
+    pendingPlayTimer: null,
+    pendingPlayNoticeAt: 0,
+    loadingToastShown: false,
     currentFavoriteIndex: savedCurrentFavoriteIndex,
     currentList: savedCurrentList,
     favoritePlayMode: savedFavoritePlayMode,
@@ -3711,11 +3717,95 @@ function formatTime(seconds) {
     return `${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
 }
 
+// 点了播放到真正出声之间，可能要串行试好几个音源/音质（几秒到十几秒）。
+// 这段时间按钮必须显示「在转」，而不是停在三角上装没事。
+const PLAY_INTENT_TIMEOUT_MS = 30000;
+
+// 只有用户真的点了，才让播放键转圈。
+// 页面加载时自动恢复上次播放也会走 playSong，那种情况不该给"正在加载"的假反馈。
+let lastUserGestureAt = 0;
+if (typeof window !== "undefined") {
+    ["pointerdown", "keydown", "touchstart"].forEach((eventName) => {
+        window.addEventListener(eventName, () => { lastUserGestureAt = Date.now(); }, { capture: true, passive: true });
+    });
+}
+
+function isUserInitiatedPlay() {
+    return lastUserGestureAt > 0 && Date.now() - lastUserGestureAt < 2000;
+}
+
+function beginPlayIntent(userInitiated = isUserInitiatedPlay()) {
+    if (!userInitiated) return;
+    state.pendingPlay = true;
+    if (state.pendingPlayTimer) {
+        clearTimeout(state.pendingPlayTimer);
+    }
+    // 兜底：万一音频既不出声也不报错（上游卡死），别让转圈永远转下去
+    state.pendingPlayTimer = setTimeout(() => {
+        state.pendingPlayTimer = null;
+        if (!state.pendingPlay) return;
+        state.pendingPlay = false;
+        state.loadingToastShown = false;
+        hideNotification();
+        updatePlayPauseButton();
+    }, PLAY_INTENT_TIMEOUT_MS);
+    if (!state.loadingToastShown) {
+        state.loadingToastShown = true;
+        showNotification("正在加载…", "success", 0);
+    }
+    updatePlayPauseButton();
+}
+
+// 浏览器（Chrome / Safari）要求"用户手势"才允许出声。取链要好几秒，等拿到地址时
+// 手势已经过期，play() 会被 NotAllowedError 拒掉。这时别让人再点一次播放键：
+// 接住下一次点击/按键，自动接着播。
+function armResumeOnGesture() {
+    if (state._resumeArmed) return;
+    state._resumeArmed = true;
+    const resume = async () => {
+        state._resumeArmed = false;
+        window.removeEventListener("pointerdown", resume, true);
+        window.removeEventListener("keydown", resume, true);
+        if (!state.currentSong || !dom.audioPlayer.src) return;
+        try {
+            await dom.audioPlayer.play();
+            state.isPlaying = true;
+        } catch (error) {
+            console.warn("手势续播仍失败:", error);
+        }
+        updatePlayPauseButton();
+    };
+    window.addEventListener("pointerdown", resume, true);
+    window.addEventListener("keydown", resume, true);
+}
+
+function endPlayIntent() {
+    if (state.pendingPlayTimer) {
+        clearTimeout(state.pendingPlayTimer);
+        state.pendingPlayTimer = null;
+    }
+    if (!state.pendingPlay) return;
+    state.pendingPlay = false;
+    if (state.loadingToastShown) {
+        state.loadingToastShown = false;
+        hideNotification();
+    }
+    updatePlayPauseButton();
+}
+
 function updatePlayPauseButton() {
     if (!dom.playPauseBtn) return;
     const isPlaying = !dom.audioPlayer.paused && !dom.audioPlayer.ended;
-    dom.playPauseBtn.innerHTML = `<i class="fas ${isPlaying ? "fa-pause" : "fa-play"}"></i>`;
-    dom.playPauseBtn.title = isPlaying ? "暂停" : "播放";
+    // 已经在出声就以真实播放状态为准；还在取链/缓冲则显示转圈
+    const isLoading = Boolean(state.pendingPlay) && !isPlaying;
+    dom.playPauseBtn.innerHTML = isLoading
+        ? `<i class="fas fa-circle-notch"></i>`
+        : `<i class="fas ${isPlaying ? "fa-pause" : "fa-play"}"></i>`;
+    const label = isLoading ? "正在加载，请稍候" : isPlaying ? "暂停" : "播放";
+    dom.playPauseBtn.title = label;
+    dom.playPauseBtn.setAttribute("aria-label", label);
+    dom.playPauseBtn.setAttribute("aria-busy", isLoading ? "true" : "false");
+    dom.playPauseBtn.classList.toggle("is-loading", isLoading);
     if (document.body) {
         document.body.classList.toggle("is-playing", isPlaying);
     }
@@ -3902,6 +3992,15 @@ function seekAudio(value) {
 }
 
 async function togglePlayPause() {
+    // 已经在取链/缓冲：别让它重新走一遍流程（那会拖更久），给一句明确反馈
+    if (state.pendingPlay) {
+        if (Date.now() - (state.pendingPlayNoticeAt || 0) > 1200) {
+            state.pendingPlayNoticeAt = Date.now();
+            showNotification("正在加载，请稍候…", "success", 1500);
+        }
+        return;
+    }
+
     if (!state.currentSong) {
         if (state.playlistSongs.length > 0) {
             const targetIndex = state.currentTrackIndex >= 0 && state.currentTrackIndex < state.playlistSongs.length
@@ -3948,6 +4047,7 @@ async function togglePlayPause() {
         }
     } else {
         state.isPlaying = false;
+        endPlayIntent();
         dom.audioPlayer.pause();
     }
     updatePlayPauseButton();
@@ -4701,6 +4801,12 @@ function setupInteractions() {
     dom.audioPlayer.addEventListener("timeupdate", handleTimeUpdate);
     dom.audioPlayer.addEventListener("loadedmetadata", handleLoadedMetadata);
     dom.audioPlayer.addEventListener("play", updatePlayPauseButton);
+    // 首帧真正解码出声才算加载完成，这时才把转圈换成暂停键
+    dom.audioPlayer.addEventListener("playing", () => {
+        endPlayIntent();
+    });
+    // 注意：这里不能顺手 endPlayIntent()。playSong 取链前会先 pause 一次，
+    // 那个 pause 事件是异步派发的，会把刚点亮的「加载中」立刻抹掉。
     dom.audioPlayer.addEventListener("pause", updatePlayPauseButton);
     dom.audioPlayer.addEventListener("volumechange", onAudioVolumeChange);
     dom.audioPlayer.addEventListener("error", handleAudioError);
@@ -7760,6 +7866,9 @@ async function playSong(song, options = {}) {
         state._isPlayingSong = true;
         state.currentSong = song;
         const player = dom.audioPlayer;
+        // 这一次播放是用户点的，还是页面自己恢复的？手势只有几秒寿命，
+        // 必须在这里（刚点完）就记下来，后面取链完再判就过期了。
+        const playInitiatedByUser = isUserInitiatedPlay();
 
         // 1. 启动守护 (关键：只要是 iOS PWA 就启动，不管是否锁屏，防止切歌间隙被杀)
         if (isIOSPWA && window.solaraAudioGuard) {
@@ -7780,8 +7889,9 @@ async function playSong(song, options = {}) {
             await new Promise(r => setTimeout(r, 30));
         }
         
-        // 显示加载提示
-        showNotification("正在加载...");
+        // 显示加载提示，并让播放键立刻进入「加载中」——取链要好几秒，
+        // 这段时间按钮停在三角上会让人以为没点上，然后一直重复点。
+        beginPlayIntent(playInitiatedByUser);
 
         // 4. 检查本地缓存是否有已完整播放的歌曲
         const songId = song.id || song.url_id || song.lyric_id;
@@ -8166,6 +8276,11 @@ async function playSong(song, options = {}) {
                 // 短暂延迟后取消静音
                 await new Promise(r => setTimeout(r, 100));
                 player.muted = false;
+                // 个别浏览器在"取消静音"这一步会把音频停下，兜一手
+                if (player.paused && !player.ended && playInitiatedByUser) {
+                    armResumeOnGesture();
+                    showNotification("点击页面任意处继续播放", "error", 6000);
+                }
             } catch (error) {
                 console.warn('静音播放也失败了:', error);
                 // 最后手段：直接尝试一次
@@ -8174,7 +8289,13 @@ async function playSong(song, options = {}) {
                 } catch (e) {
                     console.error('自动播放彻底失败:', e);
                     state.isPlaying = false;
+                    endPlayIntent();
                     updatePlayPauseButton();
+                    // 手势过期被拒：接住下一次点击自动接着播，并说清情况
+                    if (playInitiatedByUser && e && (e.name === "NotAllowedError" || String(e.message || "").includes("not allowed"))) {
+                        armResumeOnGesture();
+                        showNotification("浏览器拦截了自动播放，点一下页面任意处继续", "error", 6000);
+                    }
                     if (isIOSPWA && window.solaraAudioGuard) {
                         setTimeout(() => window.solaraAudioGuard.stop(), 2000);
                     }
@@ -8208,6 +8329,7 @@ async function playSong(song, options = {}) {
 
         } else {
             state.isPlaying = false;
+            endPlayIntent();
             updatePlayPauseButton();
             if (isIOSPWA && window.solaraAudioGuard) window.solaraAudioGuard.stop();
         }
@@ -8218,6 +8340,8 @@ async function playSong(song, options = {}) {
 
     } catch (error) {
         console.error("播放流程异常:", error);
+        // 先收掉转圈，否则后面弹的失败提示会被"还在加载"的状态盖住
+        endPlayIntent();
         state.isPlaying = false;
         updatePlayPauseButton();
         if (isIOSPWA && window.solaraAudioGuard) window.solaraAudioGuard.stop();
@@ -8310,6 +8434,8 @@ function scheduleDeferredSongAssets(song, playPromise) {
 // 修复：自动播放下一首 (带状态重置)
 function handleAudioError(event) {
     const player = event.target;
+    // 出错就把转圈收掉，退回三角，别让按钮一直假装在加载
+    endPlayIntent();
     console.error('🎵 音频播放错误:', {
         errorCode: player.error.code,
         errorMessage: player.error.message,
@@ -8973,15 +9099,37 @@ function switchMobileView(view) {
 }
 
 // 修复：显示通知
-function showNotification(message, type = "success") {
+// durationMs = 0 表示不自动隐藏（加载提示用，出结果时再主动收起）
+let notificationTimer = null;
+
+function showNotification(message, type = "success", durationMs = 3000) {
     const notification = dom.notification;
+    if (!notification) return;
     notification.textContent = message;
     notification.className = `notification ${type}`;
     notification.classList.add("show");
 
-    setTimeout(() => {
-        notification.classList.remove("show");
-    }, 3000);
+    // 连续提示时要顶掉上一条的定时器，否则旧定时器会把新提示提前收走
+    if (notificationTimer) {
+        clearTimeout(notificationTimer);
+        notificationTimer = null;
+    }
+    if (durationMs > 0) {
+        notificationTimer = setTimeout(() => {
+            notification.classList.remove("show");
+            notificationTimer = null;
+        }, durationMs);
+    }
+}
+
+function hideNotification() {
+    const notification = dom.notification;
+    if (!notification) return;
+    if (notificationTimer) {
+        clearTimeout(notificationTimer);
+        notificationTimer = null;
+    }
+    notification.classList.remove("show");
 }
 
 // ================================================
