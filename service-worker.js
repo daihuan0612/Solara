@@ -12,7 +12,7 @@ const CACHE_NAMES = {
     // v27: 调试台加「复制全部」（含 user-select 修复与胶囊自适应）；GD 通道修复（直连降级可自动恢复、
     //      试音质改串行、网易音频 https 直链优先）—— 改静态资源必须抬版本号，否则 cacheFirst 会一直发旧副本
     // v26: 封面取色再调——主色改取"封面占比最大的那种实际颜色"(有色像素按色相加权取众数,近黑白才回退中性);背景恢复成"有色中间调"(融入封面,不发灰不惨白),强调色仍固定可读明度
-    shell: 'solara-shell-v28',    // 应用壳（CSS, JS, HTML）
+    shell: 'solara-shell-v29',    // 应用壳（CSS, JS, HTML）
     audio: 'solara-audio-v1',     // 缓存的音频
 };
 
