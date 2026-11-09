@@ -84,13 +84,18 @@ function getMany(keys) {
   const grouped = { playback_store: [], favorites_store: [] };
   keys.forEach(key => grouped[getTableForKey(key)].push(key));
 
+  // 分块查询：SQLite/驱动的绑定参数有上限（老版本只有 999），一次塞几千个 key 会直接报错
+  const CHUNK = 500;
   for (const [table, tableKeys] of Object.entries(grouped)) {
     if (tableKeys.length === 0) continue;
-    const placeholders = tableKeys.map(() => '?').join(',');
-    const rows = db.prepare(
-      `SELECT key, value FROM ${table} WHERE key IN (${placeholders})`
-    ).all(...tableKeys);
-    rows.forEach(row => (data[row.key] = row.value));
+    for (let i = 0; i < tableKeys.length; i += CHUNK) {
+      const chunk = tableKeys.slice(i, i + CHUNK);
+      const placeholders = chunk.map(() => '?').join(',');
+      const rows = db.prepare(
+        `SELECT key, value FROM ${table} WHERE key IN (${placeholders})`
+      ).all(...chunk);
+      rows.forEach(row => (data[row.key] = row.value));
+    }
   }
 
   return data;

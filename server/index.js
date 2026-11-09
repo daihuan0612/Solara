@@ -36,6 +36,7 @@ const createAuthMiddleware = require('./routes/auth');
 const createLoginRouter    = require('./routes/login');
 const createProxyRouter    = require('./routes/proxy');
 const createPaletteRouter  = require('./routes/palette');
+const { COOKIE_NAME }      = require('./session');
 
 const PORT     = parseInt(process.env.PORT || '8787', 10);
 const HOST     = process.env.HOST || '0.0.0.0';
@@ -60,6 +61,17 @@ app.use(express.json({ limit: '10mb' }));
 
 // POST /api/login（登录接口，不需要认证）
 app.use('/api/login', createLoginRouter(PASSWORD));
+
+// 退出登录：清掉会话 cookie（之前 Node 版没有这个路由，前端跳 /login 但 cookie 还在，
+// 刷新仍是登录态 —— 共用电脑上等于没退）
+app.post('/api/logout', (req, res) => {
+  const isHttps = req.secure || req.headers['x-forwarded-proto'] === 'https';
+  const parts = [`${COOKIE_NAME}=`, 'Max-Age=0', 'Path=/', 'HttpOnly', 'SameSite=Lax'];
+  if (isHttps) parts.push('Secure');
+  res.setHeader('Set-Cookie', parts.join('; '));
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ success: true });
+});
 
 // GET /login → 提供 login.html
 app.get('/login', (req, res) => {

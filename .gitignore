@@ -27,3 +27,13 @@ reasonix.toml
 .DS_Store
 .vscode/
 .idea/
+
+# 交接 / 审查 / 备份产物：只留本地，不进仓库
+_backups/
+_review/
+_shots/
+review-*.md
+接手文档*
+交接文档*
+HANDOVER*
+*.bak-*

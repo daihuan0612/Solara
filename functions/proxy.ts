@@ -1,5 +1,8 @@
+import { isBlockedTarget, blockedTargetResponse } from "./lib/net-guard";
+
 const API_BASE_URL = "https://music-api.gdstudio.xyz/api.php";
 const SAFE_RESPONSE_HEADERS = ["content-type", "cache-control", "accept-ranges", "content-length", "content-range", "etag", "last-modified", "expires"];
+const AUDIO_FETCH_TIMEOUT_MS = 20000;
 
 function createCorsHeaders(init?: Headers): Headers {
   const headers = new Headers();
@@ -37,9 +40,12 @@ async function proxyAudio(targetUrl: string, request: Request): Promise<Response
     return new Response("Invalid target URL", { status: 400 });
   }
 
-  // 只允许HTTP和HTTPS协议
+  // 只允许HTTP和HTTPS协议，且不允许指向内网/环回/保留地址（防 SSRF 与内网探测）
   if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
     return new Response("Only HTTP and HTTPS are allowed", { status: 400 });
+  }
+  if (isBlockedTarget(parsedUrl.toString())) {
+    return blockedTargetResponse();
   }
 
   // 根据不同的域名设置不同的Referer
@@ -85,9 +91,16 @@ async function proxyAudio(targetUrl: string, request: Request): Promise<Response
   }
 
   try {
-    const upstream = await fetch(parsedUrl.toString(), init);
+    const upstream = await fetch(parsedUrl.toString(), {
+      ...init,
+      signal: AbortSignal.timeout(AUDIO_FETCH_TIMEOUT_MS),
+    });
     const headers = createCorsHeaders(upstream.headers);
-    if (!headers.has("Cache-Control")) {
+    // 只有成功响应才允许缓存：4xx/5xx 若被标成 max-age=3600，一次上游抖动会让
+    // 这首歌在边缘/浏览器里坏一小时（换音源、清缓存前一直播放失败）
+    if (!upstream.ok) {
+      headers.set("Cache-Control", "no-store");
+    } else if (!headers.has("Cache-Control")) {
       headers.set("Cache-Control", "public, max-age=3600");
     }
 

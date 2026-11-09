@@ -6,10 +6,13 @@
 //   - 其他 → 网络优先
 
 const CACHE_NAMES = {
+    // v28: 交叉审查修复（静态资源白名单、SSRF 目标守卫、会话票据改用过期+签名、
+    //      搜索/存储并发与失败判定、CSS 焦点与层级修复）—— 改静态资源必须抬版本号，
+    //      否则 cacheFirst 会一直发旧副本
     // v27: 调试台加「复制全部」（含 user-select 修复与胶囊自适应）；GD 通道修复（直连降级可自动恢复、
     //      试音质改串行、网易音频 https 直链优先）—— 改静态资源必须抬版本号，否则 cacheFirst 会一直发旧副本
     // v26: 封面取色再调——主色改取"封面占比最大的那种实际颜色"(有色像素按色相加权取众数,近黑白才回退中性);背景恢复成"有色中间调"(融入封面,不发灰不惨白),强调色仍固定可读明度
-    shell: 'solara-shell-v27',    // 应用壳（CSS, JS, HTML）
+    shell: 'solara-shell-v28',    // 应用壳（CSS, JS, HTML）
     audio: 'solara-audio-v1',     // 缓存的音频
 };
 
@@ -119,10 +122,14 @@ function isStaticAsset(url) {
         }
     }
 
-    // 外部 CDN（FontAwesome 等）
-    if (url.href.includes('cdnjs.cloudflare.com') ||
-        url.href.includes('fonts.googleapis.com') ||
-        url.href.includes('fonts.gstatic.com')) {
+    // 外部 CDN（FontAwesome 等）：必须精确比 origin，
+    // 用 includes 判断时 cdnjs.cloudflare.com.evil.tld 也会被当成可信源缓存下来。
+    const CDN_ORIGINS = new Set([
+        'https://cdnjs.cloudflare.com',
+        'https://fonts.googleapis.com',
+        'https://fonts.gstatic.com',
+    ]);
+    if (CDN_ORIGINS.has(url.origin)) {
         return true;
     }
 

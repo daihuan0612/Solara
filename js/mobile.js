@@ -10,6 +10,8 @@
 
     const dom = window.SolaraDom || {};
     let initialized = false;
+    // 全局 pointerdown 的引用：重复初始化时先摘掉旧的，避免监听器越叠越多
+    let globalPointerDownHandler = null;
 
     function updateMobileToolbarTitleImpl() {
         if (!dom.mobileToolbarTitle) {
@@ -184,7 +186,11 @@
             closeAllMobileOverlaysImpl();
         };
 
-        document.addEventListener("pointerdown", handleGlobalPointerDown, true);
+        if (globalPointerDownHandler) {
+            document.removeEventListener("pointerdown", globalPointerDownHandler, true);
+        }
+        globalPointerDownHandler = handleGlobalPointerDown;
+        document.addEventListener("pointerdown", globalPointerDownHandler, true);
         if (dom.searchArea) {
             dom.searchArea.setAttribute("aria-hidden", "true");
         }

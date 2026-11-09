@@ -31,6 +31,11 @@ const TABLES = {
   favorites: "favorites_store_v2",
 } as const;
 
+// D1 的硬限制：单条查询 100 个绑定参数、单次调用 50 条查询。
+// 这里留出余量分片，避免一次提交几千个 key 直接整批失败。
+const MAX_KEYS_PER_QUERY = 90;
+const MAX_STATEMENTS_PER_BATCH = 40;
+
 type TableName = (typeof TABLES)[keyof typeof TABLES];
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -43,6 +48,16 @@ function hasD1(env: Env): env is Required<Env> {
 
 function getTableForKey(key: string): TableName {
   return FAVORITE_KEYS.has(key) ? TABLES.favorites : TABLES.playback;
+}
+
+// 分批执行：每批最多 40 条语句，串行等完再下一批（batch 本身只算 1 次查询配额）
+async function runStatementBatches(
+  env: Env,
+  statements: D1PreparedStatement[]
+): Promise<void> {
+  for (let i = 0; i < statements.length; i += MAX_STATEMENTS_PER_BATCH) {
+    await env.DB.batch(statements.slice(i, i + MAX_STATEMENTS_PER_BATCH));
+  }
 }
 
 async function handleGet(request: Request, env: Env, userId: number): Promise<Response> {
@@ -68,23 +83,30 @@ async function handleGet(request: Request, env: Env, userId: number): Promise<Re
   let rows: Array<{ key: string; value: string | null }> = [];
 
   if (keys.length > 0) {
-    const groupedKeys = keys.reduce(
-      (acc, key) => {
-        acc[getTableForKey(key)].push(key);
-        return acc;
-      },
-      { [TABLES.playback]: [] as string[], [TABLES.favorites]: [] as string[] }
-    );
-
+    // D1 单条查询的绑定参数上限是 100（userId + keys），超过会整次报错，
+    // 所以按 90 一片分块查，再把结果并起来。
     const results: Array<{ key: string; value: string | null }> = [];
-    for (const [table, tableKeys] of Object.entries(groupedKeys)) {
-      if (tableKeys.length === 0) continue;
-      const placeholders = tableKeys.map(() => "?").join(",");
-      const statement = env.DB.prepare(
-        `SELECT key, value FROM ${table} WHERE user_id = ? AND key IN (${placeholders})`
-      ).bind(userId, ...tableKeys);
-      const result = await statement.all();
-      results.push(...(((result as any).results || []) as any[]));
+    const chunks: string[][] = [];
+    for (let i = 0; i < keys.length; i += MAX_KEYS_PER_QUERY) {
+      chunks.push(keys.slice(i, i + MAX_KEYS_PER_QUERY));
+    }
+    for (const chunk of chunks) {
+      const groupedKeys = chunk.reduce(
+        (acc, key) => {
+          acc[getTableForKey(key)].push(key);
+          return acc;
+        },
+        { [TABLES.playback]: [] as string[], [TABLES.favorites]: [] as string[] }
+      );
+      for (const [table, tableKeys] of Object.entries(groupedKeys)) {
+        if (tableKeys.length === 0) continue;
+        const placeholders = tableKeys.map(() => "?").join(",");
+        const statement = env.DB.prepare(
+          `SELECT key, value FROM ${table} WHERE user_id = ? AND key IN (${placeholders})`
+        ).bind(userId, ...tableKeys);
+        const result = await statement.all();
+        results.push(...(((result as any).results || []) as any[]));
+      }
     }
     rows = results;
     keys.forEach((key) => {
@@ -149,12 +171,10 @@ async function handlePost(request: Request, env: Env, userId: number): Promise<R
     );
   });
 
-  const batches: Promise<unknown>[] = [];
-  Object.values(groupedStatements).forEach((statements) => {
-    if (statements.length > 0) batches.push(env.DB.batch(statements));
-  });
-
-  await Promise.all(batches);
+  await runStatementBatches(env, [
+    ...groupedStatements[TABLES.playback],
+    ...groupedStatements[TABLES.favorites],
+  ]);
   return jsonResponse({ d1Available: true, updated: entries.length });
 }
 
@@ -186,12 +206,10 @@ async function handleDelete(request: Request, env: Env, userId: number): Promise
     );
   });
 
-  const batches: Promise<unknown>[] = [];
-  Object.values(groupedStatements).forEach((statements) => {
-    if (statements.length > 0) batches.push(env.DB.batch(statements));
-  });
-
-  await Promise.all(batches);
+  await runStatementBatches(env, [
+    ...groupedStatements[TABLES.playback],
+    ...groupedStatements[TABLES.favorites],
+  ]);
   return jsonResponse({ d1Available: true, deleted: keys.length });
 }
 

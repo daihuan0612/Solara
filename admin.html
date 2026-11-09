@@ -100,7 +100,7 @@
         </div>
         <div class="field">
           <label for="nu-pwd">初始密码</label>
-          <input id="nu-pwd" type="text" autocomplete="off" placeholder="至少 4 位" required>
+          <input id="nu-pwd" type="password" autocomplete="new-password" placeholder="至少 4 位" required>
         </div>
         <div class="field">
           <label for="nu-role">角色</label>
@@ -168,7 +168,7 @@
     async function loadUsers() {
       const { ok, data } = await api("/api/admin/users");
       const tbody = document.getElementById("userRows");
-      if (!ok) { tbody.innerHTML = `<tr><td colspan="5" class="muted">${msgOf(data.error)}</td></tr>`; return; }
+      if (!ok) { tbody.innerHTML = `<tr><td colspan="5" class="muted">${esc(msgOf(data.error))}</td></tr>`; return; }
       const users = data.users || [];
       if (!users.length) { tbody.innerHTML = `<tr><td colspan="5" class="muted">暂无账号</td></tr>`; return; }
       tbody.innerHTML = users.map(u => {

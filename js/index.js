@@ -367,7 +367,7 @@ function createPersistentStorageClient() {
         if (availabilityPromise) {
             return availabilityPromise;
         }
-        availabilityPromise = (async () => {
+        const currentProbe = (async () => {
             try {
                 const url = new URL(REMOTE_STORAGE_ENDPOINT, window.location.origin);
                 url.searchParams.set("status", "1");
@@ -383,7 +383,17 @@ function createPersistentStorageClient() {
                 return false;
             }
         })();
-        return availabilityPromise;
+        availabilityPromise = currentProbe;
+        // 失败结果不要永久缓存：否则 D1 抖一次，整个会话都只写本地，刷新前无法恢复。
+        // 只重置"自己这次"的缓存值，别把 60 秒内新发起的探测结果一起清掉。
+        currentProbe.then((available) => {
+            if (!available) {
+                setTimeout(() => {
+                    if (availabilityPromise === currentProbe) availabilityPromise = null;
+                }, 60000);
+            }
+        });
+        return currentProbe;
     };
 
     const getItems = async (keys = []) => {
@@ -411,11 +421,16 @@ function createPersistentStorageClient() {
             return false;
         }
         try {
-            await fetch(REMOTE_STORAGE_ENDPOINT, {
+            const response = await fetch(REMOTE_STORAGE_ENDPOINT, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ data: items }),
             });
+            // 4xx/5xx 也是"没写成"，不能当成功（否则数据静默丢失且无人知道）
+            if (!response.ok) {
+                console.warn("写入远程存储被拒绝", response.status);
+                return false;
+            }
             return true;
         } catch (error) {
             console.warn("写入远程存储失败", error);
@@ -429,11 +444,15 @@ function createPersistentStorageClient() {
             return false;
         }
         try {
-            await fetch(REMOTE_STORAGE_ENDPOINT, {
+            const response = await fetch(REMOTE_STORAGE_ENDPOINT, {
                 method: "DELETE",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ keys }),
             });
+            if (!response.ok) {
+                console.warn("删除远程存储被拒绝", response.status);
+                return false;
+            }
             return true;
         } catch (error) {
             console.warn("删除远程存储数据失败", error);
@@ -473,6 +492,70 @@ function removePersistentItems(keys = []) {
     });
 }
 
+// 同一轮里的多次写入合并成一次 POST：savePlayerState 一次要写十来个 key，
+// 逐个提交既费 D1 写配额、又可能乱序（后发的旧值盖掉先发的新值）。
+let pendingSyncItems = null;
+let pendingSyncTimer = null;
+
+function queueStorageSync(key, value) {
+    if (!remoteSyncEnabled || !shouldSyncStorageKey(key)) return;
+    if (!pendingSyncItems) pendingSyncItems = {};
+    pendingSyncItems[key] = value;
+    if (pendingSyncTimer) return;
+    pendingSyncTimer = setTimeout(() => {
+        const items = pendingSyncItems;
+        pendingSyncItems = null;
+        pendingSyncTimer = null;
+        if (items && Object.keys(items).length) {
+            persistStorageItems(items);
+        }
+    }, 0);
+}
+
+// 关页面/切到后台时把还没发出去的那批写掉：0ms 合并窗口里正好卸载，
+// 最后几次改动（音量、进度、切歌）就只留在本机，换设备看不到。
+function flushPendingStorageSync() {
+    if (!pendingSyncItems) return;
+    const items = pendingSyncItems;
+    pendingSyncItems = null;
+    if (pendingSyncTimer) {
+        clearTimeout(pendingSyncTimer);
+        pendingSyncTimer = null;
+    }
+    if (!items || Object.keys(items).length === 0) return;
+    let body = "";
+    try {
+        body = JSON.stringify({ data: items });
+    } catch (_) {
+        persistStorageItems(items);
+        return;
+    }
+    // keepalive 的请求体上限约 64KB，超了会被浏览器直接丢掉，那就退回普通请求
+    if (body.length > 60000) {
+        persistStorageItems(items);
+        return;
+    }
+    try {
+        // keepalive 让请求在页面卸载后继续发完
+        fetch(REMOTE_STORAGE_ENDPOINT, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body,
+            keepalive: true,
+        }).catch(() => {});
+    } catch (error) {
+        persistStorageItems(items);
+    }
+}
+
+if (typeof window !== "undefined") {
+    window.addEventListener("pagehide", flushPendingStorageSync);
+    window.addEventListener("beforeunload", flushPendingStorageSync);
+    document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "hidden") flushPendingStorageSync();
+    });
+}
+
 function safeGetLocalStorage(key) {
     try {
         return localStorage.getItem(key);
@@ -483,14 +566,18 @@ function safeGetLocalStorage(key) {
 }
 
 function safeSetLocalStorage(key, value, options = {}) {
-    const { skipRemote = false } = options;
+    const { skipRemote = false, batch = false } = options;
     try {
         localStorage.setItem(key, value);
     } catch (error) {
         console.warn(`写入本地存储失败: ${key}`, error);
     }
     if (!skipRemote && remoteSyncEnabled && shouldSyncStorageKey(key)) {
-        persistStorageItems({ [key]: value });
+        if (batch) {
+            queueStorageSync(key, value);
+        } else {
+            persistStorageItems({ [key]: value });
+        }
     }
 }
 
@@ -815,6 +902,7 @@ const GD_DIRECT_COOLDOWN_MS = 30000;  // 降级持续多久（到期自动回到
 const GD_RETRY_DELAY_MS = 600;        // 上游 5xx 之后重试一次前的等待
 let gdDirectFailStreak = 0;
 let gdDirectCooldownUntil = 0;
+let gdLastFailAt = 0;                 // 最近一次直连失败的起始时刻，用于挡住"迟到的成功"清冷却
 
 /** 从任意形态的 GD 请求地址中取出查询串；非 GD API 请求返回 null */
 function gdQueryString(url) {
@@ -829,13 +917,24 @@ function gdQueryString(url) {
 }
 
 /** 直连优先 + 代理兜底；返回 Response，由调用方解析 */
+/**
+ * 带超时的 fetch：优先用 AbortSignal.timeout（Safari 16+），
+ * 老 Safari / 老 WebView 上没有这个 API 时退回 AbortController + 定时器，
+ * 否则这些设备上每个请求都会直接抛 TypeError，播放与搜索全废。
+ */
+function fetchWithTimeout(url, init = {}, timeoutMs = 12000) {
+    if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
+        return fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    return fetch(url, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer));
+}
+
 async function gdFetch(url, timeoutMs = 12000) {
     const qs = gdQueryString(url);
     if (qs === null) {
-        return fetch(url, {
-            headers: { "Accept": "application/json" },
-            signal: AbortSignal.timeout(timeoutMs),
-        });
+        return fetchWithTimeout(url, { headers: { "Accept": "application/json" } }, timeoutMs);
     }
 
     const directInCooldown = gdDirectUsable === false && Date.now() < gdDirectCooldownUntil;
@@ -849,18 +948,22 @@ async function gdFetch(url, timeoutMs = 12000) {
     let lastError = null;
     for (const candidate of candidates) {
         for (let attempt = 1; attempt <= 2; attempt++) {
+            // 每次尝试都重新取时刻：5xx 重试成功时要算"这次成功比最近一次失败新"，
+            // 沿用第一次的时间戳会让重试成功反而恢复不了直连。
+            const attemptStartedAt = Date.now();
             try {
-                const response = await fetch(candidate.url, {
-                    headers: { "Accept": "application/json, text/plain, */*" },
-                    signal: AbortSignal.timeout(timeoutMs),
-                });
+                const response = await fetchWithTimeout(
+                    candidate.url,
+                    { headers: { "Accept": "application/json, text/plain, */*" } },
+                    timeoutMs
+                );
                 if (!response.ok) {
                     const httpError = new Error(`HTTP ${response.status}`);
                     httpError.status = response.status;
                     throw httpError;
                 }
-                if (candidate.isDirect) {
-                    // 只有直连成功才算"直连可用"
+                if (candidate.isDirect && attemptStartedAt >= gdLastFailAt) {
+                    // 只有"比最近一次失败更新"的成功才算恢复；只有直连成功才算直连可用
                     gdDirectFailStreak = 0;
                     gdDirectCooldownUntil = 0;
                     gdDirectUsable = true;
@@ -875,6 +978,7 @@ async function gdFetch(url, timeoutMs = 12000) {
                     continue;
                 }
                 if (candidate.isDirect) {
+                    gdLastFailAt = Math.max(gdLastFailAt, attemptStartedAt);
                     gdDirectFailStreak += 1;
                     gdDirectUsable = false;
                     if (gdDirectFailStreak >= GD_DIRECT_FAIL_THRESHOLD) {
@@ -915,7 +1019,7 @@ const API_KUWO = {
         
         try {
             debugLog(`[酷我API] 搜索请求: ${url}`);
-            const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
+            const response = await fetchWithTimeout(url, {}, 5000);
             
             if (!response.ok) {
                 throw new Error(`请求失败: ${response.status}`);
@@ -960,7 +1064,7 @@ const API_KUWO = {
         
         try {
             debugLog(`[酷我API] 获取播放链接: ${url}`);
-            const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
+            const response = await fetchWithTimeout(url, {}, 5000);
             
             if (!response.ok) {
                 throw new Error(`请求失败: ${response.status}`);
@@ -1001,7 +1105,7 @@ const API_KUWO = {
 
         try {
             debugLog(`[酷我API] 通过RID获取播放链接: ${url}`);
-            const response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+            const response = await fetchWithTimeout(url, {}, timeoutMs);
 
             if (!response.ok) {
                 throw new Error(`请求失败: ${response.status}`);
@@ -1050,7 +1154,7 @@ const API_KUGOU = {
         
         try {
             debugLog(`[酷狗API] 搜索请求: ${url}`);
-            const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
+            const response = await fetchWithTimeout(url, {}, 5000);
             
             if (!response.ok) {
                 throw new Error(`请求失败: ${response.status}`);
@@ -1098,7 +1202,7 @@ const API_KUGOU = {
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
                 debugLog(`[酷狗API] 获取播放链接 (${attempt}/${maxAttempts}): ${url}`);
-                const response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+                const response = await fetchWithTimeout(url, {}, timeoutMs);
 
                 if (!response.ok) {
                     lastReason = `HTTP ${response.status}`;
@@ -1154,7 +1258,7 @@ const API_XIMA = {
 
         try {
             debugLog(`[喜马拉雅API] 搜索请求: ${url}`);
-            const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
+            const response = await fetchWithTimeout(url, {}, 5000);
 
             if (!response.ok) throw new Error(`请求失败: ${response.status}`);
 
@@ -1192,7 +1296,7 @@ const API_XIMA = {
 
         try {
             debugLog(`[喜马拉雅API] 获取专辑音频: ${url}`);
-            const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
+            const response = await fetchWithTimeout(url, {}, 5000);
 
             if (!response.ok) throw new Error(`请求失败: ${response.status}`);
 
@@ -1226,7 +1330,7 @@ const API_XIMA = {
 
         try {
             debugLog(`[喜马拉雅API] 获取专辑音轨列表: ${url}`);
-            const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
+            const response = await fetchWithTimeout(url, {}, 5000);
 
             if (!response.ok) throw new Error(`请求失败: ${response.status}`);
 
@@ -1709,16 +1813,47 @@ saveFavoriteState();
 async function bootstrapPersistentStorage() {
     try {
         const remoteKeys = Array.from(STORAGE_KEYS_TO_SYNC);
+        // 记下"等远端返回之前"的本地值：这段时间里用户可能已经切歌、收藏、改了音质，
+        // 这些 key 不能被远端旧快照覆盖回去。
+        const localBefore = {};
+        remoteKeys.forEach((key) => {
+            localBefore[key] = safeGetLocalStorage(key);
+        });
         const snapshot = await persistentStorage.getItems(remoteKeys);
         if (!snapshot || !snapshot.d1Available || !snapshot.data) {
             return;
         }
-        applyPersistentSnapshotFromRemote(snapshot.data);
+        const { applied, keptLocal } = splitRemoteSnapshot(snapshot.data, localBefore);
+        applyPersistentSnapshotFromRemote(applied);
+        if (Object.keys(keptLocal).length > 0) {
+            // 本地更新，反向上传，保证两端一致
+            persistStorageItems(keptLocal);
+        }
     } catch (error) {
         console.warn("加载远程存储失败", error);
     } finally {
         remoteSyncEnabled = true;
     }
+}
+
+/**
+ * 拆开远端快照：等待期间本地改过的 key 保留本地值（并收集起来回传），其余交给远端。
+ * 返回 { applied: 可应用的远端数据, keptLocal: 需要回传的本地值 }
+ */
+function splitRemoteSnapshot(data, localBefore) {
+    const applied = {};
+    const keptLocal = {};
+    Object.entries(data || {}).forEach(([key, value]) => {
+        const before = localBefore ? localBefore[key] : undefined;
+        const now = safeGetLocalStorage(key);
+        const changedWhileWaiting = before !== undefined && now !== null && now !== before;
+        if (changedWhileWaiting) {
+            keptLocal[key] = now;
+            return;
+        }
+        applied[key] = value;
+    });
+    return { applied, keptLocal };
 }
 
 function applyPersistentSnapshotFromRemote(data) {
@@ -1740,8 +1875,11 @@ function applyPersistentSnapshotFromRemote(data) {
     if (typeof data.currentTrackIndex === "string") {
         const index = Number.parseInt(data.currentTrackIndex, 10);
         if (Number.isInteger(index)) {
-            state.currentTrackIndex = index;
-            safeSetLocalStorage("currentTrackIndex", data.currentTrackIndex, { skipRemote: true });
+            // 远端快照可能来自另一台设备（歌单更短）：越界索引会让「继续播放」指向不存在的歌
+            const listLength = Array.isArray(state.playlistSongs) ? state.playlistSongs.length : 0;
+            const maxIndex = Math.max(listLength - 1, 0);
+            state.currentTrackIndex = Math.min(Math.max(index, 0), maxIndex);
+            safeSetLocalStorage("currentTrackIndex", String(state.currentTrackIndex), { skipRemote: true });
         }
     }
 
@@ -2883,9 +3021,7 @@ async function resolveNeteaseCoverUrl(song) {
 async function fetchBackendPalette(imageUrl) {
     try {
         const abs = new URL(imageUrl, location.origin).toString();
-        const resp = await fetch(`/palette?image=${encodeURIComponent(abs)}`, {
-            signal: AbortSignal.timeout(12000),
-        });
+        const resp = await fetchWithTimeout(`/palette?image=${encodeURIComponent(abs)}`, {}, 12000);
         if (!resp.ok) {
             console.log(`🛰️ 后端取色不可用（HTTP ${resp.status}），改用本地 Canvas`);
             return null;
@@ -3047,27 +3183,27 @@ async function updateDynamicBackground(imageUrl) {
 
 function savePlayerState(options = {}) {
     const { skipRemote = false } = options;
-    safeSetLocalStorage("playlistSongs", JSON.stringify(state.playlistSongs), { skipRemote });
-    safeSetLocalStorage("currentTrackIndex", String(state.currentTrackIndex), { skipRemote });
-    safeSetLocalStorage("playMode", state.playMode, { skipRemote });
-    safeSetLocalStorage("playbackQuality", state.playbackQuality, { skipRemote });
-    safeSetLocalStorage("playerVolume", String(state.volume), { skipRemote });
-    safeSetLocalStorage("currentPlaylist", state.currentPlaylist, { skipRemote });
-    safeSetLocalStorage("currentList", state.currentList, { skipRemote });
+    safeSetLocalStorage("playlistSongs", JSON.stringify(state.playlistSongs), { skipRemote, batch: true });
+    safeSetLocalStorage("currentTrackIndex", String(state.currentTrackIndex), { skipRemote, batch: true });
+    safeSetLocalStorage("playMode", state.playMode, { skipRemote, batch: true });
+    safeSetLocalStorage("playbackQuality", state.playbackQuality, { skipRemote, batch: true });
+    safeSetLocalStorage("playerVolume", String(state.volume), { skipRemote, batch: true });
+    safeSetLocalStorage("currentPlaylist", state.currentPlaylist, { skipRemote, batch: true });
+    safeSetLocalStorage("currentList", state.currentList, { skipRemote, batch: true });
     if (state.currentSong) {
-        safeSetLocalStorage("currentSong", JSON.stringify(state.currentSong), { skipRemote });
+        safeSetLocalStorage("currentSong", JSON.stringify(state.currentSong), { skipRemote, batch: true });
     } else {
-        safeSetLocalStorage("currentSong", "", { skipRemote });
+        safeSetLocalStorage("currentSong", "", { skipRemote, batch: true });
     }
-    safeSetLocalStorage("currentPlaybackTime", String(state.currentPlaybackTime || 0), { skipRemote });
+    safeSetLocalStorage("currentPlaybackTime", String(state.currentPlaybackTime || 0), { skipRemote, batch: true });
 }
 
 function saveFavoriteState(options = {}) {
     const { skipRemote = false } = options;
-    safeSetLocalStorage("favoriteSongs", JSON.stringify(state.favoriteSongs), { skipRemote });
-    safeSetLocalStorage("currentFavoriteIndex", String(state.currentFavoriteIndex), { skipRemote });
-    safeSetLocalStorage("favoritePlayMode", state.favoritePlayMode, { skipRemote });
-    safeSetLocalStorage("favoritePlaybackTime", String(state.favoritePlaybackTime || 0), { skipRemote });
+    safeSetLocalStorage("favoriteSongs", JSON.stringify(state.favoriteSongs), { skipRemote, batch: true });
+    safeSetLocalStorage("currentFavoriteIndex", String(state.currentFavoriteIndex), { skipRemote, batch: true });
+    safeSetLocalStorage("favoritePlayMode", state.favoritePlayMode, { skipRemote, batch: true });
+    safeSetLocalStorage("favoritePlaybackTime", String(state.favoritePlaybackTime || 0), { skipRemote, batch: true });
 }
 
 // 调试悬浮窗（移植自 Solara spotlight：可拖拽 / 胶囊折叠 / 彩标日志）
@@ -5474,12 +5610,16 @@ function updateCurrentSongInfo(song, options = {}) {
 }
 
 // 搜索功能 - 修复搜索下拉框显示问题
+// 请求令牌：连搜/实时搜索时，只让"最后一次"的结果落地，旧响应晚到也不会盖掉新结果
+let searchRequestToken = 0;
+
 async function performSearch(isLiveSearch = false) {
     const query = dom.searchInput.value.trim();
     if (!query) {
         showNotification("请输入搜索关键词", "error");
         return;
     }
+    const requestToken = ++searchRequestToken;
 
     if (state.sourceMenuOpen) {
         closeSourceMenu();
@@ -5528,6 +5668,12 @@ async function performSearch(isLiveSearch = false) {
             debugLog(`搜索整体失败: ${error.message}`);
         }
 
+        // 期间用户又搜了别的词：这次的响应作废，别把界面刷回旧结果
+        if (requestToken !== searchRequestToken) {
+            debugLog("搜索请求已被更新的请求取代，丢弃本次结果");
+            return;
+        }
+
         if (state.searchPage === 1) {
             state.searchResults = results;
         } else {
@@ -5558,9 +5704,11 @@ async function performSearch(isLiveSearch = false) {
         hideSearchResults();
         debugLog(`搜索失败: ${error.message}`);
     } finally {
-        // 恢复搜索按钮状态
-        dom.searchBtn.disabled = false;
-        dom.searchBtn.innerHTML = '<i class="fas fa-search"></i><span>搜索</span>';
+        // 恢复搜索按钮状态（只由最新那次请求负责，避免旧请求把"搜索中"提前解开）
+        if (requestToken === searchRequestToken) {
+            dom.searchBtn.disabled = false;
+            dom.searchBtn.innerHTML = '<i class="fas fa-search"></i><span>搜索</span>';
+        }
     }
 }
 
@@ -7770,7 +7918,12 @@ async function playSong(song, options = {}) {
                         if (result && result.url) {
                             audioData = result;
                             debugLog(`[播放] 喜马拉雅API成功`);
+                        } else {
+                            debugLog(`[播放] 喜马拉雅专辑接口未返回地址（keyword=${ximaKeyword}, index=${albumIndex}）`);
                         }
+                    } else {
+                        // 结构不合法时给出可查的线索，避免只看到"无法获取音频"
+                        debugLog(`[播放] 喜马拉雅 url_id 结构不合法（期望"关键词|||序号"）：${String(song.url_id).slice(0, 80)}`);
                     }
                 }
             } else {
@@ -7794,7 +7947,9 @@ async function playSong(song, options = {}) {
                         const data = await API.fetchJson(gdUrl, Math.min(8000, remaining));
                         if (data && data.url) {
                             audioData = data;
-                            state.playbackQuality = q;
+                            // 只记「这一首实际用了什么音质」，不改用户的偏好设置：
+                            // 否则上游抖动一次降级到 128，就被 savePlayerState 永久记成 128。
+                            state.playedQuality = q;
                             debugLog(`[播放] GD Studio成功 (音质: ${q})`);
                             break;
                         }
@@ -7813,7 +7968,7 @@ async function playSong(song, options = {}) {
                 const fallback = await tryPlayFromOtherSources(song, qualitiesToTry, 12000);
                 if (fallback) {
                     audioData = fallback.data;
-                    state.playbackQuality = fallback.quality;
+                    state.playedQuality = fallback.quality;
                     song.playedSource = fallback.source;
                     song.fallback = { ...fallback.matched };
                     if (fallback.matched.pic_url) {
@@ -7880,9 +8035,14 @@ async function playSong(song, options = {}) {
             //（实测同一首歌同一 Range：直连首包 68ms vs 代理 871ms，且代理路径十几秒才出声）。
             // http 直链保持原行为，仍由代理优先（混合内容/证书问题）。
             const directIsHttps = /^https:\/\//i.test(originalAudioUrl);
+            // 白名单外的域名 buildAudioProxyUrl 只会把 http 升级成 https，不保证能通；
+            // 这里额外挂一个"真的走 /proxy"的候选，升级失败时还有路可走。
+            const rawProxyUrl = originalAudioUrl
+                ? `/proxy?target=${encodeURIComponent(originalAudioUrl)}`
+                : "";
             const orderedAudioUrls = directIsHttps
-                ? [preferredAudioUrl, originalAudioUrl, proxiedAudioUrl]
-                : [proxiedAudioUrl, preferredAudioUrl, originalAudioUrl];
+                ? [preferredAudioUrl, originalAudioUrl, proxiedAudioUrl, rawProxyUrl]
+                : [proxiedAudioUrl, preferredAudioUrl, originalAudioUrl, rawProxyUrl];
             candidateAudioUrls = Array.from(new Set(orderedAudioUrls.filter(Boolean)));
 
             if (directIsHttps) {

@@ -4,8 +4,7 @@
  */
 
 const { Router } = require('express');
-
-const MAX_AGE_SECONDS = 48 * 60 * 60; // 48 小时
+const { COOKIE_NAME, createToken } = require('../session');
 
 module.exports = function createLoginRouter(password) {
   const router = Router();
@@ -20,12 +19,13 @@ module.exports = function createLoginRouter(password) {
     }
 
     if (providedPassword === password) {
-      const encoded = Buffer.from(password).toString('base64'); // 等价于 btoa(password)
+      // 只下发「过期时间 + HMAC 签名」，不再把口令本身写进 cookie
+      const { token, maxAge } = createToken(password);
       const isHttps = req.secure || req.headers['x-forwarded-proto'] === 'https';
 
       const cookieParts = [
-        `auth=${encoded}`,
-        `Max-Age=${MAX_AGE_SECONDS}`,
+        `${COOKIE_NAME}=${token}`,
+        `Max-Age=${maxAge}`,
         'Path=/',
         'SameSite=Lax',
         'HttpOnly',

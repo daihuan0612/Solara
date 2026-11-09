@@ -11,6 +11,7 @@
 
 const { Router } = require('express');
 const path = require('path');
+const { isBlockedTarget } = require('../net-guard');
 const cache = require('../cache');
 
 // jpeg-decoder.js 是 ESM 模块（export default），Node.js 需用动态 import()
@@ -318,6 +319,11 @@ module.exports = function createPaletteRouter() {
       target = new URL(imageParam);
     } catch {
       return res.status(400).json({ error: 'Invalid image URL' });
+    }
+
+    // 只抓公网图片：内网/环回/保留地址一律拒绝（否则本机可被当作内网探测跳板）
+    if (isBlockedTarget(target.toString())) {
+      return res.status(403).json({ error: 'target_not_allowed', message: '该目标地址不被允许' });
     }
 
     const cacheKey = `palette:v3:${target.toString()}`;

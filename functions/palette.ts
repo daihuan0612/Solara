@@ -1,4 +1,5 @@
 import decodeJpeg from "./lib/vendor/jpeg-decoder.js";
+import { isBlockedTarget } from "./lib/net-guard";
 
 const MAX_DIMENSION = 96;
 const TARGET_SAMPLE_COUNT = 2400;
@@ -443,6 +444,14 @@ export async function onRequest({ request }: { request: Request }): Promise<Resp
     return new Response(JSON.stringify({ error: "Invalid image URL" }), {
       status: 400,
       headers: createJsonHeaders(400),
+    });
+  }
+
+  // 只抓公网图片：内网/环回/保留地址一律拒绝（否则可被当作内网探测跳板）
+  if (isBlockedTarget(target.toString())) {
+    return new Response(JSON.stringify({ error: "target_not_allowed" }), {
+      status: 403,
+      headers: createJsonHeaders(403),
     });
   }
 

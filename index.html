@@ -718,7 +718,16 @@
     menu.addEventListener("click", (e) => e.stopPropagation());
 
     document.getElementById("acctLogout").addEventListener("click", async () => {
-      await api("/api/logout", { method: "POST" });
+      // 只有服务端确认退出才清本地：否则"界面退出了、cookie 还在"，
+      // 下次打开又是登录态，等于让人误判账号已登出。
+      let { ok } = await api("/api/logout", { method: "POST" });
+      if (!ok) {
+        ({ ok } = await api("/api/logout", { method: "POST" })); // 重试一次（断网/瞬时 5xx）
+      }
+      if (!ok) {
+        alert("退出失败：网络或服务端异常，请稍后再试。");
+        return;
+      }
       try { localStorage.removeItem("solara_authenticated"); } catch (_) {}
       clearLocalUserData();
       window.location.href = "/login";

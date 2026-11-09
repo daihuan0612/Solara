@@ -325,6 +325,8 @@ body.mobile-view .mobile-inline-lyrics__scroll {
     width: 100%;
     flex: 1 1 auto;
     overflow-y: auto;
+    /* flex 子项要能收缩，否则固定高度的歌词面板会把最后几行裁掉 */
+    min-height: 0;
     -webkit-overflow-scrolling: touch;
     padding-right: 6px;
     margin-right: -6px;

@@ -7,16 +7,24 @@ class SimpleCache {
   constructor() {
     /** @type {Map<string, { body: Buffer|string, contentType: string, expires: number }>} */
     this._map = new Map();
+    // 条目上限：长驻服务 + 无上限 = 内存只涨不落。超了就淘汰最早写入的（Map 保持插入顺序）
+    this._maxEntries = 500;
 
     // 每 5 分钟清理一次过期条目，防止内存泄漏
     setInterval(() => this._cleanup(), 5 * 60 * 1000).unref();
   }
 
   set(key, value, ttlSeconds = 300) {
+    if (this._map.has(key)) this._map.delete(key);
     this._map.set(key, {
       ...value,
       expires: Date.now() + ttlSeconds * 1000,
     });
+    while (this._map.size > this._maxEntries) {
+      const oldest = this._map.keys().next();
+      if (oldest.done) break;
+      this._map.delete(oldest.value);
+    }
   }
 
   get(key) {

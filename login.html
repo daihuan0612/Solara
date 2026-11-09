@@ -112,6 +112,15 @@
       transition: all 0.3s ease !important;
     }
 
+    /* 但键盘操作必须看得见焦点：只在 :focus-visible（键盘/读屏触发）时显示轮廓，
+       鼠标点击不出现，视觉保持不变。带上 .login-form input 是为了压过下面的 outline:none。 */
+    *:focus-visible,
+    .login-form input:focus-visible,
+    .login-form button:focus-visible {
+      outline: 2px solid #5bbad5 !important;
+      outline-offset: 2px !important;
+    }
+
     /* 确保背景元素不会在登录时突然变化 */
     .background-stage,
     .background-stage__layer,
@@ -699,6 +708,10 @@
           } catch (_) {}
           localStorage.setItem("solara_authenticated", "true");
           window.location.href = "/";
+          return;
+        }
+        if (response.status === 429) {
+          showNotification("尝试次数过多，请 10 分钟后再试", "error");
           return;
         }
         showNotification("账号或密码错误，请重试", "error");

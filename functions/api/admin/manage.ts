@@ -46,35 +46,39 @@ export async function onRequestPost(context: any) {
 
   if (action === "delete") {
     if (id === admin.uid) return json({ error: "cannot_delete_self" }, 400);
-    // 不允许删除最后一个管理员
-    if (String((target as any).role) === "admin") {
-      const adminCountRow = await env.DB.prepare(
-        "SELECT COUNT(*) AS n FROM users WHERE role = 'admin'"
-      ).first();
-      if (Number((adminCountRow as any).n) <= 1) {
-        return json({ error: "cannot_delete_last_admin" }, 400);
-      }
+    // 用条件删除代替「先 COUNT 再删」：并发下也不会把最后一个管理员删掉
+    const deleted = await env.DB.prepare(
+      "DELETE FROM users WHERE id = ?1 AND (role <> 'admin' OR (SELECT COUNT(*) FROM users WHERE role = 'admin') > 1)"
+    )
+      .bind(id)
+      .run();
+    if (Number((deleted as any).meta?.changes ?? 0) === 0) {
+      const exists = await env.DB.prepare("SELECT id FROM users WHERE id = ?1").bind(id).first();
+      if (!exists) return json({ error: "user_not_found" }, 404);
+      return json({ error: "cannot_delete_last_admin" }, 400);
     }
     await env.DB.batch([
       env.DB.prepare("DELETE FROM playback_store_v2 WHERE user_id = ?1").bind(id),
       env.DB.prepare("DELETE FROM favorites_store_v2 WHERE user_id = ?1").bind(id),
-      env.DB.prepare("DELETE FROM users WHERE id = ?1").bind(id),
     ]);
     return json({ success: true });
   }
 
   if (action === "role") {
     const role = body.role === "admin" ? "admin" : "user";
-    // 防止把最后一个管理员降级
-    if (role === "user" && String((target as any).role) === "admin") {
-      const adminCountRow = await env.DB.prepare(
-        "SELECT COUNT(*) AS n FROM users WHERE role = 'admin'"
-      ).first();
-      if (Number((adminCountRow as any).n) <= 1) {
-        return json({ error: "cannot_demote_last_admin" }, 400);
-      }
+    // 同上：降级操作带条件，防止并发下把最后一个管理员降成普通用户
+    const updated = await env.DB.prepare(
+      "UPDATE users SET role = ?1 WHERE id = ?2 AND (?1 = 'admin' OR role <> 'admin' OR (SELECT COUNT(*) FROM users WHERE role = 'admin') > 1)"
+    )
+      .bind(role, id)
+      .run();
+    if (Number((updated as any).meta?.changes ?? 0) === 0) {
+      // 没改到行有三种原因，别一律报"最后一个管理员"
+      const exists = await env.DB.prepare("SELECT id FROM users WHERE id = ?1").bind(id).first();
+      if (!exists) return json({ error: "user_not_found" }, 404);
+      if (role === "user") return json({ error: "cannot_demote_last_admin" }, 400);
+      // 本来就是 admin：幂等返回成功
     }
-    await env.DB.prepare("UPDATE users SET role = ?1 WHERE id = ?2").bind(role, id).run();
     return json({ success: true });
   }
 

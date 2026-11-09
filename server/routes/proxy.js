@@ -17,6 +17,7 @@
 const { Router } = require('express');
 const { Readable } = require('node:stream');
 const cache = require('../cache');
+const { isBlockedTarget } = require('../net-guard');
 
 const API_BASE_URL = process.env.API_BASE_URL || 'https://music-api.gdstudio.xyz/api.php';
 
@@ -53,6 +54,11 @@ async function proxyAudio(targetUrl, req, res) {
     return res.status(400).send('Only HTTP and HTTPS are allowed');
   }
 
+  // 拒绝内网/环回/保留地址：否则本机就成了打内网端口的跳板
+  if (isBlockedTarget(parsed.toString())) {
+    return res.status(403).json({ error: 'target_not_allowed', message: '该目标地址不被允许' });
+  }
+
   // 按域名设置 Referer / Origin（与 functions/proxy.ts 一致）
   let referer = parsed.origin + '/';
   let origin = parsed.origin;
@@ -82,13 +88,17 @@ async function proxyAudio(targetUrl, req, res) {
   };
   if (req.headers['range']) headers['Range'] = req.headers['range'];
 
-  // 客户端断开（切歌）时立即中止上游连接，防止 Socket 泄漏
+  // 客户端断开（切歌）时立即中止上游连接，防止 Socket 泄漏。
+  // 注意：不能挂在 req 的 'close' 上 —— Node 16+ 在请求体读完（GET 就是一开始）
+  // 就会触发 'close'，那样会在上游刚发请求时就 abort，音频根本出不了流。
+  // 响应侧的 'close' 才是真正的「客户端断开」。
   const controller = new AbortController();
   let finished = false;
   const abortUpstream = () => {
-    if (!finished) controller.abort();
+    if (!finished && !res.writableEnded) controller.abort();
   };
-  req.on('close', abortUpstream);
+  res.on('close', abortUpstream);
+  req.on('aborted', abortUpstream);
 
   try {
     const upstream = await fetch(parsed.toString(), {
@@ -103,7 +113,10 @@ async function proxyAudio(targetUrl, req, res) {
       if (v) res.setHeader(h, v);
     }
     res.setHeader('Access-Control-Allow-Origin', '*');
-    if (!upstream.headers.get('cache-control')) {
+    if (!upstream.ok) {
+      // 音频 4xx/5xx 不缓存：否则一次上游抖动会让这首歌在浏览器/边缘缓存里坏一小时
+      res.setHeader('Cache-Control', 'no-store');
+    } else if (!upstream.headers.get('cache-control')) {
       res.setHeader('Cache-Control', 'public, max-age=3600');
     }
 
@@ -198,9 +211,10 @@ async function proxyApiRequest(reqUrl, req, res) {
   // ── 判断是否缓存（与 Cloudflare / 上游 server 版逻辑一致） ──────────────────
   const isSearch = parsedReq.searchParams.get('types') === 'search';
   const isEmptyResult = responseText.trim() === '[]';
+  const isEmptyBody = responseText.trim() === '';
   const isError = responseText.includes('"error"') || responseText.includes('"status":0');
 
-  let shouldCache = upstream.status === 200 && !isError && !bypassCache;
+  let shouldCache = upstream.status === 200 && !isError && !isEmptyBody && !bypassCache;
   if (isSearch && isEmptyResult) shouldCache = false;
 
   if (shouldCache) {

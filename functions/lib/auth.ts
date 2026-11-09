@@ -164,8 +164,27 @@ export async function getSessionUser(request: Request, secret: string): Promise<
 // AUTH_SECRET 缺省时退回 PASSWORD；两者都无 = 关闭鉴权（开放访问）
 export function getSecret(env: any): string | null {
   if (typeof env.AUTH_SECRET === "string" && env.AUTH_SECRET.length > 0) return env.AUTH_SECRET;
-  if (typeof env.PASSWORD === "string" && env.PASSWORD.length > 0) return env.PASSWORD;
+  if (typeof env.PASSWORD === "string" && env.PASSWORD.length > 0) {
+    if (!warnedPasswordFallback) {
+      warnedPasswordFallback = true;
+      console.warn(
+        "[auth] 未配置 AUTH_SECRET，正用 PASSWORD 作会话签名密钥：拿到会话 cookie 即可离线爆破出口令。建议单独配置一个高熵 AUTH_SECRET。"
+      );
+    }
+    return env.PASSWORD;
+  }
   return null;
+}
+
+let warnedPasswordFallback = false;
+
+// 从未联网的一端生成随机口令（首次播种用，替代固定的 admin888）
+function randomPassword(bytes = 12): string {
+  const alphabet = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const buf = crypto.getRandomValues(new Uint8Array(bytes));
+  let out = "";
+  for (let i = 0; i < buf.length; i++) out += alphabet[buf[i] % alphabet.length];
+  return out;
 }
 
 export function hasD1(env: any): boolean {
@@ -198,10 +217,13 @@ export async function seedAdminIfEmpty(env: any): Promise<void> {
   if (n > 0) return;
 
   const username = (typeof env.ADMIN_USERNAME === "string" && env.ADMIN_USERNAME) || "admin";
-  const password =
+  // 没配显式密码时不再用固定的 admin888（公网部署等于送人一个管理员账号），
+  // 改为随机口令并打到日志里：管理员从 wrangler/pages 日志取一次即可登录并改密。
+  const explicitPassword =
     (typeof env.ADMIN_PASSWORD === "string" && env.ADMIN_PASSWORD) ||
     (typeof env.PASSWORD === "string" && env.PASSWORD) ||
-    "admin888";
+    "";
+  const password = explicitPassword || randomPassword();
   const { salt, hash } = await hashPassword(password);
   const inserted = await env.DB.prepare(
     "INSERT INTO users (username, salt, hash, role) VALUES (?1, ?2, ?3, 'admin')"
@@ -209,6 +231,13 @@ export async function seedAdminIfEmpty(env: any): Promise<void> {
     .bind(username, salt, hash)
     .run();
   const adminId = Number((inserted as any).meta?.last_row_id || 1);
+
+  if (!explicitPassword) {
+    console.warn(
+      `[auth] 未配置 ADMIN_PASSWORD/PASSWORD，已用随机口令创建管理员「${username}」：${password}\n` +
+        "        请立刻登录后台改成自己的密码；配置 ADMIN_PASSWORD 后重新播种可避免每次随机。"
+    );
+  }
 
   // 迁移旧全局数据（playback_store / favorites_store）到管理员名下，只做一次
   const migratedRow = await env.DB.prepare("SELECT v FROM app_meta WHERE k = 'migrated_v2'").first();
